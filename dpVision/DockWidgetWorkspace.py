@@ -1,0 +1,249 @@
+# -*- coding: utf-8 -*-
+
+"""
+Created on Thu Nov 23 13:51:54 2023
+
+@author: pojdulos
+"""
+
+from PyQt5 import uic
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+from PyQt5.QtGui import *
+
+
+class DeselectableTreeView(QTreeView):
+	
+	clickedSomewhere = pyqtSignal(QModelIndex)
+	
+	def __init__(self, parent):
+		super().__init__(parent)
+		
+		
+	def mousePressEvent(self, event):
+		index = self.indexAt(event.pos())
+
+		if (not index.isValid()):
+			self.selectionModel().clear()
+
+		self.clickedSomewhere.emit(index)
+		QTreeView.mousePressEvent(self, event)
+
+
+
+class DockWidgetWorkspace(QDockWidget):
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.setupUi()
+		self.mainWindow = parent
+		
+
+		
+	def setupUi(self):
+		if (self.objectName()==""):
+			self.setObjectName("DockWidgetWorkspace")
+		self.resize(885, 177)
+		self.setMinimumSize(QSize(200, 168))
+		self.setMaximumSize(QSize(524287, 524287))
+		self.setFloating(False)
+		self.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+		
+		self.dockWidgetContents = QWidget()
+		self.dockWidgetContents.setObjectName("dockWidgetContents")
+		
+		self.gridLayout = QGridLayout(self.dockWidgetContents)
+		self.gridLayout.setObjectName("gridLayout")
+		self.gridLayout.setContentsMargins(0, 0, 0, 0)
+		
+		self.treeView = DeselectableTreeView(self.dockWidgetContents)
+		self.treeView.setObjectName("treeView")
+		self.treeView.setMouseTracking(False)
+		self.treeView.setEditTriggers(QAbstractItemView.AllEditTriggers)
+		
+		self.treeView.clickedSomewhere.connect(self.onTreeViewItemClicked)
+
+		model = QStandardItemModel(self.treeView)
+		model.setHorizontalHeaderLabels(['name', '', '', '' ]);
+		self.treeView.setModel(model)
+	
+		#//connect(model, SIGNAL(itemChanged(QStandardItem*)), SLOT(onItemChanged(QStandardItem*)));
+		#//ui.treeView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+	
+		self.treeView.setSelectionBehavior( QAbstractItemView.SelectionBehavior.SelectRows )
+	
+		self.treeView.setContextMenuPolicy( Qt.ContextMenuPolicy.CustomContextMenu )
+		#connect(ui.treeView, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(onCustomContextMenu(const QPoint &)));
+		
+		self.treeView.header().resizeSection(1, 16)
+		self.treeView.header().resizeSection(2, 16)
+		self.treeView.header().resizeSection(3, 24)
+		
+		self.treeView.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch )
+		self.treeView.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents )
+		self.treeView.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents )
+		self.treeView.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents )
+		
+		self.treeView.header().setStretchLastSection(False)
+		
+		self.treeView.setHeaderHidden(True)
+
+
+		self.gridLayout.addWidget(self.treeView, 0, 0, 1, 1)
+	
+		self.setWidget(self.dockWidgetContents)
+	
+		self.setWindowTitle("Workspace")
+	
+		QMetaObject.connectSlotsByName(self)
+
+	@pyqtSlot(QModelIndex)
+	def onTreeViewItemClicked(self, current):
+		print("clicked on the tree")
+		if current.isValid():
+			model = self.treeView.model()
+			clickedItem = model.itemFromIndex(current)
+
+			clickedObject = self.getItemObject(clickedItem)
+
+			if clickedObject is None:
+				return
+
+			col = current.column()
+			if col == 0:
+				# colNameClicked(clickedObject, clickedItem)
+				pass
+			elif col == 1:
+				# colSelfVisibilityClicked(clickedObject, clickedItem)
+				pass
+			elif col == 2:
+				# colKidsVisibilityClicked(clickedObject, clickedItem)
+				pass
+			elif col == 3:
+				# colLockClicked((CModel3D*)clickedObject, clickedItem)
+				pass
+			else:
+				pass
+			
+			self.mainWindow.onCurrentObjectChanged(clickedObject)
+			#emit(currentObjectChanged(clickedObject->id()));
+		else:
+			self.mainWindow.onCurrentObjectChanged(None)
+			#emit(currentObjectChanged(NO_CURRENT_MODEL));
+			pass
+
+	def setItemObject(self, item, obj):
+		#item.setData(QVariant.fromValue(obj.id()), Qt.UserRole + 1)
+		item.setData(obj, Qt.UserRole)
+		pass
+
+	def getItemObject(self, item):
+		return item.data(Qt.UserRole)
+
+	def addTreeItem(self,root,obj):
+		item = QStandardItem(obj.getLabel())
+		item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
+		item.setCheckable(True)
+		item.setCheckState(Qt.Unchecked)
+		self.setItemObject(item, obj)
+
+		sV = QStandardItem('sV')
+		sV.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+		sV.setToolTip("change own visibility")
+		self.setItemObject(sV, obj)
+
+		kV = QStandardItem('kV')
+		kV.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+		kV.setToolTip("change kids visibility")
+		self.setItemObject(kV, obj)
+
+		lK = QStandardItem('Lck')
+		lK.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+		lK.setToolTip("Lock / Unlock")
+		self.setItemObject(lK, obj)
+		
+		items = [item, sV, kV, lK]
+		root.appendRow(items)
+		for child in obj.children():
+			self.addTreeItem(item, child)
+		
+		return item
+		
+	def rebuildTree(self):
+		self.treeView.blockSignals(True)
+		self.treeView.reset()
+
+		model = self.treeView.model()
+
+		if model.hasChildren():
+			model.removeRows(0, model.rowCount())
+	
+		for obj in self.mainWindow.workspace.m_data:
+			self.addTreeItem(model.invisibleRootItem(), obj)
+	
+		self.treeView.blockSignals(False)
+
+	def addNewItem(self,obj):
+		self.treeView.blockSignals(True)
+		model = self.treeView.model()
+
+		if obj in self.mainWindow.workspace.m_data:
+			self.addTreeItem(model.invisibleRootItem(), obj)
+		self.treeView.blockSignals(False)
+		self.mainWindow.update()
+
+
+
+	def findWorkspaceTreeModelIndex(self, obj):
+		model = self.treeView.model()
+		items = model.match(
+			model.index(0, 0),
+			Qt.UserRole,
+			obj,
+			1, # look *
+			Qt.MatchRecursive)
+
+		if len(items):
+			return items[0]
+
+		return None
+
+	def removeItem(self, obj):
+		self.treeView.blockSignals(True)
+
+		index = self.findWorkspaceTreeModelIndex(obj)
+
+		if not index is None and index.isValid():
+			model = self.treeView.model()
+			model.removeRow(index.row(), index.parent())
+
+		self.treeView.blockSignals(False)
+
+	def getSelectedObjects(self):
+		result = []
+
+		indexes = self.treeView.selectionModel().selectedIndexes()
+		
+		for idx in indexes:
+			if not idx.column(): #tylko zerowa kolumna
+				model = self.treeView.model()
+				item = model.itemFromIndex(idx)
+				obj = self.getItemObject(item)
+				parent = obj.getParent()
+
+				if parent is None:
+					result.append(obj)
+				else:
+					while not parent is None:
+						if parent in result:
+							break
+
+						parent = parent.getParent()
+
+						if parent is None:
+							result.append(obj)
+							break
+
+		return result
+
+
+

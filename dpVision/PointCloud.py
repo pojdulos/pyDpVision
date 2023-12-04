@@ -21,9 +21,9 @@ class PointCloud(Object):
 		self.m_vertices = np.empty((0, 3), dtype=np.float32)
 		self.m_vnormals = np.empty((0, 3), dtype=np.float32)
 		self.m_vcolors = np.empty((0, 4), dtype=np.ubyte)
-		self.vbo = None
-		self.nvbo = None
-		self.cvbo = None
+		self.v_vbo = None
+		self.n_vbo = None
+		self.c_vbo = None
 		
 	def addVertex(self, x, y, z):
 		self.m_vertices = np.vstack([self.m_vertices, Vertex(x, y, z)])
@@ -78,10 +78,10 @@ class PointCloud(Object):
 		glPointSize( 1 )
 		
 		# Tworzenie VBO
-		if self.vbo is None:
-			self.vbo = glGenBuffers(1)
+		if self.v_vbo is None:
+			self.v_vbo = glGenBuffers(1)
 			
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+		glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
 		glBufferData(GL_ARRAY_BUFFER, self.m_vertices, GL_STATIC_DRAW)
 		
 		# Konfiguracja atrybutów wierzchołka

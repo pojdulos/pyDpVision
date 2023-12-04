@@ -40,6 +40,18 @@ class BaseObject(QObject):
 	def getParent(self):
 		return self.m_parent
 
+	def setSelfVisibility(self, b):
+		self.m_showSelf = b
+
+	def getSelfVisibility(self):
+		return self.m_showSelf
+
+	def setKidsVisibility(self, b):
+		self.m_showKids = b
+
+	def getKidsVisibility(self):
+		return self.m_showKids
+
 	def hasCategory(self, cat):
 		if not isinstance(cat, type):
 			raise TypeError("Argument 'cat' must be a class type")

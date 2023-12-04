@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
-from dpVision.Globals import Globals
-
-myGlobals = Globals()
+from dpVision.Globals import AP
 
 class PluginInterface(ABC):
     def __init__(self):
@@ -22,26 +20,26 @@ class PluginInterface(ABC):
     def add_plugins_menu(self):
         # Załóżmy, że nazwa istniejącego menu to "NadrzędneMenu"
         nadrzedne_menu = None
-        for action in myGlobals.mainWin.menuBar.actions():
+        for action in AP.mainWin.menuBar.actions():
             if action.text() == "Plugins":
                 nadrzedne_menu = action.menu()
                 break
         
         if not nadrzedne_menu:
             # Jeśli nie znaleziono, możesz utworzyć nowe menu nadrzędne
-            nadrzedne_menu = myGlobals.mainWin.menuBar.addMenu("Plugins")
+            nadrzedne_menu = AP.mainWin.menuBar.addMenu("Plugins")
 
         return nadrzedne_menu
 
     def remove_plugins_menu(self):
         # Znajdź "NadrzędneMenu"
         nadrzedne_menu = None
-        for action in myGlobals.mainWin.menuBar.actions():
+        for action in AP.mainWin.menuBar.actions():
             if action.text() == "Plugins":
                 nadrzedne_menu = action.menu()
                 break
         
         if nadrzedne_menu and not nadrzedne_menu.actions():
             # Jeśli "NadrzędneMenu" jest puste, usuń je z paska menu
-            myGlobals.mainWin.menuBar.removeAction(nadrzedne_menu.menuAction())
+            AP.mainWin.menuBar.removeAction(nadrzedne_menu.menuAction())
     

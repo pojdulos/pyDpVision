@@ -171,35 +171,35 @@ class GLViewer(QOpenGLWidget):
 		yAngle = dx * 0.4
 		# zAngle = 0.0
 
-		invrot = self.transform.invertedRotationMatrix()
+		invrot = self.transform.invertedMatrix()
 
 		obj = self.mainWindow.workspace.m_currentObject
 		if obj is None:
-			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0]))
-			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0]))
+			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0, 0.0]))
+			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0, 0.0]))
 			self.transform.rotate( yAngle, yAxis[0], yAxis[1], yAxis[2] )
 			self.transform.rotate( xAngle, xAxis[0], xAxis[1], xAxis[2] )
 			self.update()
 			self.transformChanged.emit(self)
 		elif obj.__class__.__name__ == 'Transform':
-			invrot = np.dot(obj.invertedRotationMatrix(),invrot)
-			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0]))
-			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0]))
+			invrot = np.dot(obj.invertedMatrix(),invrot)
+			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0, 0.0]))
+			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0, 0.0]))
 			obj.rotate( yAngle, yAxis[0], yAxis[1], yAxis[2] )
 			obj.rotate( xAngle, xAxis[0], xAxis[1], xAxis[2] )
 			self.update()
 			self.transformChanged.emit(obj)
 
 	def translate(self,dx,dy,dz=0.0):
-		invrot = self.transform.invertedRotationMatrix()
+		invrot = self.transform.invertedMatrix()
 		obj = self.mainWindow.workspace.m_currentObject
 		if obj is None:
-			move = np.dot(invrot, np.array([dx, dy, dz ]))
+			move = np.dot(invrot, np.array([dx, dy, dz, 0.0 ]))
 			self.transform.translate(move[0],move[1],move[2])
 			self.transformChanged.emit(self)
 		elif obj.__class__.__name__ == 'Transform':	
-			invrot = np.dot(obj.invertedRotationMatrix(), invrot)
-			move = np.dot(invrot, np.array([dx, dy, dz ]))
+			invrot = np.dot(obj.invertedMatrix(), invrot)
+			move = np.dot(invrot, np.array([dx, dy, dz, 0.0 ]))
 			obj.translate(move[0],move[1],move[2])
 			self.transformChanged.emit(obj)
 		self.update()

@@ -1,18 +1,22 @@
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import Qt, QObject, pyqtSlot
+from PyQt5.QtCore import Qt, QObject, QFileInfo, pyqtSlot
 from PyQt5 import uic
 
-from dpVision.Globals import Globals
+from dpVision.Globals import AP
 
-from .DockWidgetWorkspace import DockWidgetWorkspace
-from .DockWidgetProperties import DockWidgetProperties
-from .DockWidgetPluginList import DockWidgetPluginList
-from .DockWidgetPluginPanel import DockWidgetPluginPanel
-from .MdiChild import MdiChild
-from .Workspace import Workspace
-from .ParserOBJ import ParserOBJ
-from .GLViewer import GLViewer
+from dpVision.DockWidgetWorkspace import DockWidgetWorkspace
+from dpVision.DockWidgetProperties import DockWidgetProperties
+from dpVision.DockWidgetPluginList import DockWidgetPluginList
+from dpVision.DockWidgetPluginPanel import DockWidgetPluginPanel
+from dpVision.MdiChild import MdiChild
+from dpVision.Workspace import Workspace
+from dpVision.Parser import Parser
+from dpVision.GLViewer import GLViewer
 from dpVision.Transform import Transform
+from dpVision.ProgressIndicator import ProgressIndicator
+
+
+maxRecentFiles = 10
 
 class MainWindow(QMainWindow):
 	def __init__(self):
@@ -52,6 +56,17 @@ class MainWindow(QMainWindow):
 
 		self.dock["workspace"].rebuildTree()
 
+		self.progressIndicator = ProgressIndicator(self.statusBar)
+		self.progressIndicator.hide()
+		self.statusBar.addPermanentWidget(self.progressIndicator, 0)
+
+
+		#self.recentFilesMenu = None
+		#self.openAction = None
+		self.recentFileActionList = []
+		self.createRecentActions()
+		self.createRecentMenus()
+
 		self.mdiArea.subWindowActivated.connect(self.onSubWindowActivated)
 		# self.mdiArea = self.findChild(QMdiArea, 'mdiArea')
 
@@ -75,6 +90,50 @@ class MainWindow(QMainWindow):
 	def buttonClicked(self):
 		QMessageBox.information(self, 'Komunikat', 'Kliknięto przycisk!')
 
+	def createRecentActions(self):
+		for i in range(maxRecentFiles):
+			action = QAction(self)
+			action.setVisible(False)
+			action.triggered.connect(self.openRecent)
+			self.recentFileActionList.append( action )
+	
+
+	def createRecentMenus(self):
+		for i in range(maxRecentFiles):
+			self.menuRecentFiles.addAction(self.recentFileActionList[i])
+		self.updateRecentActionList()
+
+
+	def adjustForCurrentFile(self, filePath):
+		currentFilePath = filePath
+		self.setWindowFilePath(currentFilePath)
+
+		recentFilePaths = AP.settings.value("recentFiles",[])
+		recentFilePaths = [i for i in recentFilePaths if i != filePath]
+		recentFilePaths.insert(0, filePath)
+		while len(recentFilePaths) > maxRecentFiles:
+			recentFilePaths.pop()
+		AP.settings.setValue("recentFiles", recentFilePaths)
+
+		self.updateRecentActionList()
+
+
+	def	updateRecentActionList(self):
+		recentFilePaths = AP.settings.value("recentFiles",[])
+
+		itEnd = min( len(recentFilePaths), maxRecentFiles )
+
+		for i in range(itEnd):
+			strippedName = QFileInfo(recentFilePaths[i]).fileName()
+			self.recentFileActionList[i].setText(strippedName)
+			self.recentFileActionList[i].setData(recentFilePaths[i])
+			self.recentFileActionList[i].setVisible(True)
+
+
+		for i in range(itEnd, maxRecentFiles):
+			self.recentFileActionList[i].setVisible(False)
+
+
 	@pyqtSlot(QMdiSubWindow)
 	def onSubWindowActivated(self, subWindow):
 		if not subWindow is None:
@@ -89,11 +148,6 @@ class MainWindow(QMainWindow):
 	def createGLViewer(self):
 		# MdiChild.create(MdiChild::Type::GL, ui.mdiArea, MdiChild::Show::Normal);
 		MdiChild.create(self, self.mdiArea)
-
-		myGlobals = Globals()
-		print(myGlobals.mainApp)
-		print(myGlobals.mainWin)
-
 
 	def currentGLViewer(self):
 		win = self.mdiArea.activeSubWindow()
@@ -152,17 +206,40 @@ class MainWindow(QMainWindow):
 
 	@pyqtSlot()
 	def fileOpen(self):
-		#fileName = QFileDialog.getOpenFileName( this, tr("Open File"), AP::mainApp().settings->value("recentFile").toString(), CFileConnector::getLoadExts() );
-		fileName = QFileDialog.getOpenFileName( self, "Open File", "", "*.obj" )
+		recentFile = AP.settings.value("recentFile","")
+
+		exts = Parser.getLoadExts()
+		fileName = QFileDialog.getOpenFileName( self, "Open File", recentFile, exts )
 		
 		if fileName[0] != "":
-			obj = ParserOBJ.load(fileName[0])
+			obj = Parser.load(fileName[0])
 			if not obj is None:
 				tra = Transform()
 				if not tra is None:
 					tra.addChild(obj)
 					self.workspace.m_data.append(tra)
 					self.dock["workspace"].addNewItem(tra)
+					self.adjustForCurrentFile(fileName[0])
+					AP.settings.setValue("recentFile", fileName[0])
+		AP.updateAllViews()
+
+
+	@pyqtSlot()
+	def openRecent(self):
+		action = self.sender()
+		if action:
+			fileName = action.data()
+			obj = Parser.load(fileName)
+			if not obj is None:
+				tra = Transform()
+				if not tra is None:
+					tra.addChild(obj)
+					self.workspace.m_data.append(tra)
+					self.dock["workspace"].addNewItem(tra)
+					self.adjustForCurrentFile(fileName)
+					AP.settings.setValue("recentFile", fileName)
+		AP.updateAllViews()
+
 
 	def stereoscopyOff(self):
 		pass

@@ -40,7 +40,11 @@ class Transform(Object):
 			[self.matrix[1,0], self.matrix[1,1], self.matrix[1,2], self.matrix[1,3]],
 			[self.matrix[2,0], self.matrix[2,1], self.matrix[2,2], self.matrix[2,3]],
 			[self.matrix[3,0], self.matrix[3,1], self.matrix[3,2], self.matrix[3,3]]] )
-		
+
+	def invertedMatrix(self):
+		return np.linalg.inv(self.toNumPy())
+
+
 	def rotationMatrix(self):
 		return np.array( [
 			[self.matrix[0,0], self.matrix[0,1], self.matrix[0,2]],

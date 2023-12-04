@@ -3,6 +3,7 @@ Mesh_vertex_shader_code = """
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec4 aColor;
 layout (location = 2) in vec3 aNormal;
+layout (location = 3) in vec2 aTexCoord; // Dodane współrzędne tekstury
 
 uniform mat4 model;
 uniform mat4 view;
@@ -10,9 +11,11 @@ uniform mat4 projection;
 
 uniform bool useVColors;
 uniform bool useVNormals;
+uniform bool useTexture;
 
 out vec3 vertexNormal;
 out vec4 vertexColor;
+out vec2 TexCoord; // Wysyłanie współrzędnych tekstury do fragment shadera
 
 void main()
 {
@@ -22,7 +25,6 @@ void main()
 	{
 		mat3 normalMatrix = transpose(inverse(mat3(model * view)));
 		vertexNormal = normalMatrix * aNormal;
-		//vertexNormal = aNormal;
 	}
 	else
 	{
@@ -37,6 +39,11 @@ void main()
 	{
 		vertexColor = vec4(0.6,0.6,0.6,1.0);
 	}
+
+    if (useTexture)
+    {
+		TexCoord = aTexCoord; // Przekazanie współrzędnych tekstury
+	}
 }
 """
 
@@ -44,46 +51,46 @@ Mesh_fragment_shader_code = """
 #version 330 core
 in vec3 vertexNormal;
 in vec4 vertexColor;
+in vec2 TexCoord;  // Współrzędne tekstury dodane do wejść
 in vec3 FragPos; // Pozycja fragmentu/prymitywu w przestrzeni świata
 
-//uniform vec3 lightPos; // Pozycja światła
-//uniform vec3 viewPos; // Pozycja obserwatora/kamery
-//uniform vec3 lightColor; // Kolor światła
-//uniform float ambientStrength; // Siła światła otoczenia
-//uniform float specularStrength; // Siła światła spekularnego
-//uniform float shininess; // Połysk (shininess)
+uniform sampler2D texture1;  // Sampler tekstury
+uniform bool useTexture;
 
 out vec4 FragColor;
 
 void main()
 {
-	vec3 lightPos = vec3(0,100,600); // Pozycja światła
-	vec3 viewPos = vec3(0,0,200); // Pozycja obserwatora/kamery
-	vec3 lightColor = vec3(1.0, 1.0, 1.0); // biały światło
-	float ambientStrength = 0.6;
-	float specularStrength = 0.0; // Siła światła spekularnego
-	float shininess = 0.0; // Połysk (shininess)
+    vec3 lightPos = vec3(0, 100, 600);  // Pozycja światła
+    vec3 viewPos = vec3(0, 0, 200);  // Pozycja obserwatora/kamery
+    vec3 lightColor = vec3(1.0, 1.0, 1.0);  // Kolor światła
+    float ambientStrength = 0.6;
+    float specularStrength = 0.5;  // Siła światła spekularnego
+    float shininess = 32.0;  // Połysk (shininess)
 
-	// Normalizacja wektora normalnego
+    // Obliczenia oświetlenia (tutaj możesz dodać własną logikę)
+
     vec3 norm = normalize(vertexNormal);
-
-    // Obliczenie światła otoczenia
-    vec3 ambient = ambientStrength * lightColor;
-
-    // Obliczenie światła dyfuzyjnego
-    vec3 lightDir = normalize(lightPos - FragPos);
+    vec3 lightDir = normalize(lightPos - FragPos);  // Poprawione obliczanie kierunku światła
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * lightColor;
 
-    // Obliczenie światła spekularnego
     vec3 viewDir = normalize(viewPos - FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
     vec3 specular = specularStrength * spec * lightColor;
 
-    // Sumowanie wszystkich składników oświetlenia
-    vec3 result = (ambient + diffuse + specular) * vertexColor.rgb;
-    FragColor = vec4(result, 1.0);
+    vec3 result = (ambientStrength * lightColor + diffuse + specular) * vertexColor.rgb;
+
+    if (useTexture)
+    {
+		vec4 texColor = texture(texture1, TexCoord);  // Odczytanie koloru z tekstury
+		FragColor = vec4(result, 1.0) * texColor;  // Mieszanie koloru tekstury z oświetleniem
+	}
+    else
+    {
+		FragColor = vec4(result, 1.0);
+	}
 }
 """
 
@@ -94,10 +101,13 @@ def compile_shader(source, shader_type):
     glShaderSource(shader, source)
     glCompileShader(shader)
 
-    # Sprawdzenie, czy shader został skompilowany poprawnie
-    if not glGetShaderiv(shader, GL_COMPILE_STATUS):
-        error = glGetShaderInfoLog(shader).decode()
-        print(f"Shader compilation error: {error}")
+    # Sprawdzenie, czy kompilacja się powiodła
+    success = glGetShaderiv(shader, GL_COMPILE_STATUS)
+    if not success:
+        # Pobranie i wyświetlenie logu błędu
+        info_log = glGetShaderInfoLog(shader)
+        print(f"ERROR::SHADER::COMPILATION_FAILED\n{info_log}")
         glDeleteShader(shader)
         raise Exception("Shader compilation failed")
+
     return shader

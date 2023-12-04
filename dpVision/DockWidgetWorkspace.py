@@ -98,7 +98,7 @@ class DockWidgetWorkspace(QDockWidget):
 
 	@pyqtSlot(QModelIndex)
 	def onTreeViewItemClicked(self, current):
-		print("clicked on the tree")
+		# print("clicked on the tree")
 		if current.isValid():
 			model = self.treeView.model()
 			clickedItem = model.itemFromIndex(current)

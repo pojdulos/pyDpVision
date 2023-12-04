@@ -8,7 +8,7 @@ Created on Sat Nov 25 20:40:37 2023
 #from abc import ABC, abstractmethod
 #from PyQt5 import uic
 from PyQt5.QtCore import QRegularExpression
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
+from PyQt5.QtWidgets import * #QWidget, QVBoxLayout, QSizePolicy
 
 class PropWidget(QWidget):
 	def __init__(self, parent=None):
@@ -21,6 +21,7 @@ class PropWidget(QWidget):
 	@staticmethod
 	def build(content, parent = 0):
 		widget = PropWidget(parent)
+		#widget = QStackedWidget(parent)
 		layout = QVBoxLayout(widget)
 		# QFormLayout* layout = new QFormLayout(widget);
 

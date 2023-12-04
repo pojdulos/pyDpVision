@@ -14,4 +14,9 @@ class Annotation(BaseObject):
 		self.m_color = QColor(0,0,255,102)
 		self.m_selcolor = QColor(255,0,0,102)
 	
+	def getColor(self):
+		return self.m_color
+	
+	def getSelColor(self):
+		return self.m_selcolor
 	

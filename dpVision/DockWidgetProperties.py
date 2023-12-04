@@ -13,6 +13,11 @@ from dpVision.PropViewer import PropViewer
 from dpVision.PropBaseObject import PropBaseObject
 from dpVision.PropMesh import PropMesh
 from dpVision.PropTransform import PropTransform
+from dpVision.PropAnnotation import PropAnnotation
+from dpVision.PropAnnotationPoint import PropAnnotationPoint
+from dpVision.PropAnnotationSphere import PropAnnotationSphere
+from dpVision.Annotation import Annotation
+from dpVision.Object import Object
 
 class DockWidgetProperties(QDockWidget):
 	def __init__(self, parent):
@@ -32,25 +37,32 @@ class DockWidgetProperties(QDockWidget):
 	
 		self.m_widget = PropWidget()
 
-		self.addWidgetToScrollArea(self.m_widget);
+		self.addWidgetToScrollArea(self.m_widget)
 	
 	@pyqtSlot(QObject)	
 	def selectionChanged( self, obj ):
-		if obj.__class__.__name__ == 'GLViewer':
-			print("GLViewer selected")
+		name = obj.__class__.__name__
+		print(name+" selected")
+		
+		if name == 'GLViewer':
 			self.m_widget = PropViewer.create(obj, self)
-		elif obj.__class__.__name__ == 'Transform':
-			print("Transform selected")
-			self.m_widget = PropTransform.create(obj, self)
-		elif obj.__class__.__name__ == 'Mesh':
-			print("Mesh selected")
-			self.m_widget = PropMesh.create(obj, self)
-		elif obj.__class__.__name__ == 'BaseObject' or obj.__class__.__name__ == 'Object':
-			print("BaseObject selected")
-			self.m_widget = PropBaseObject.create(obj, self)
+		elif obj.hasCategory(Object):
+			if name == 'Transform':
+				self.m_widget = PropTransform.create(obj, self)
+			elif name == 'Mesh':
+				self.m_widget = PropMesh.create(obj, self)
+			else:
+				self.m_widget = PropBaseObject.create(obj, self)
+		elif obj.hasCategory(Annotation):
+			if name == 'AnnotationPoint':
+				self.m_widget = PropAnnotationPoint.create(obj, self)
+			elif name == 'AnnotationSphere':
+				self.m_widget = PropAnnotationSphere.create(obj, self)
+			else:
+				self.m_widget = PropAnnotation.create(obj, self)
 		else:
-			print("Any object selected")
-			self.m_widget = None
+			self.m_widget = PropWidget()
+
 		self.addWidgetToScrollArea(self.m_widget)
 		self.updateProperties()
 

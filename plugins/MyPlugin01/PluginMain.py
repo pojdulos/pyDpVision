@@ -6,14 +6,11 @@ Created on Wed Nov 22 11:08:03 2023
 """
 
 from PyQt5.QtWidgets import QMenu, QPushButton, QMessageBox, QMenuBar, QAction
-from dpVision.Globals import Globals 
+from dpVision.Globals import AP 
 from dpVision import PluginInterface
-
-myGlobals = Globals()
 
 class Plugin01(PluginInterface):
     def on_load(self):
-        self.mainWindow = myGlobals.mainWin
         print( "plugin "+self.plugin_name+" loaded.")
         
         # self.mainWindow.helpAbout()
@@ -26,18 +23,18 @@ class Plugin01(PluginInterface):
     def add_menu(self):
         nadrzedne_menu = self.add_plugins_menu()
 
-        self.menu = QMenu("Plugin01", self.mainWindow)
+        self.menu = QMenu("Plugin01", AP.mainWin)
         
         nadrzedne_menu.addMenu(self.menu)
         
-        action = QAction("Akcja1", self.mainWindow)
+        action = QAction("Akcja1", AP.mainWin)
         self.menu.addAction(action)
         action.triggered.connect(self.menu_action)
         
     def remove_menu(self):
         # Znajdź "NadrzędneMenu"
         nadrzedne_menu = None
-        for action in self.mainWindow.menuBar.actions():
+        for action in AP.mainWin.menuBar.actions():
             if action.text() == "Plugins":
                 nadrzedne_menu = action.menu()
                 break
@@ -58,7 +55,7 @@ class Plugin01(PluginInterface):
 
     def menu_action(self):
         print("Akcja1 została aktywowana")
-        MainApplication.instance().unload_plugin(self)
+        AP.mainApp.unload_plugin(self)
         #self.remove_menu()
         
         

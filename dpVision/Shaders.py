@@ -3,7 +3,7 @@ Mesh_vertex_shader_code = """
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec4 aColor;
 layout (location = 2) in vec3 aNormal;
-layout (location = 3) in vec2 aTexCoord; // Dodane współrzędne tekstury
+layout (location = 3) in vec2 aTexCoord;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -13,7 +13,10 @@ uniform bool useVColors;
 uniform bool useVNormals;
 uniform bool useTexture;
 
-out vec3 vertexNormal;
+uniform vec4 myColor;
+
+out vec3 smoothVertexNormal;
+flat out vec3 flatVertexNormal;
 out vec4 vertexColor;
 out vec2 TexCoord; // Wysyłanie współrzędnych tekstury do fragment shadera
 
@@ -21,14 +24,14 @@ void main()
 {
 	gl_Position = projection * view * model * vec4(aPos, 1.0);
 
+	mat3 normalMatrix = transpose(inverse(mat3(model * view)));
 	if (useVNormals)
 	{
-		mat3 normalMatrix = transpose(inverse(mat3(model * view)));
-		vertexNormal = normalMatrix * aNormal;
+		smoothVertexNormal = flatVertexNormal = normalMatrix * aNormal;
 	}
 	else
 	{
-		vertexNormal = vec3(0,0,1);
+		smoothVertexNormal = flatVertexNormal = normalMatrix * vec3(0,0,1);
 	}
 	
 	if (useVColors)
@@ -37,7 +40,7 @@ void main()
 	}
 	else
 	{
-		vertexColor = vec4(0.6,0.6,0.6,1.0);
+		vertexColor = myColor;
 	}
 
     if (useTexture)
@@ -49,13 +52,15 @@ void main()
 
 Mesh_fragment_shader_code = """
 #version 330 core
-in vec3 vertexNormal;
+in vec3 smoothVertexNormal;
+flat in vec3 flatVertexNormal;
 in vec4 vertexColor;
 in vec2 TexCoord;  // Współrzędne tekstury dodane do wejść
 in vec3 FragPos; // Pozycja fragmentu/prymitywu w przestrzeni świata
 
 uniform sampler2D texture1;  // Sampler tekstury
 uniform bool useTexture;
+uniform bool useFlatShading;
 
 out vec4 FragColor;
 
@@ -69,8 +74,8 @@ void main()
     float shininess = 32.0;  // Połysk (shininess)
 
     // Obliczenia oświetlenia (tutaj możesz dodać własną logikę)
-
-    vec3 norm = normalize(vertexNormal);
+   	vec3 norm = normalize( useFlatShading ? flatVertexNormal : smoothVertexNormal );
+    
     vec3 lightDir = normalize(lightPos - FragPos);  // Poprawione obliczanie kierunku światła
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * lightColor;

@@ -13,10 +13,19 @@ class Annotation(BaseObject):
 		super( Annotation, self ).__init__( parent )
 		self.m_color = QColor(0,0,255,102)
 		self.m_selcolor = QColor(255,0,0,102)
-	
+
+	def setColor(self, txt=None, r=255, g=255, b=255, a=255):
+		if not hex is None:
+			self.m_color = QColor(txt)
+		else:
+			self.m_color = QColor(r, g, b, a)
+
 	def getColor(self):
 		return self.m_color
 	
+	def setSelColor(self, r, g, b, a=255):
+		self.m_selcolor = QColor(r, g, b, a)
+
 	def getSelColor(self):
 		return self.m_selcolor
 	

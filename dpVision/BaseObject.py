@@ -58,9 +58,13 @@ class BaseObject(QObject):
 		return issubclass(type(self), cat)
 
 	def hasType(self, typ):
-		if not isinstance(typ, type):
+		if isinstance(typ, str):
+			return self.__class__.__name__ == typ
+		elif isinstance(typ, type):
+			return type(self) is typ
+		else:
 			raise TypeError("Argument 'typ' must be a class type")
-		return type(self) is typ
+		
 
 	def children(self):
 		return []

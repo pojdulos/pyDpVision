@@ -41,40 +41,30 @@ class ParserOBJ(Parser):
 				elif split[0][0] == '#':
 					continue
 				elif split[0] == "newmtl":
-					if '' in mesh.materials:
-						del mesh.materials['']
+					# if '' in mesh.materials:
+					# 	del mesh.materials['']
 					currentmtl = split[1]
-					mesh.materials[currentmtl] = {}
-					pass
+					mesh.materials[currentmtl] = Mesh.Material()
 				elif split[0] == "Ka":
 					r, g, b = map(float, split[1:4])
-					mesh.materials[currentmtl]['Ka'] = [r, g, b]
-					pass
+					mesh.materials[currentmtl].ambient = [r, g, b]
 				elif split[0] == "Kd":
 					r, g, b = map(float, split[1:4])
-					mesh.materials[currentmtl]['Kd'] = [r, g, b]
-					pass
+					mesh.materials[currentmtl].diffuse = [r, g, b]
 				elif split[0] == "Ks":
 					r, g, b = map(float, split[1:4])
-					mesh.materials[currentmtl]['Ks'] = [r, g, b]
-					pass
+					mesh.materials[currentmtl].specular = [r, g, b]
 				elif split[0] == "d":
-					mesh.materials[currentmtl]['d'] = float(split[1])
-					pass
+					mesh.materials[currentmtl].alpha = float(split[1])
 				elif split[0] == "Tr":
-					mesh.materials[currentmtl]['d'] = 1 - float(split[1])
-					pass
+					mesh.materials[currentmtl].alpha = 1 - float(split[1])
 				elif split[0] == "illum":
-					mesh.materials[currentmtl]['illum'] = float(split[1])
-					pass
+					mesh.materials[currentmtl].shinines = float(split[1])
 				elif split[0] == "map_Ka":
-					mesh.materials[currentmtl]['map_Ka'] = split[1]
 					pass
 				elif split[0] == "map_Kd":
-					mesh.materials[currentmtl]['map_Kd'] = split[1]
-					pass
+					mesh.materials[currentmtl].dTexFileName = split[1]
 				elif split[0] == "map_Ks":
-					mesh.materials[currentmtl]['map_Ks'] = split[1]
 					pass
 				else:
 					print(split)
@@ -100,10 +90,8 @@ class ParserOBJ(Parser):
 		
 		vces = []
 		vnorms = []
-		fces = []
 		vcols = []
 		tcrds = []
-		tidxs = []
 		f0 = []
 		f1 = []
 		f2 = []
@@ -170,13 +158,14 @@ class ParserOBJ(Parser):
 
 			elif split[0] == 'usemtl':
 				if split[1] in mesh.materials:
-					imgFile = mesh.materials[split[1]]['map_Ka']
+					mesh.currentMaterial = split[1]
+					imgFile = mesh.materials[mesh.currentMaterial].dTexFileName
 					if not os.path.exists(imgFile):
 						imgFile = os.path.dirname(path)+'/'+imgFile
 						if not os.path.exists(imgFile):
 							print('Plik tekstury nie istnieje')
 							continue
-					mesh.texture = QOpenGLTexture(QImage(imgFile).mirrored())
+					mesh.materials[mesh.currentMaterial].dTexture = QOpenGLTexture(QImage(imgFile).mirrored())
 
 			else:
 				print(split)

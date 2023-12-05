@@ -32,12 +32,12 @@ class PropBaseObject(PropWidget):
 	#@pyqtSlot(bool)
 	def changedKidsVisibility(self, b):
 		self.obj.setKidsVisibility(b)
-		AP.updateAll()
+		AP.updateAllViews()
 
 	#@pyqtSlot(int)
 	def changedVisibility(self, b):
 		self.obj.setSelfVisibility(b)
-		AP.updateAll()
+		AP.updateAllViews()
 
 	def changedSelection(self, i):
 		pass

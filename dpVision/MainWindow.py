@@ -277,20 +277,47 @@ class MainWindow(QMainWindow):
 	def stereoscopyColInterlaced(self):
 		pass
 
-	def renderAsFaces(self):
-		pass
+	def mesh_renderAsFaces(self):
+		sel = self.dock["workspace"].getSelectedObjects()
+		if len(sel):
+			for obj in sel:
+				if obj.hasType('Mesh'):
+					obj.gl_renderAs = 2
+					AP.updateAllViews()
 
-	def renderAsEdges(self):
-		pass
+	def mesh_renderAsEdges(self):
+		sel = self.dock["workspace"].getSelectedObjects()
+		if len(sel):
+			for obj in sel:
+				if obj.hasType('Mesh'):
+					obj.gl_renderAs = 1
+					AP.updateAllViews()
 
-	def renderAsVertices(self):
-		pass
+	def mesh_renderAsVertices(self):
+		sel = self.dock["workspace"].getSelectedObjects()
+		if len(sel):
+			for obj in sel:
+				if obj.hasType('Mesh'):
+					obj.gl_renderAs = 0
+					AP.updateAllViews()
 
-	def textureOnOff(self):
-		pass
+	@pyqtSlot(bool)
+	def textureOnOff(self, b):
+		sel = self.dock["workspace"].getSelectedObjects()
+		if len(sel):
+			for obj in sel:
+				if obj.hasType('Mesh'):
+					obj.b_renderTexture = b
+					AP.updateAllViews()
 
-	def smoothingOnOff(self):
-		pass
+	def mesh_renderSmooth(self, b):
+		sel = self.dock["workspace"].getSelectedObjects()
+		if len(sel):
+			for obj in sel:
+				if obj.hasType('Mesh'):
+					print('Smoothing set to ', b)
+					obj.b_renderSmooth = b
+					AP.updateAllViews()
 
 	def createNewCopy(self):
 		pass

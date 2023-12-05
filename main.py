@@ -5,8 +5,6 @@ from PyQt5.QtCore import QSettings
 from dpVision.Globals import AP
 from dpVision.MainApplication import MainApplication
 from dpVision.MainWindow import MainWindow
-from dpVision.Parser import Parser
-from dpVision.ParserOBJ import ParserOBJ
 
 def fastTest():
 	from dpVision.AnnotationPoint import AnnotationPoint
@@ -34,7 +32,11 @@ AP.mainApp = MainApplication(sys.argv)
 AP.settings = QSettings()
 AP.mainWin = MainWindow()
 
+from dpVision.Parser import Parser
+from dpVision.ParserOBJ import ParserOBJ
 Parser.regParser(ParserOBJ)
+from dpVision.ParserATMDL import ParserATMDL
+Parser.regParser(ParserATMDL)
 
 AP.mainApp.load_plugins("./plugins")
 

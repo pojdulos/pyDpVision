@@ -13,17 +13,34 @@ import math
 from dpVision.PointCloud import PointCloud
 from dpVision.Shaders import Mesh_vertex_shader_code, Mesh_fragment_shader_code, compile_shader
 
-
 def Face(a,b,c):
 	return np.array([a, b, c], dtype=np.uint)
 
 class Mesh(PointCloud):
+	class Material:
+		def __init__(self):
+			self.ambient = [0.2, 0.2, 0.2]
+			self.diffuse = [0.6, 0.6, 0.6]
+			self.specular = [0.0, 0.0, 0.0]
+			self.alpha = 1.0
+			self.shinines = 0.0
+			self.dTexFileName = ''
+			self.dTexture = None
+
+		def hasTexture(self):
+			return not self.dTexture is None #and self.m_tindices.shape[0] and self.m_tcoords.shape[0]
+
 	def __init__(self, parent=None):
 		super( Mesh, self ).__init__( parent )
 		self.m_faces = np.empty((0, 3), dtype=np.uint)
-		# self.m_fnormals = np.empty((0, 3), dtype=np.float32)
+		self.m_fcolors = np.empty((0, 4), dtype=np.ubyte)
+		self.m_fnormals = np.empty((0, 3), dtype=np.float32)
 		self.m_tcoords = np.empty((0, 2), dtype=np.float32)
 		self.m_tindices = np.empty((0, 3), dtype=np.uint)
+		self.b_renderTexture = True
+		self.b_renderSmooth = True
+		self.gl_renderAs = GL_TRIANGLES
+
 		self.t_vbo = None
 		self.texture = None
 		self.ebo = None
@@ -32,20 +49,10 @@ class Mesh(PointCloud):
 		self.cBuf = None
 		self.nBuf = None
 		self.tBuf = None
-		self.materials = {}
-
-		# default material:
-		self.materials[''] = {
-			'Ka': [ 0.540000, 0.540000, 0.540000 ],
-			'Kd': [ 0.550000, 0.550000, 0.550000 ],
-			'Ks': [ 0.500000, 0.500000, 0.500000 ],
-			'illum': 0,
-			'map_Ka': '',
-			'map_Kd': '',
-			'map_Ks': '' }
-		
-
-
+		self.materials = {
+			'' : Mesh.Material() # default material
+		}
+		self.currentMaterial = ''
 
 	def addFace(self, a, b, c):
 		self.m_faces = np.vstack([self.m_faces, Face(a, b, c)])
@@ -196,13 +203,6 @@ class Mesh(PointCloud):
 		self.m_vnormals = tmpN / norms[:, np.newaxis]
 
 
-	def setDefaultColor(self):
-		glMaterialfv(GL_FRONT, GL_AMBIENT, [0.2, 0.2, 0.2, 1.0] )
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, [0.8, 0.8, 0.8, 1.0] )
-		glMaterialfv(GL_FRONT, GL_SPECULAR, [0.0, 0.0, 0.0, 1.0] )
-		glMaterialfv(GL_FRONT, GL_EMISSION, [0.0, 0.0, 0.0, 1.0] )
-		glMaterialf(GL_FRONT, GL_SHININESS, 0.0 )
-		
 	def renderWithShaders2(self):
 		if self.shader_program is None:
 			# Inicjalizacja i konfiguracja shaderów
@@ -227,22 +227,35 @@ class Mesh(PointCloud):
 		# Używanie programu shaderów
 		glUseProgram(self.shader_program)
 
-		drawN = self.m_vnormals.shape[0] == self.m_vertices.shape[0]
-		drawC = self.m_vcolors.shape[0] == self.m_vertices.shape[0]
-		drawT = not self.texture is None and self.m_tcoords.shape[0] == 3*self.m_faces.shape[0]
+		# Porównuję liczbę wierszy w tablicach:
+		drawVN = self.m_vnormals.shape[0] == self.m_vertices.shape[0]
+		drawFN = self.m_fnormals.shape[0] == self.m_faces.shape[0]
+		drawN = drawVN or drawFN
+		drawVC = self.m_vcolors.shape[0] == self.m_vertices.shape[0]
+		drawFC = self.m_fcolors.shape[0] == self.m_faces.shape[0]
+		drawC = drawVC or drawFC
+		drawT = self.b_renderTexture \
+				and self.materials[self.currentMaterial].hasTexture() \
+				and self.m_tindices.shape[0] == self.m_faces.shape[0]
 
 		if self.vBuf is None:
 			_vBuf = []
 			_cBuf = []
 			_nBuf = []
-			for f in self.m_faces:
+			for idx, f in enumerate(self.m_faces):
 				v = [ self.m_vertices[f[0]], self.m_vertices[f[1]], self.m_vertices[f[2]] ]
 				_vBuf.append(v)
-				if drawC:
+				if drawVC:
 					c = [ self.m_vcolors[f[0]], self.m_vcolors[f[1]], self.m_vcolors[f[2]] ]
 					_cBuf.append(c)
-				if drawN:
+				elif drawFC:
+					c = [ self.m_fcolors[idx], self.m_fcolors[idx], self.m_fcolors[idx] ]
+					_cBuf.append(c)
+				if drawVN:
 					n = [ self.m_vnormals[f[0]], self.m_vnormals[f[1]], self.m_vnormals[f[2]] ]
+					_nBuf.append(n)
+				if drawFN:
+					n = [ self.m_fnormals[idx], self.m_fnormals[idx], self.m_fnormals[idx] ]
 					_nBuf.append(n)
 			self.vBuf = np.array(_vBuf, dtype=np.float32)
 			if drawC:
@@ -265,6 +278,10 @@ class Mesh(PointCloud):
 		glBufferData(GL_ARRAY_BUFFER, self.vBuf.nbytes, self.vBuf, GL_STATIC_DRAW)
 
 		useVColors_loc = glGetUniformLocation(self.shader_program, "useVColors")
+		dC = self.materials[self.currentMaterial].diffuse + [self.materials[self.currentMaterial].alpha]
+#		dC = [1.0, 0.5, 0.5, 0.8]
+		loc = glGetUniformLocation(self.shader_program, "myColor")
+		glUniform4f(loc, dC[0], dC[1], dC[2], dC[3] )
 		if drawC:
 			if self.c_vbo is None:
 				self.c_vbo = glGenBuffers(1)
@@ -287,7 +304,7 @@ class Mesh(PointCloud):
 		useTexture_loc = glGetUniformLocation(self.shader_program, "useTexture")
 		if drawT:
 			glActiveTexture(GL_TEXTURE0)
-			glBindTexture(GL_TEXTURE_2D, self.texture.textureId())
+			glBindTexture(GL_TEXTURE_2D, self.materials[self.currentMaterial].dTexture.textureId())
 			glUniform1i(glGetUniformLocation(self.shader_program, "texture1"), 0)
 
 			if self.t_vbo is None:
@@ -299,6 +316,13 @@ class Mesh(PointCloud):
 			glUniform1i(useTexture_loc, 0)
 
 		###############
+
+		useFlatShading_loc = glGetUniformLocation(self.shader_program, "useFlatShading")
+		if self.b_renderSmooth:
+			glUniform1i(useFlatShading_loc, 0)
+		else:
+			glUniform1i(useFlatShading_loc, 1)
+
 
 		glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
 		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
@@ -325,13 +349,12 @@ class Mesh(PointCloud):
 		view_loc = glGetUniformLocation(self.shader_program, "view")
 		projection_loc = glGetUniformLocation(self.shader_program, "projection")
 		
-		model = np.array((4,4),dtype=np.float32)
-		projection = np.array((4,4),dtype=np.float32)
-		
+		model = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
+		projection = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
+		view = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
+
 		glGetFloatv(GL_MODELVIEW_MATRIX, model)
 		glGetFloatv(GL_PROJECTION_MATRIX, projection)
-		
-		view = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
 		
 		glUniformMatrix4fv(model_loc, 1, GL_FALSE, model)
 		glUniformMatrix4fv(view_loc, 1, GL_FALSE, view)
@@ -352,116 +375,116 @@ class Mesh(PointCloud):
 		glUseProgram(0) # Wyłączenie programu shaderów
 
 
-	def renderWithShaders(self):
-		if self.shader_program is None:
-			# Inicjalizacja i konfiguracja shaderów
-			vertex_shader = compile_shader(Mesh_vertex_shader_code, GL_VERTEX_SHADER)
-			fragment_shader = compile_shader(Mesh_fragment_shader_code, GL_FRAGMENT_SHADER)
+	# def renderWithShaders(self):
+	# 	if self.shader_program is None:
+	# 		# Inicjalizacja i konfiguracja shaderów
+	# 		vertex_shader = compile_shader(Mesh_vertex_shader_code, GL_VERTEX_SHADER)
+	# 		fragment_shader = compile_shader(Mesh_fragment_shader_code, GL_FRAGMENT_SHADER)
 			
-			# Tworzenie programu shaderów
-			self.shader_program = glCreateProgram()
-			glAttachShader(self.shader_program, vertex_shader)
-			glAttachShader(self.shader_program, fragment_shader)
-			glLinkProgram(self.shader_program)
+	# 		# Tworzenie programu shaderów
+	# 		self.shader_program = glCreateProgram()
+	# 		glAttachShader(self.shader_program, vertex_shader)
+	# 		glAttachShader(self.shader_program, fragment_shader)
+	# 		glLinkProgram(self.shader_program)
 			
-			# Sprawdzanie, czy program został powiązany poprawnie
-			if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
-				print(glGetProgramInfoLog(self.shader_program))
-				raise Exception("Error linking shaders")
+	# 		# Sprawdzanie, czy program został powiązany poprawnie
+	# 		if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
+	# 			print(glGetProgramInfoLog(self.shader_program))
+	# 			raise Exception("Error linking shaders")
 			
-			# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
-			glDeleteShader(vertex_shader)
-			glDeleteShader(fragment_shader)
+	# 		# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
+	# 		glDeleteShader(vertex_shader)
+	# 		glDeleteShader(fragment_shader)
 
-		# Używanie programu shaderów
-		glUseProgram(self.shader_program)
+	# 	# Używanie programu shaderów
+	# 	glUseProgram(self.shader_program)
 
-		drawN = self.m_vnormals.shape[0] == self.m_vertices.shape[0]
-		drawC = self.m_vcolors.shape[0] == self.m_vertices.shape[0]
+	# 	drawN = self.m_vnormals.shape[0] == self.m_vertices.shape[0]
+	# 	drawC = self.m_vcolors.shape[0] == self.m_vertices.shape[0]
 
-		# Przygotowanie VBOs i EBO
-		if self.vbo is None:
-			self.vbo = glGenBuffers(1)
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-		glBufferData(GL_ARRAY_BUFFER, self.m_vertices.nbytes, self.m_vertices, GL_STATIC_DRAW)
+	# 	# Przygotowanie VBOs i EBO
+	# 	if self.vbo is None:
+	# 		self.vbo = glGenBuffers(1)
+	# 	glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+	# 	glBufferData(GL_ARRAY_BUFFER, self.m_vertices.nbytes, self.m_vertices, GL_STATIC_DRAW)
 
-		if drawC:		
-			if self.cvbo is None:
-				self.cvbo = glGenBuffers(1)
-			glBindBuffer(GL_ARRAY_BUFFER, self.cvbo)
-			glBufferData(GL_ARRAY_BUFFER, self.m_vcolors.nbytes, self.m_vcolors, GL_STATIC_DRAW)
+	# 	if drawC:		
+	# 		if self.cvbo is None:
+	# 			self.cvbo = glGenBuffers(1)
+	# 		glBindBuffer(GL_ARRAY_BUFFER, self.cvbo)
+	# 		glBufferData(GL_ARRAY_BUFFER, self.m_vcolors.nbytes, self.m_vcolors, GL_STATIC_DRAW)
 			
-		if drawN:
-			if self.nvbo is None:
-				self.nvbo = glGenBuffers(1)
-			glBindBuffer(GL_ARRAY_BUFFER, self.nvbo)
-			glBufferData(GL_ARRAY_BUFFER, self.m_vnormals.nbytes, self.m_vnormals, GL_STATIC_DRAW)
+	# 	if drawN:
+	# 		if self.nvbo is None:
+	# 			self.nvbo = glGenBuffers(1)
+	# 		glBindBuffer(GL_ARRAY_BUFFER, self.nvbo)
+	# 		glBufferData(GL_ARRAY_BUFFER, self.m_vnormals.nbytes, self.m_vnormals, GL_STATIC_DRAW)
 
 
-		if self.ebo is None:
-			self.ebo = glGenBuffers(1)
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.m_faces.nbytes, self.m_faces, GL_STATIC_DRAW)
+	# 	if self.ebo is None:
+	# 		self.ebo = glGenBuffers(1)
+	# 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+	# 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.m_faces.nbytes, self.m_faces, GL_STATIC_DRAW)
 
 
-		# Konfiguracja atrybutów wierzchołków
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
-		glEnableVertexAttribArray(0)
+	# 	# Konfiguracja atrybutów wierzchołków
+	# 	glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+	# 	glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
+	# 	glEnableVertexAttribArray(0)
 
-		useVColors_loc = glGetUniformLocation(self.shader_program, "useVColors")
-		if drawC:
-			glBindBuffer(GL_ARRAY_BUFFER, self.cvbo)
-			glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, True, 0, None)
-			glEnableVertexAttribArray(1)
-			glUniform1i(useVColors_loc, 1)
-		else:
-			glUniform1i(useVColors_loc, 0)
+	# 	useVColors_loc = glGetUniformLocation(self.shader_program, "useVColors")
+	# 	if drawC:
+	# 		glBindBuffer(GL_ARRAY_BUFFER, self.cvbo)
+	# 		glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, True, 0, None)
+	# 		glEnableVertexAttribArray(1)
+	# 		glUniform1i(useVColors_loc, 1)
+	# 	else:
+	# 		glUniform1i(useVColors_loc, 0)
 
-		useVNormals_loc = glGetUniformLocation(self.shader_program, "useVNormals")
-		if drawN:
-			glBindBuffer(GL_ARRAY_BUFFER, self.nvbo)
-			glVertexAttribPointer(2, 3, GL_FLOAT, True, 0, None)
-			glEnableVertexAttribArray(2)
-			glUniform1i(useVNormals_loc, 1)
-		else:
-			glUniform1i(useVNormals_loc, 0)
+	# 	useVNormals_loc = glGetUniformLocation(self.shader_program, "useVNormals")
+	# 	if drawN:
+	# 		glBindBuffer(GL_ARRAY_BUFFER, self.nvbo)
+	# 		glVertexAttribPointer(2, 3, GL_FLOAT, True, 0, None)
+	# 		glEnableVertexAttribArray(2)
+	# 		glUniform1i(useVNormals_loc, 1)
+	# 	else:
+	# 		glUniform1i(useVNormals_loc, 0)
 
-		useTexture_loc = glGetUniformLocation(self.shader_program, "useTexture")
-		glUniform1i(useTexture_loc, 0)
+	# 	useTexture_loc = glGetUniformLocation(self.shader_program, "useTexture")
+	# 	glUniform1i(useTexture_loc, 0)
 
-		model_loc = glGetUniformLocation(self.shader_program, "model")
-		view_loc = glGetUniformLocation(self.shader_program, "view")
-		projection_loc = glGetUniformLocation(self.shader_program, "projection")
+	# 	model_loc = glGetUniformLocation(self.shader_program, "model")
+	# 	view_loc = glGetUniformLocation(self.shader_program, "view")
+	# 	projection_loc = glGetUniformLocation(self.shader_program, "projection")
 		
-		model = np.array((4,4),dtype=np.float32)
-		projection = np.array((4,4),dtype=np.float32)
+	# 	model = np.array((4,4),dtype=np.float32)
+	# 	projection = np.array((4,4),dtype=np.float32)
 		
-		glGetFloatv(GL_MODELVIEW_MATRIX, model)
-		glGetFloatv(GL_PROJECTION_MATRIX, projection)
+	# 	glGetFloatv(GL_MODELVIEW_MATRIX, model)
+	# 	glGetFloatv(GL_PROJECTION_MATRIX, projection)
 		
-		view = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
+	# 	view = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
 		
-		glUniformMatrix4fv(model_loc, 1, GL_FALSE, model)
-		glUniformMatrix4fv(view_loc, 1, GL_FALSE, view)
-		glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection)
+	# 	glUniformMatrix4fv(model_loc, 1, GL_FALSE, model)
+	# 	glUniformMatrix4fv(view_loc, 1, GL_FALSE, view)
+	# 	glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection)
 
 		
-		# Renderowanie
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
-		glDrawElements(GL_TRIANGLES, len(self.m_faces) * 3, GL_UNSIGNED_INT, None)
+	# 	# Renderowanie
+	# 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+	# 	glDrawElements(GL_TRIANGLES, len(self.m_faces) * 3, GL_UNSIGNED_INT, None)
 		
-		# Oczyszczanie
-		glBindBuffer(GL_ARRAY_BUFFER, 0)
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+	# 	# Oczyszczanie
+	# 	glBindBuffer(GL_ARRAY_BUFFER, 0)
+	# 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
 		
-		glDisableVertexAttribArray(0)
-		if drawC:
-			glDisableVertexAttribArray(1)
-		if drawN:
-			glDisableVertexAttribArray(2)
+	# 	glDisableVertexAttribArray(0)
+	# 	if drawC:
+	# 		glDisableVertexAttribArray(1)
+	# 	if drawN:
+	# 		glDisableVertexAttribArray(2)
 
-		glUseProgram(0) # Wyłączenie programu shaderów
+	# 	glUseProgram(0) # Wyłączenie programu shaderów
 
 	def renderSelf(self):
 		if not len(self.m_faces):
@@ -469,9 +492,19 @@ class Mesh(PointCloud):
 		else:	
 			glEnable(GL_COLOR_MATERIAL)
 			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
-			glShadeModel(GL_SMOOTH)
-			#self.renderOldStyle()
-			self.renderWithShaders2()
-			glDisable(GL_COLOR_MATERIAL)
-		
 
+			if self.gl_renderAs == 0:
+				glPolygonMode(GL_FRONT, GL_POINT)
+				glPolygonMode(GL_BACK, GL_POINT)
+				#glEnable(GL_POINT_SMOOTH)
+				#glPointSize(1)
+			elif self.gl_renderAs == 1:
+				glPolygonMode(GL_FRONT, GL_LINE)
+				glPolygonMode(GL_BACK, GL_LINE)
+			else:
+				glPolygonMode(GL_FRONT, GL_FILL)
+				glPolygonMode(GL_BACK, GL_LINE)
+
+			self.renderWithShaders2()
+
+			glDisable(GL_COLOR_MATERIAL)

@@ -19,11 +19,11 @@ class PointCloud(Object):
 	def __init__(self, parent=None):
 		super( PointCloud, self ).__init__( parent )
 		self.m_vertices = np.empty((0, 3), dtype=np.float32)
-		self.m_vnormals = np.empty((0, 3), dtype=np.float32)
 		self.m_vcolors = np.empty((0, 4), dtype=np.ubyte)
+		self.m_vnormals = np.empty((0, 3), dtype=np.float32)
 		self.v_vbo = None
-		self.n_vbo = None
 		self.c_vbo = None
+		self.n_vbo = None
 		
 	def addVertex(self, x, y, z):
 		self.m_vertices = np.vstack([self.m_vertices, Vertex(x, y, z)])

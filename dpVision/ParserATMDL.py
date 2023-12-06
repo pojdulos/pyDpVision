@@ -4,16 +4,15 @@ Created on Mon Nov 27 12:58:12 2023
 
 @author: pojdulos
 """
-from dpVision.Globals import AP
+from dpVision.AnnotationPoint import AnnotationPoint
+from dpVision.AnnotationTriangle import AnnotationTriangle
 from .Parser import Parser
 from .AnnotationSphere import AnnotationSphere
 from .Transform import Transform
-import numpy as np
-import math
 import os
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
-
+import re
 
 class ParserATMDL(Parser):
 	descr = 'ATMDL files'
@@ -32,44 +31,143 @@ class ParserATMDL(Parser):
 	@staticmethod	
 	def save( obj, path ):
 		return False
-	
+
 	@staticmethod	
 	def inPlugin():
 		return False
 	
 	def __init__(self):
-		self.atmdlFile = QFile()
-		self.buffer = []
+		self.atmdlFile = ''
 
+	def readChar(self, stream):
+		return stream.read(1) or None
 	def readWord(self, stream):
-		if not len(self.buffer):
-			line = stream.readLine()
-			if not line:
-				return None
-			self.buffer = line.split()
-		return self.buffer.pop(0)
+		znak = self.readChar(stream)
+		while znak and znak.isspace():
+			znak = self.readChar(stream)
 
+		if znak is None:
+			return None, None
+			
+		# jestem pewien, że znak nie jest None ani nie jest spacją
+		# dlatego pętla wykona sie co najmniej raz
+		slowo = '' 
+		while znak and not znak.isspace():
+			slowo = slowo + znak
+			znak = self.readChar(stream)
+			
+		return slowo, znak
 	def readLine(self, stream):
-		if len(self.buffer):
-			line = ' '.join(self.buffer)
-			self.buffer = []
-		else:	
-			line = stream.readLine()
-		return line
-
+		return stream.readline() or None
 	def skip_comments(self, stream):
-		slowo = self.readWord(stream)
-		if not slowo:
-			return ''
+		slowo, znak = self.readWord(stream)
+
+		if slowo is None:
+			return None
 		
-		while slowo.strip().startswith('#'):
-			print("COMMENT: " + slowo + self.readLine(stream))
-			slowo = self.readWord(stream)
+		while slowo.startswith('#'):
+			komentarz = 'Komentarz: ' + slowo
+			if znak:
+				if znak not in ['\n','\r']:
+					reszta_linii = self.readLine(stream) or ''
+					komentarz += znak + reszta_linii
+				else:
+					komentarz += znak
+				slowo, znak = self.readWord(stream)
+				print(komentarz)
+			else:
+				print(komentarz)
+				return None
+		return slowo
+	def parseType_string(self, stream):
+		def readQuotedString(stream, slowo, znak):
+			if slowo.endswith('"'):
+				return slowo[1:-1]
+			
+			while znak:
+				if znak in ['\n', '\r']:
+					print("UWAGA: Napotkano koniec linii bez zamknięcia cudzysłowu")
+					return slowo[1:]
+
+				if znak == '"':
+					print("Poprawnie domknięto cudzysłów")
+					return slowo[1:]
+
+				slowo = slowo + znak
+				znak = self.readChar(stream) # None gdy koniec pliku
+
+			if znak is None:
+				print("Osiągnięto koniec pliku podczas parsowania ciągu")
+				return slowo[1:]
+
+		def readBracedString(stream, slowo, znak):
+			if slowo.endswith('}'):
+				return slowo[1:-1]
+			
+			while znak:
+				if znak == '}':
+					print("Poprawnie domknięto klamry")
+					return slowo[1:]
+
+				slowo = slowo + znak
+				znak = self.readChar(stream) # None gdy koniec pliku
+
+			if znak is None:
+				print("Osiągnięto koniec pliku podczas parsowania ciągu")
+				return slowo[1:]
+
+
+		# slowo lub znak mogą przyjąć wartość None gdy koniec pliku
+		slowo, znak = self.readWord(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania ciągu")
+			return None
+
+		if znak is None:
+			print("Osiągnięto koniec pliku podczas parsowania ciągu")
+			return slowo
+
+		if slowo.startswith('"'):
+			return readQuotedString(stream, slowo, znak)
+		
+		elif slowo.startswith('{'):
+			return readBracedString(stream, slowo, znak)
 
 		return slowo
+	def parseType_matrix(self, stream):
+		tekst, znak = self.readWord(stream)
+		if tekst is None:
+			print("Osiągnięto koniec pliku podczas parsowania macierzy")
+			return None
 
-	def parseType_string(self, stream):
-		return self.readWord(stream)
+		if znak is None:
+			print("Osiągnięto koniec pliku podczas parsowania macierzy")
+			return tekst
+
+		if tekst.startswith('['):
+			znaki = [tekst]
+			while znak:
+				if znak == ']':
+					print("Poprawnie domknięto nawiasy")
+					znaki.append(znak)
+					break
+				else:	
+					znaki.append(znak)
+					znak = self.readChar(stream)
+
+			if znak is None:
+				print("BŁĄD: Oczekiwano zamknięcia nawiasu, ale osiągnięto koniec pliku podczas parsowania macierzy")
+				tekst = ''.join(znaki)
+				tekst = tekst[1:]
+
+			tekst = ''.join(znaki)
+			tekst = tekst[1:-1]
+
+		tekst = re.sub(r"[\s,;]+", ",", tekst).strip(',')
+
+		print("Odczytano macierz: [" + tekst +"]")
+		return tekst
 
 	def loadShellFile(self, filepath, mainFile, cleanIt=False):
 		myPath = filepath
@@ -87,7 +185,11 @@ class ParserATMDL(Parser):
 	def parseObject_shell(self, stream):
 		slowo = self.skip_comments(stream)
 
-		print("Rozpoczeto interpretacje obiektu shell")
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania obiektu 'shell'")
+			return None
+
+		print("Rozpoczeto parsowanie obiektu 'shell'")
 
 		if not slowo == '{':
 			print("BŁĄD. Oczekiwano znaku { odczytano: "+ slowo)
@@ -99,22 +201,28 @@ class ParserATMDL(Parser):
 		while not slowo == '}':
 			slowo = self.skip_comments(stream)
 
-			if slowo in [ 'label', 'descr', 'file' ]:
-				opis[slowo] = self.parseType_string(stream)
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania obiektu 'shell'")
+				return None
+
+			elif slowo in [ 'label', 'descr', 'file' ]:
+				result = self.parseType_string(stream)
+				if result:
+					opis[slowo] = result
 			elif slowo == "}":
-				print("znaleziono klamre zamykajaca")
+				print("Znaleziono klamre zamykajacą obiekt 'shell'")
 			else:
 				tmp = self.parseObject(stream, slowo)
 				if not tmp is None:
 					kids.append(tmp)
 				else:
-					print("BLAD. Nierozpoznany symbol "+ slowo)
+					print("BLAD. W czasie parsowania obiektu 'shell' znaleziono nierozpoznany symbol: "+ slowo)
 					return None
 
 		obj = None
 		if 'file' in opis:
 			obj = self.loadShellFile(opis["file"], self.atmdlFile)
-			if not obj is None:
+			if obj is not None:
 				if 'label' in opis:
 					obj.setLabel(opis["label"])
 				if 'descr' in opis:
@@ -122,17 +230,85 @@ class ParserATMDL(Parser):
 
 				for kid in kids:
 					self.add_kid(obj, kid)
-		print("Zakonczono interpretacje obiektu shell")
+				
+				print("Zakonczono parsowanie obiektu 'shell'")
 		return obj
 	
 	def parseObject_transformation(self, stream):
-		return None
-	
-	def parseObject_point(self, stream):
-		return None
-
-	def parseObject_sphere(self, stream):
 		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania obiektu 'transformation'")
+			return None
+
+		elif slowo != "{":
+			print("BŁĄD. Oczekiwano znaku { odczytano: "+slowo )
+			return None
+
+		opis = {}
+		kids = []
+
+		frameTransformation = Transform()
+		isTransformDefined = False
+
+		while slowo != "}":
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania obiektu 'transformation'")
+				return None
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykająca obiekt 'transformation'")
+			elif slowo in {'label', 'descr'}:
+				tekst = self.parseType_string(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo == "matrix":
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis["matrix"] = tekst
+			elif slowo == "rotation":
+				tR = self.parseProperty_rotation(stream)
+				frameTransformation.matrix = tR.matrix * frameTransformation.matrix
+				isTransformDefined = True
+			elif slowo == "translation":
+				tT = self.parseProperty_translation(stream)
+				frameTransformation.matrix = tT.matrix * frameTransformation.matrix
+				isTransformDefined = True
+			else:
+				tmp = self.parseObject(stream, slowo)
+				if tmp:
+					kids.append(tmp)
+				else:
+					print("BŁĄD. Nierozpoznany symbol "+ slowo)
+					#return None
+
+
+		obj = Transform()
+		if obj is not None:
+			if 'label' in opis:
+				obj.setLabel(opis["label"])
+			
+			if 'descr' in opis:
+				obj.setDescription(opis["descr"])
+
+			if 'matrix' in opis:
+				frameTransformation.fromRowMatrixStr(opis["matrix"], ",")
+				isTransformDefined = True
+
+			if isTransformDefined:
+				obj.matrix = frameTransformation.matrix
+
+			for kid in kids:
+				self.add_kid(obj, kid)
+		return obj
+
+	def parseObject_point(self, stream):
+		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania obiektu 'point'")
+			return None
 
 		if not slowo == '{':
 			print("BŁĄD. Oczekiwano znaku { odczytano: "+ slowo)
@@ -144,21 +320,96 @@ class ParserATMDL(Parser):
 		while not slowo == '}':
 			slowo = self.skip_comments(stream)
 
-			if slowo in [ 'label', 'descr' ]:
-				opis[slowo] = self.parseType_string(stream)
-			elif slowo == "coords":
-				opis["coords"] = self.parseType_string(stream)
-				#opis["coords"] = parseType_matrix(stream)
-			elif slowo == "radius":
-				slowo = self.readWord(stream)
-				opis["radius"] = slowo
-			elif slowo == "color":
-				slowo = self.readWord(stream)
-				opis["color"] = slowo
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania obiektu 'point'")
+				return None
 			elif slowo == "}":
-				print("Poprawnie odczytano sferę")
+				print("Znaleziono klamrę zamykającą obiekt 'point'")
+			elif slowo in [ 'label', 'descr' ]:
+				tekst = self.parseType_string(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo == "coords":
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis["coords"] = tekst
+			elif slowo in {'vector', 'normal'}:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis['normal'] = tekst
+			elif slowo == "color":
+				slowo, _ = self.readWord(stream)
+				if slowo:
+					opis["color"] = slowo
 			else:
-				print("BLAD. Nierozpoznany symbol "+ slowo)
+				print("BLAD1. Nierozpoznany symbol "+ slowo)
+				return None
+
+		if 'coords' in opis:
+			qCoords = opis["coords"].split(",")
+			coords = [float(qCoords[0]), float(qCoords[1]), float(qCoords[2])]
+
+		obj = AnnotationPoint()
+
+		if obj:
+			obj.setPoint(coords)
+			if 'normal' in opis:
+				qNorm = opis['normal'].split(",")
+				normal = [float(qNorm[0]), float(qNorm[1]), float(qNorm[2])]
+				obj.setVector(normal)
+
+			if 'color' in opis:
+				obj.setColor(txt=opis["color"])
+			
+			if 'label' in opis:
+				obj.setLabel(opis["label"])
+
+			if 'descr' in opis:
+				obj.setDescr(opis["descr"])
+
+			return obj
+		return None
+
+	def parseObject_sphere(self, stream):
+		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania obiektu 'sphere'")
+			return None
+
+		if not slowo == '{':
+			print("BŁĄD. Oczekiwano znaku { odczytano: "+ slowo)
+			return None
+
+		opis = {}
+		kids = []
+
+		while not slowo == '}':
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania obiektu 'sphere'")
+				return None
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykającą obiekt 'sphere'")
+			elif slowo in [ 'label', 'descr' ]:
+				tekst = self.parseType_string(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo == "coords":
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis["coords"] = tekst
+			elif slowo == "radius":
+				slowo, _ = self.readWord(stream)
+				if slowo:
+					opis["radius"] = slowo
+			elif slowo == "color":
+				slowo, _ = self.readWord(stream)
+				if slowo:
+					opis["color"] = slowo
+			else:
+				print("BLAD1. Nierozpoznany symbol "+ slowo)
 				return None
 
 		coords = [0.0, 0.0, 0.0]
@@ -193,12 +444,126 @@ class ParserATMDL(Parser):
 		return None
 		
 	def parseObject_triangle(self, stream):
+		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania obiektu 'triangle'")
+			return None
+
+		if not slowo == '{':
+			print("BŁĄD. Oczekiwano znaku { odczytano: "+ slowo)
+			return None
+
+		opis = {}
+		kids = []
+
+		while not slowo == '}':
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania obiektu 'triangle'")
+				return None
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykającą obiekt 'triangle'")
+			elif slowo in [ 'label', 'descr' ]:
+				tekst = self.parseType_string(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo in {'coordsA', 'coordsB', 'coordsC' }:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo == "color":
+				slowo, _ = self.readWord(stream)
+				if slowo:
+					opis["color"] = slowo
+			else:
+				print("BLAD1. Nierozpoznany symbol "+ slowo)
+				return None
+
+		if 'coordsA' in opis and 'coordsB' in opis and 'coordsC' in opis:
+			qCoordsA = opis["coordsA"].split(",")
+			qCoordsB = opis["coordsB"].split(",")
+			qCoordsC = opis["coordsC"].split(",")
+			
+			vA = [float(qCoordsA[0]), float(qCoordsA[1]), float(qCoordsA[2])]
+			vB = [float(qCoordsB[0]), float(qCoordsB[1]), float(qCoordsB[2])]
+			vC = [float(qCoordsC[0]), float(qCoordsC[1]), float(qCoordsC[2])]
+
+		obj = AnnotationTriangle(vA, vB, vC)
+		if obj:
+			if 'color' in opis:
+				obj.setColor(txt=opis["color"])
+			if 'label' in opis:
+				obj.setLabel(opis["label"])
+			if 'descr' in opis:
+				obj.setDescr(opis["descr"])
+			return obj
 		return None
 	
 	def parseObject_animation(self, stream):
 		return None
 
+	def parseProperty_rotation(self, stream):
+		slowo = self.skip_comments(stream)
 
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania właściwości 'rotation'")
+			return None
+
+		if slowo != "{":
+			print("BŁĄD. Oczekiwano znaku { odczytano: "+ slowo)
+			return Transform()
+
+		opis = {}
+		kids = []
+
+		while slowo != "}":
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania właściwości 'rotation'")
+				return Transform()
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykajacą właściwość 'rotation'")
+			elif slowo in {'axis', 'origin'}:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo == "angle":
+				slowo, _ = self.readWord(stream)
+				if slowo:
+					opis["angle"] = slowo
+			else:
+				print("BŁĄD. Nierozpoznany symbol "+ slowo)
+				return Transform()
+
+		t = Transform()
+		if 'axis' in opis and 'angle' in opis:
+			axisList = opis['axis'].split(',')
+			axis = [ float(axisList[0]), float(axisList[1]), float(axisList[2]) ]
+
+			angle = float(opis['angle'])
+
+			origin = None
+			if 'origin' in opis:
+				originList = opis['origin'].split(',')
+				origin = [ float(originList[0]), float(originList[1]), float(originList[2]) ]
+			t.rotate(angle, axis, origin)
+		return t
+
+	def parseProperty_translation(self, stream):
+		slowo =	self.parseType_matrix(stream)
+
+		t = Transform()
+
+		if slowo:
+			axisList = slowo.split(',')
+			axis = [ float(axisList[0]), float(axisList[1]), float(axisList[2]) ]
+			t.translate(axis)
+
+		return t
+	
 	def parseObject(self, stream, slowo):
 		if slowo in ['shell', 'mesh', 'model']:
 			return self.parseObject_shell(stream)
@@ -222,34 +587,24 @@ class ParserATMDL(Parser):
 		# 	obj.addAnnotation(kid)
 
 	def loadATMDL(self, path):
-		self.atmdlFile.setFileName(path)
+		with open(path,'r') as stream:
+			self.atmdlFile = path
+			root = Transform()
 
-		if not self.atmdlFile.open(QIODevice.ReadOnly | QFile.Text):
-			print("Can't open file.")
-			return None
+			while True:
+				slowo = self.skip_comments(stream)
+				if slowo:
+					tmp = self.parseObject(stream, slowo)
+					if tmp:
+						self.add_kid(root, tmp)
+					else:
+						print("\033[33mNierozpoznany symbol: " + slowo + "\033[0m" )
+				else:
+					print("\033[31mKONIEC PLIKU\033[0m")
+					break
+			
 
-		stream = QTextStream(self.atmdlFile)
-		stream.setCodec("UTF-8")
-
-		root = Transform()
-
-		currentObject = root
-
-		while not stream.atEnd():
-			slowo = self.skip_comments(stream)
-
-			tmp = self.parseObject(stream, slowo)
-			if not tmp is None:
-				self.add_kid(currentObject, tmp)
-				pass
-			elif not len(slowo.strip()):
-				# NEUTRALIZUJE PUSTE ZNAKI NA KONCU PLIKU
-				pass
-			else:
-				print("\033[33mBŁĄD. Nierozpoznany symbol " + slowo + "\033[0m" )
-				break
-
-		return root
+			return root
 
 
 	

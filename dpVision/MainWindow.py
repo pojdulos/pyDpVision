@@ -1,3 +1,5 @@
+import dpVision.ui.dpVision_rc
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt, QObject, QFileInfo, pyqtSlot
 from PyQt5 import uic

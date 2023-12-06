@@ -22,8 +22,15 @@ class Transform(Object):
 	def translate(self, dx, dy, dz):
 		self.matrix.translate(dx, dy, dz)
 
-	def rotate(self, angle, x, y, z):
-		self.matrix.rotate(angle, x, y, z)
+	# def rotate(self, angle, x, y, z):
+	# 	self.matrix.rotate(angle, x, y, z)
+
+	def rotate(self, angle, axis, origin=None):
+		if origin:
+			self.matrix.translate(-origin[0], -origin[1], -origin[2])
+		self.matrix.rotate(angle, axis[0], axis[1], axis[2])
+		if origin:
+			self.matrix.translate(origin[0], origin[1], origin[2])
 
 	def scale(self, sx, sy, sz):
 		self.matrix.scale(sx, sy, sz)
@@ -88,3 +95,16 @@ class Transform(Object):
 			thetaZ = 0
 	
 		return [math.degrees(thetaX), math.degrees(thetaY), math.degrees(thetaZ)]
+
+	def fromRowMatrixStr(self, text, separator):
+		if text is not None:
+			pieces = text.split(separator)
+
+			if len(pieces) >= 16:
+				tmpMatrix = []
+
+				ok = False
+				for row in range(4):
+					for col in range(4):
+						self.matrix[row,col] = float(pieces[ row * 4 + col])
+

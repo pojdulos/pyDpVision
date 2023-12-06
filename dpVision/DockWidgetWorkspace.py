@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 
-"""
-Created on Thu Nov 23 13:51:54 2023
-
-@author: pojdulos
-"""
+import dpVision.ui.dpVision_rc
 
 from PyQt5 import uic
 from PyQt5.QtWidgets import *

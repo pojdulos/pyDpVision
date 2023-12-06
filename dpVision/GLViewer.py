@@ -13,9 +13,10 @@ from OpenGL.GL import *
 from OpenGL.GLU import gluLookAt
 from OpenGL.GLUT import *
 
+import numpy as np
+
 from math import tan, pi
 from enum import Enum
-import numpy as np
 
 from .Transform import Transform
 
@@ -177,16 +178,16 @@ class GLViewer(QOpenGLWidget):
 		if obj is None:
 			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0, 0.0]))
 			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0, 0.0]))
-			self.transform.rotate( yAngle, yAxis[0], yAxis[1], yAxis[2] )
-			self.transform.rotate( xAngle, xAxis[0], xAxis[1], xAxis[2] )
+			self.transform.rotate( yAngle, yAxis )
+			self.transform.rotate( xAngle, xAxis )
 			self.update()
 			self.transformChanged.emit(self)
 		elif obj.__class__.__name__ == 'Transform':
 			invrot = np.dot(obj.invertedMatrix(),invrot)
 			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0, 0.0]))
 			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0, 0.0]))
-			obj.rotate( yAngle, yAxis[0], yAxis[1], yAxis[2] )
-			obj.rotate( xAngle, xAxis[0], xAxis[1], xAxis[2] )
+			obj.rotate( yAngle, yAxis )
+			obj.rotate( xAngle, xAxis )
 			self.update()
 			self.transformChanged.emit(obj)
 

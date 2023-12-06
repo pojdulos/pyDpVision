@@ -6,6 +6,7 @@ Created on Mon Nov 27 12:58:12 2023
 """
 from dpVision.AnnotationPoint import AnnotationPoint
 from dpVision.AnnotationTriangle import AnnotationTriangle
+from dpVision.Motion import Motion
 from .Parser import Parser
 from .AnnotationSphere import AnnotationSphere
 from .Transform import Transform
@@ -340,6 +341,8 @@ class ParserATMDL(Parser):
 			elif slowo == "color":
 				slowo, _ = self.readWord(stream)
 				if slowo:
+					if slowo[0] != '#':
+						slowo = '#'+slowo
 					opis["color"] = slowo
 			else:
 				print("BLAD1. Nierozpoznany symbol "+ slowo)
@@ -407,6 +410,8 @@ class ParserATMDL(Parser):
 			elif slowo == "color":
 				slowo, _ = self.readWord(stream)
 				if slowo:
+					if slowo[0] != '#':
+						slowo = '#'+slowo
 					opis["color"] = slowo
 			else:
 				print("BLAD1. Nierozpoznany symbol "+ slowo)
@@ -476,6 +481,8 @@ class ParserATMDL(Parser):
 			elif slowo == "color":
 				slowo, _ = self.readWord(stream)
 				if slowo:
+					if slowo[0] != '#':
+						slowo = '#'+slowo
 					opis["color"] = slowo
 			else:
 				print("BLAD1. Nierozpoznany symbol "+ slowo)
@@ -501,8 +508,148 @@ class ParserATMDL(Parser):
 			return obj
 		return None
 	
+	def parseProperty_frame(self, stream):
+		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania właściwości 'frame'")
+			return Motion.FrameVal()
+
+		elif slowo != "{":
+			print("BŁĄD. Oczekiwano znaku { odczytano: "+slowo )
+			return Motion.FrameVal()
+
+		opis = {}
+
+		frameTransformation = Transform()
+		isTransformDefined = False
+
+		while slowo != "}":
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania włąściwości 'frame'")
+				return None
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykająca właściwość 'frame'")
+			elif slowo in {'label', 'descr'}:
+				tekst = self.parseType_string(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo == "matrix":
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis["matrix"] = tekst
+			elif slowo == "rotation":
+				tR = self.parseProperty_rotation(stream)
+				frameTransformation.matrix = tR.matrix * frameTransformation.matrix
+				isTransformDefined = True
+			elif slowo == "translation":
+				tT = self.parseProperty_translation(stream)
+				frameTransformation.matrix = tT.matrix * frameTransformation.matrix
+				isTransformDefined = True
+			elif slowo == "order":
+				slowo, _ = self.readWord(stream)
+				if slowo:
+					opis["order"] = slowo
+			elif slowo in { "delay",  "time" }:
+				slowo, _ = self.readWord(stream)
+				if slowo:
+					opis["time"] = slowo
+			else:
+				print("BŁĄD. Nierozpoznany symbol "+ slowo)
+
+		if 'matrix' in opis:
+			frameTransformation.fromRowMatrixStr(opis["matrix"], ",")
+			isTransformDefined = True
+
+		if isTransformDefined:
+			timeS = float(opis["time"]) if 'time' in opis else 1.0
+			msec = int(timeS * 1000.0)
+
+			return Motion.FrameVal(msec, frameTransformation)
+
+		return Motion.FrameVal()
+
+	def parseProperty_sequence(self, stream):
+		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania właściwości 'sequence'")
+			return []
+
+		elif slowo != "{":
+			print("BŁĄD. Oczekiwano znaku { odczytano: "+slowo )
+			return []
+
+		seq = []
+		count = 0
+
+		while slowo != "}":
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania włąściwości 'sequence'")
+				return None
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykająca właściwość 'sequence'")
+			elif slowo == "frame":
+				frame = self.parseProperty_frame(stream)
+				seq.append( frame )
+			# elif slowo == "frameset":
+			# 	frameset = self.parseProperty_frameset(stream)
+			# 	seq += frameset
+			else:
+				print("BŁĄD. Nierozpoznany symbol "+ slowo)
+
+		return seq
+
 	def parseObject_animation(self, stream):
-		return None
+		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania obiektu 'animation'")
+			return None
+
+		elif slowo != "{":
+			print("BŁĄD. Oczekiwano znaku { odczytano: "+slowo )
+			return None
+
+		opis = {}
+		kids = []
+
+		seq = []
+
+		while slowo != "}":
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania obiektu 'transformation'")
+				return None
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykająca obiekt 'transformation'")
+			elif slowo in {'label', 'descr'}:
+				tekst = self.parseType_string(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo in { "sequence", "sequention"}:
+				seq = self.parseProperty_sequence(stream)
+			else:
+				tmp = self.parseObject(stream, slowo)
+				if tmp:
+					kids.append(tmp)
+				else:
+					print("BŁĄD. Nierozpoznany symbol "+ slowo)
+
+		obj = Motion(seq)
+		if obj:
+			if 'label' in opis:
+				obj.setLabel(opis["label"])
+			if 'descr' in opis:
+				obj.setDescription(opis["descr"])
+			for kid in kids:
+				self.add_kid(obj, kid)
+		return obj
 
 	def parseProperty_rotation(self, stream):
 		slowo = self.skip_comments(stream)

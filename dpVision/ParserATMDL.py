@@ -362,7 +362,7 @@ class ParserATMDL(Parser):
 				obj.setVector(normal)
 
 			if 'color' in opis:
-				obj.setColor(txt=opis["color"])
+				obj.setColor(name=opis["color"])
 			
 			if 'label' in opis:
 				obj.setLabel(opis["label"])
@@ -437,7 +437,7 @@ class ParserATMDL(Parser):
 			obj.m_longs = 32
 
 			if 'color' in opis:
-				obj.setColor(txt=opis["color"])
+				obj.setColor(name=opis["color"])
 			
 			if 'label' in opis:
 				obj.setLabel(opis["label"])
@@ -500,7 +500,7 @@ class ParserATMDL(Parser):
 		obj = AnnotationTriangle(vA, vB, vC)
 		if obj:
 			if 'color' in opis:
-				obj.setColor(txt=opis["color"])
+				obj.setColor(name=opis["color"])
 			if 'label' in opis:
 				obj.setLabel(opis["label"])
 			if 'descr' in opis:

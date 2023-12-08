@@ -1,4 +1,8 @@
 import sys
+# import os
+# sciezka_pliku = os.path.realpath(__file__)
+# sciezka_katalogu = os.path.dirname(sciezka_pliku)
+# sys.path.append(sciezka_katalogu)
 
 from PyQt5.QtCore import QSettings
 

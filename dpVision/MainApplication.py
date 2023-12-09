@@ -9,13 +9,16 @@ from PyQt5.QtWidgets import QApplication
 import os
 import importlib.util
 
+from dpVision.Globals import AP
+
 from .PluginInterface import PluginInterface
 
 class MainApplication(QApplication):
     def __init__(self, *args, **kwargs):
         super(MainApplication, self).__init__(*args, **kwargs)
         self.m_lastObjectId = 1000000
-        self.plugins = []
+        self.plugins = set()
+        self.activePlugin = None
 
     def event(self, event):
         return super(MainApplication, self).event(event)
@@ -42,12 +45,13 @@ class MainApplication(QApplication):
             if isinstance(attribute, type) and issubclass(attribute, PluginInterface) and attribute is not PluginInterface:
                 plugin_instance = attribute()
                 plugin_instance.on_load()
-                self.plugins.append(plugin_instance)
+                self.plugins.add(plugin_instance)
+                AP.mainWin.dock['plugins'].addPluginToList(plugin_instance, plugin_instance.name())
 
     def unload_plugin(self, plugin_instance):
         print("UnLoading plugin "+plugin_instance.plugin_name)
         plugin_instance.on_unload()
-        self.plugins.remove(plugin_instance)
+        self.plugins.discard(plugin_instance)
         
     def getUniqueId(self):
         self.m_lastObjectId = self.m_lastObjectId + 1

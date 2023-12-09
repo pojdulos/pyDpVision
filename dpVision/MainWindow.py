@@ -33,20 +33,23 @@ class MainWindow(QMainWindow):
 		self.addDockWidget(
 			Qt.DockWidgetArea.LeftDockWidgetArea, self.dock["workspace"])
 
+		self.dock["plugins"] = DockWidgetPluginList(self)
+		self.addDockWidget(
+			Qt.DockWidgetArea.LeftDockWidgetArea, self.dock["plugins"])
+
+		self.tabifyDockWidget(self.dock["plugins"],self.dock["workspace"])
+
 		self.dock["properties"] = DockWidgetProperties(self)
 		self.addDockWidget(
 			Qt.DockWidgetArea.LeftDockWidgetArea, self.dock["properties"])
 
-		self.dock["plugins"] = DockWidgetPluginList(self)
-		self.addDockWidget(
-			Qt.DockWidgetArea.RightDockWidgetArea, self.dock["plugins"])
 
 		self.dock["panel"] = DockWidgetPluginPanel(self)
 		self.addDockWidget(
 			Qt.DockWidgetArea.RightDockWidgetArea, self.dock["panel"])
 
 		leftDocks = [self.dock["workspace"], self.dock["properties"]]
-		rightDocks = [self.dock["plugins"], self.dock["panel"]]
+		#rightDocks = [self.dock["plugins"], self.dock["panel"]]
 
 		wh = self.size().height()
 		hA = int(0.25 * wh)
@@ -54,7 +57,7 @@ class MainWindow(QMainWindow):
 		dockSizes = [hA, hB]
 
 		self.resizeDocks(leftDocks, dockSizes, Qt.Orientation.Vertical)
-		self.resizeDocks(rightDocks, dockSizes, Qt.Orientation.Vertical)
+		#self.resizeDocks(rightDocks, dockSizes, Qt.Orientation.Vertical)
 
 		self.dock["workspace"].rebuildTree()
 
@@ -62,21 +65,12 @@ class MainWindow(QMainWindow):
 		self.progressIndicator.hide()
 		self.statusBar.addPermanentWidget(self.progressIndicator, 0)
 
-
-		#self.recentFilesMenu = None
-		#self.openAction = None
 		self.recentFileActionList = []
 		self.createRecentActions()
 		self.createRecentMenus()
 
 		self.mdiArea.subWindowActivated.connect(self.onSubWindowActivated)
-		# self.mdiArea = self.findChild(QMdiArea, 'mdiArea')
-
-		# MdiChild::create(MdiChild::Type::GL, ui.mdiArea, MdiChild::Show::Maximized);
-		child = MdiChild.create(self, self.mdiArea, MdiChild.Show.Maximized)
-
-
-		self.dock["properties"].selectionChanged(child.widget().m_widget )
+		MdiChild.create(self, self.mdiArea, MdiChild.Show.Maximized)
 
 	def closeEvent(self, event):
 		# reply = QMessageBox.question(self, 'Wiadomość',

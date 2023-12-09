@@ -7,7 +7,11 @@ class Globals:
 			cls._instance.mainApp = None
 			cls._instance.mainWin = None
 			cls._instance.settings = None
+			#cls._instance.docksettings = None
 		return cls._instance
+
+	# def updateGlobals(self):
+	# 	self.mainWin = MainWindow()
 
 	def updateAllViews(self):
 		for v in self.mainWin.allGLViewers():

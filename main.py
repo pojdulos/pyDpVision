@@ -35,6 +35,7 @@ MainApplication.setApplicationName("dpVision")
 AP.mainApp = MainApplication(sys.argv)
 AP.settings = QSettings()
 AP.mainWin = MainWindow()
+# AP.updateGlobals()
 
 from dpVision.Parser import Parser
 from dpVision.ParserOBJ import ParserOBJ

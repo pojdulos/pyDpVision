@@ -71,6 +71,7 @@ class Motion(Object):
 		if self.m_isPlaying:
 			self.m_currentKey = (self.m_currentKey + 1) % len(self.m_seqlist)
 			AP.updateAllViews()
+			AP.mainWin.dock["properties"].updateProperties()
 			self.m_animationTimer.start(self.currentFrame().msec)
 
 	def renderKids(self):

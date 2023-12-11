@@ -5,10 +5,15 @@ Created on Fri Nov 24 10:50:11 2023
 @author: pojdulos
 """
 
-from PyQt5.QtGui import QMatrix4x4
+import re
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
 from OpenGL.GL import *
 import numpy as np
 import math
+
+from dpVision.Globals import AP
 from .Object import Object
 
 class Transform(Object):
@@ -112,3 +117,32 @@ class Transform(Object):
 	def fromTo(m0 = QMatrix4x4(), m1 = QMatrix4x4()):
 		m1i, b = m1.inverted()
 		return m0 * m1i if b else QMatrix4x4()
+
+	def copyToClipboard(self):
+		vals = []
+		for row in range(4):
+			for col in range(4):
+				vals.append( str(self.matrix[row, col]) )
+		text = ' '.join(vals)
+		QApplication.clipboard().setText(text, QClipboard.Clipboard)
+
+	def pasteFromClipboard(self):
+		def listToMatrix4x4(values):
+			matrix = QMatrix4x4()
+			for row in range(4):
+				for col in range(4):
+					matrix[row, col] = values[row * 4 + col]
+			return matrix
+		
+		text = QApplication.clipboard().text(QClipboard.Clipboard)
+		if text:
+			pieces = re.split(r"\s+", text)
+			try:
+				values = [float(i) for i in pieces]
+				if len(values) == 16:
+					tmpMatrix = listToMatrix4x4(values)
+					self.matrix = tmpMatrix
+				else:
+					raise ValueError("Nieprawidłowa liczba wartości w schowku")
+			except ValueError as e:
+				print("Błąd konwersji wartości: ", e)

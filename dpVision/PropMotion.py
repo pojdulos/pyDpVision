@@ -73,16 +73,18 @@ class PropMotion(PropWidget):
 		self.updateGroupFrame()
 		self.updatePropertiesTree()
 
-
-
 	def clearMatrix(self):
-		pass
-
+		self.obj.currentFrame().transform.reset()
+		AP.mainWin.dock['properties'].updateProperties()
+		AP.updateAllViews()
+	
 	def copyToClipboard(self):
-		pass
+		self.obj.currentFrame().transform.copyToClipboard()
 
 	def pasteFromClipboard(self):
-		pass
+		self.obj.currentFrame().transform.pasteFromClipboard()
+		AP.mainWin.dock['properties'].updateProperties()
+		AP.updateAllViews()
 
 	#QStandardItem*
 	def onItemChanged(self, item):

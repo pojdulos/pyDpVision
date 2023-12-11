@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 
 from abc import ABC, abstractmethod
+import re
 from PyQt5 import uic
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
+from dpVision.Globals import AP
 
 from dpVision.PropWidget import PropWidget
 from dpVision.PropBaseObject import PropBaseObject
@@ -48,13 +53,17 @@ class PropTransform(PropWidget):
 		pass
 	
 	def clearMatrix(self):
-		pass
+		self.m_trans.reset()
+		AP.mainWin.dock['properties'].updateProperties()
+		AP.updateAllViews()
 	
 	def copyToClipboard(self):
-		pass
+		self.m_trans.copyToClipboard()
 
 	def pasteFromClipboard(self):
-		pass
+		self.m_trans.pasteFromClipboard()
+		AP.mainWin.dock['properties'].updateProperties()
+		AP.updateAllViews()
 
 	def onRotButton(self):
 		pass

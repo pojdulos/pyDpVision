@@ -41,9 +41,9 @@ class Plugin01(PluginInterface):
 		
 		nadrzedne_menu.addMenu(self.menu)
 		
-		action = QAction("Akcja1", AP.mainWin)
+		action = QAction("UnLoad", AP.mainWin)
 		self.menu.addAction(action)
-		action.triggered.connect(self.menu_action)
+		action.triggered.connect(self.onAction_UnLoad)
 		
 	def remove_menu(self):
 		# Znajdź "NadrzędneMenu"
@@ -67,10 +67,9 @@ class Plugin01(PluginInterface):
 		self.remove_plugins_menu()
 		
 
-	def menu_action(self):
-		print("Akcja1 została aktywowana")
+	def onAction_UnLoad(self):
+		print("Akcja manu: Wyładuj plugin")
 		AP.mainApp.unload_plugin(self)
-		#self.remove_menu()
 		
 		
 	def perform_action(self):

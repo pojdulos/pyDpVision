@@ -5,9 +5,13 @@ Created on Sat Nov 25 12:16:13 2023
 @author: darek
 """
 
-from PyQt5.QtCore import QObject
-
+from PyQt5.QtCore import *
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
+#from OpenGL.GL import *
 import OpenGL.GL as gl
+
+#from dpVision.Transform import Transform
 
 class BaseObject(QObject):
 	def __init__(self, parent=None):
@@ -82,4 +86,7 @@ class BaseObject(QObject):
 		if (self.m_showKids):
 			self.renderKids()
 		gl.glPopMatrix()
+
+	def getGlobalTransformation(self):
+		return self.m_parent.getGlobalTransformation() if self.m_parent else QMatrix4x4()
 

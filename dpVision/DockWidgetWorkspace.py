@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from dpVision.ContextMenu import ContextMenu
 import dpVision.ui.dpVision_rc
 
 from PyQt5 import uic
@@ -14,7 +15,6 @@ class DeselectableTreeView(QTreeView):
 	
 	def __init__(self, parent):
 		super().__init__(parent)
-		
 		
 	def mousePressEvent(self, event):
 		index = self.indexAt(event.pos())
@@ -32,7 +32,6 @@ class DockWidgetWorkspace(QDockWidget):
 		super().__init__(parent)
 		self.setupUi()
 		self.mainWindow = parent
-		
 
 		
 	def setupUi(self):
@@ -68,7 +67,7 @@ class DockWidgetWorkspace(QDockWidget):
 		self.treeView.setSelectionBehavior( QAbstractItemView.SelectionBehavior.SelectRows )
 	
 		self.treeView.setContextMenuPolicy( Qt.ContextMenuPolicy.CustomContextMenu )
-		#connect(ui.treeView, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(onCustomContextMenu(const QPoint &)));
+		self.treeView.customContextMenuRequested.connect(self.onCustomContextMenu)
 		
 		self.treeView.header().resizeSection(1, 16)
 		self.treeView.header().resizeSection(2, 16)
@@ -127,6 +126,22 @@ class DockWidgetWorkspace(QDockWidget):
 			#emit(currentObjectChanged(NO_CURRENT_MODEL));
 			pass
 
+	#const QPoint &
+	def onCustomContextMenu(self, point):
+		index = self.treeView.indexAt(point)
+		
+		if index.isValid():
+			model = self.treeView.model()
+			clickedObject = self.getItemObject( model.itemFromIndex(index) )
+			if clickedObject is None:
+				return
+
+			ContextMenu(clickedObject, self.treeView).exec(self.treeView.mapToGlobal(point))
+		else:
+			self.treeView.clearSelection()
+			self.mainWindow.onCurrentObjectChanged(None)
+			ContextMenu(None, self.treeView).exec(self.treeView.mapToGlobal(point))
+
 	def setItemObject(self, item, obj):
 		#item.setData(QVariant.fromValue(obj.id()), Qt.UserRole + 1)
 		item.setData(obj, Qt.UserRole)
@@ -178,15 +193,21 @@ class DockWidgetWorkspace(QDockWidget):
 	
 		self.treeView.blockSignals(False)
 
-	def addNewItem(self,obj):
+	def addNewItem(self, obj, parent=None):
 		self.treeView.blockSignals(True)
 		model = self.treeView.model()
 
-		if obj in self.mainWindow.workspace.m_data:
-			self.addTreeItem(model.invisibleRootItem(), obj)
+		root = model.invisibleRootItem()
+		
+		if parent:
+			index = self.findWorkspaceTreeModelIndex(parent)
+			if index and index.isValid():
+				root = model.itemFromIndex(index)
+
+		self.addTreeItem(root, obj)
+
 		self.treeView.blockSignals(False)
 		self.mainWindow.update()
-
 
 
 	def findWorkspaceTreeModelIndex(self, obj):

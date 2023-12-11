@@ -13,6 +13,24 @@ class Globals:
 	# def updateGlobals(self):
 	# 	self.mainWin = MainWindow()
 
+	def addObject(self, child, parent=None):
+		if child is None:
+			return
+		if parent:
+			parent.addChild(child)
+		else:
+			self.mainWin.workspace.m_data.append(child)
+		self.mainWin.dock["workspace"].addNewItem(child, parent)
+
+	def removeObject(self, child, parent=None):
+		if child is None:
+			return
+		if parent:
+			parent.removeChild(child)
+		else:
+			self.mainWin.workspace.m_data.remove(child)
+		self.mainWin.dock["workspace"].removeItem(child)
+
 	def updateAllViews(self):
 		for v in self.mainWin.allGLViewers():
 			v.update()

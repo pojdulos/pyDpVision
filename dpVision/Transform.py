@@ -12,18 +12,15 @@ import math
 from .Object import Object
 
 class Transform(Object):
-	def __init__(self, parent=None):
+	def __init__(self, matrix = None, parent=None):
 		super( Transform, self ).__init__( parent )
-		self.matrix = QMatrix4x4()
+		self.matrix = matrix if matrix is not None else QMatrix4x4()
 
 	def renderSelf(self):
 		glMultMatrixf(self.matrix.data())
 
 	def translate(self, dx, dy, dz):
 		self.matrix.translate(dx, dy, dz)
-
-	# def rotate(self, angle, x, y, z):
-	# 	self.matrix.rotate(angle, x, y, z)
 
 	def rotate(self, angle, axis, origin=None):
 		if origin:
@@ -108,3 +105,10 @@ class Transform(Object):
 					for col in range(4):
 						self.matrix[row,col] = float(pieces[ row * 4 + col])
 
+	def getGlobalTransformation(self):
+		return self.matrix if self.m_parent is None else self.matrix * self.m_parent.getGlobalTransformation()
+
+	@staticmethod
+	def fromTo(m0 = QMatrix4x4(), m1 = QMatrix4x4()):
+		m1i, b = m1.inverted()
+		return m0 * m1i if b else QMatrix4x4()

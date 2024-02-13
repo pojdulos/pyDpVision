@@ -27,7 +27,50 @@ class PointCloud(Object):
 		
 	def addVertex(self, x, y, z):
 		self.m_vertices = np.vstack([self.m_vertices, Vertex(x, y, z)])
-		
+	
+	# def getCenterOfWeight(self):
+	# 	ctr = [0., 0., 0.]
+	# 	if len(self.m_vertices)>0:
+	# 		for v in self.m_vertices:
+	# 			ctr[0] += v[0]
+	# 			ctr[1] += v[1]
+	# 			ctr[2] += v[2]
+
+	# 		ctr[0] /= len(self.m_vertices)
+	# 		ctr[1] /= len(self.m_vertices)
+	# 		ctr[2] /= len(self.m_vertices)
+	# 	return ctr
+
+	def getCenterOfWeight(self):
+		ctr = [0., 0., 0.]
+		num_vertices = len(self.m_vertices)
+		if num_vertices:
+			sums = [sum(dim) for dim in zip(*self.m_vertices)]
+			ctr = [total / num_vertices for total in sums]
+		return ctr
+
+	def getBB(self):
+		_b, _min, _max = Object.getBB()  # Pobieranie BB z klasy nadrzędnej
+		if _b:  # Jeśli BB istnieje w klasie nadrzędnej
+			if len(self.m_vertices) > 0:  # Sprawdzenie, czy są wierzchołki w aktualnej klasie
+				_min = [min(dim) for dim in zip(_min, *self.m_vertices)]
+				_max = [max(dim) for dim in zip(_max, *self.m_vertices)]
+		else:  # Jeśli BB nie istnieje w klasie nadrzędnej
+			if len(self.m_vertices) > 0:  # Sprawdzenie, czy są wierzchołki w aktualnej klasie
+				_min = [min(dim) for dim in zip(*self.m_vertices)]
+				_max = [max(dim) for dim in zip(*self.m_vertices)]
+			_b = True  # Zaktualizowanie flagi _b
+		return _b, _min, _max
+
+	def getCenterOfBB(self):
+		ctr = [0., 0., 0.]
+		num_vertices = len(self.m_vertices)
+		if num_vertices:
+			_min = [min(dim) for dim in zip(*self.m_vertices)]
+			_max = [max(dim) for dim in zip(*self.m_vertices)]
+			ctr = [(m1 + m2) / 2 for m1, m2 in zip(_min, _max)]
+		return ctr
+
 	def test(self):
 		self.m_vertices = np.vstack([self.m_vertices, Vertex(10, 10, 1)])
 		self.m_vcolors = np.vstack([self.m_vcolors, [255, 255, 0, 255]])

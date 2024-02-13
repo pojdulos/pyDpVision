@@ -4,10 +4,9 @@ Created on Thu Nov 23 20:04:44 2023
 
 @author: darek
 """
-from PyQt5.QtCore import Qt, QObject, pyqtSignal
-
-from PyQt5.QtWidgets import QOpenGLWidget
-from PyQt5.QtGui import QOpenGLContext, QSurfaceFormat, QPainter, QVector3D, QVector4D, QColor
+from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
 
 from OpenGL.GL import *
 from OpenGL.GLU import gluLookAt
@@ -18,7 +17,44 @@ import numpy as np
 from math import tan, pi
 from enum import Enum
 
-from .Transform import Transform
+from dpVision.Transform import Transform
+
+class Camera:
+	positionChanged = pyqtSignal(list)
+	directionChanged = pyqtSignal(list)
+
+	def __init__(self):
+		self.pos = [0.0, 0.0, 200.0]
+		self.dir = [0.0, 0.0, -1.0]
+		self.up = [0.0, 1.0, 0.0]
+
+	# @pyqtProperty(list, notify=positionChanged)
+	# def position(self):
+	# 	return self._pos
+
+	# @position.setter
+	# def position(self, pos):
+	# 	if self._pos != pos:
+	# 		self._pos = pos
+	# 		self.positionChanged.emit(pos)
+
+	# @pyqtProperty(list, notify=directionChanged)
+	# def direction(self):
+	# 	return self._dir
+
+	# @position.setter
+	# def direction(self, dir):
+	# 	if self._pos != dir:
+	# 		self._pos = dir
+	# 		self.directionChanged.emit(dir)
+
+
+	# def reset(self):
+	# 	self.position = [0.0, 0.0, 200.0]
+	# 	self.direction = [0.0, 0.0, -1.0]
+	# 	self._up = [0.0, 1.0, 0.0]
+
+
 
 class GLViewer(QOpenGLWidget):
 	class Projection(Enum):
@@ -38,7 +74,9 @@ class GLViewer(QOpenGLWidget):
 		
 		self.lastPos = None
 		
-		self._fBgColor = QColor(78, 78, 78, 255)
+		self._camera = Camera()
+
+		self._fBgColor = QColor(78, 78, 78)
 		
 		self._dViewingAngle = 50
 		self._dOrthoViewSize = 90
@@ -186,8 +224,8 @@ class GLViewer(QOpenGLWidget):
 			invrot = np.dot(obj.invertedMatrix(),invrot)
 			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0, 0.0]))
 			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0, 0.0]))
-			obj.rotate( yAngle, yAxis )
-			obj.rotate( xAngle, xAxis )
+			obj.rotate2( yAngle, yAxis )
+			obj.rotate2( xAngle, xAxis )
 			self.update()
 			self.transformChanged.emit(obj)
 
@@ -312,8 +350,11 @@ class GLViewer(QOpenGLWidget):
 		glMatrixMode( GL_MODELVIEW )
 		glLoadIdentity()
 	
-		# gluLookAt(cam.m_pos.X(), cam.m_pos.Y(), cam.m_pos.Z(), cam.m_dir.X(), cam.m_dir.Y(), cam.m_dir.Z(), cam.m_up.X(), cam.m_up.Y(), cam.m_up.Z());
-		gluLookAt(0.0, 0.0, 200, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0)
+		gluLookAt(
+			self._camera.pos[0], self._camera.pos[1], self._camera.pos[2], \
+			self._camera.dir[0], self._camera.dir[1], self._camera.dir[2], \
+			self._camera.up[0], self._camera.up[1], self._camera.up[2] )
+		#gluLookAt(0.0, 0.0, 200, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0)
 	
 		#self.renderLights( False )
 		self.renderLights( True )

@@ -25,28 +25,37 @@ class PropBaseObject(PropWidget):
 	def create(m, parent = 0):
 		return PropWidget.build( [ PropBaseObject(m) ], parent )
 
-
 	def updateProperties(self):
-		obj = self.obj
+		w = { self.selfVisibleCheck, self.kidsVisibleCheck, self.labelEdit, self.descrEdit }
+		for i in w:	i.blockSignals(True)
+		self.selfVisibleCheck.setChecked(self.obj.getSelfVisibility())
+		self.kidsVisibleCheck.setChecked(self.obj.getKidsVisibility())
+		self.labelEdit.setText(self.obj.getLabel())
+		self.descrEdit.setText(self.obj.getDescription())
+		self.selectedCheck.setChecked(self.obj.isChecked())
+		for i in w:	i.blockSignals(False)
 
-	#@pyqtSlot(bool)
-	def changedKidsVisibility(self, b):
+	@pyqtSlot(bool)
+	def onChangedKidsVisibility(self, b):
 		self.obj.setKidsVisibility(b)
 		AP.updateAllViews()
 
-	#@pyqtSlot(int)
-	def changedVisibility(self, b):
+	@pyqtSlot(bool)
+	def onChangedSelfVisibility(self, b):
 		self.obj.setSelfVisibility(b)
 		AP.updateAllViews()
 
-	def changedSelection(self, i):
+	@pyqtSlot(bool)
+	def onChangedSelection(self, b):
 		pass
 
-	def changedLabel(self, s):
+	@pyqtSlot(str)
+	def onChangedLabel(self, s):
 		self.obj.setLabel(s)
 		AP.updateAllViews()
 		#AP.mainWin.UI::DOCK::WORKSPACE::setItemLabelById(obj->id(), s.toStdWString());
 
+	@pyqtSlot()
 	def onDescrChanged(self):
 		self.obj.setDescription(self.descrEdit.toPlainText())
 

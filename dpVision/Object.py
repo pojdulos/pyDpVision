@@ -34,5 +34,18 @@ class Object(BaseObject):
 		for child in self.m_data:
 			child.render()
 			
-	
-	
+	def getBB(self):
+		_b = False
+		_min, _max = None, None
+		
+		for kid in self.m_data:
+			kid_b, kid_min, kid_max = kid.getBB()
+			if kid_b:
+				if _min is None:
+					_min, _max = kid_min, kid_max
+				else:
+					_min = [min(m1, m2) for m1, m2 in zip(_min, kid_min)]
+					_max = [max(m1, m2) for m1, m2 in zip(_max, kid_max)]
+				_b = True
+
+		return _b, _min, _max

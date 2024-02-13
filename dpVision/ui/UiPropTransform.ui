@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>200</width>
-    <height>446</height>
+    <height>511</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -48,7 +48,7 @@
     <number>0</number>
    </property>
    <item>
-    <widget class="QGroupBox" name="groupBox_5">
+    <widget class="QGroupBox" name="transformGroup">
      <property name="minimumSize">
       <size>
        <width>200</width>
@@ -80,6 +80,364 @@
       <property name="bottomMargin">
        <number>0</number>
       </property>
+      <item>
+       <widget class="QWidget" name="widget_13" native="true">
+        <layout class="QVBoxLayout" name="verticalLayout_12">
+         <item>
+          <widget class="QCheckBox" name="showScrewCheckBox">
+           <property name="text">
+            <string>show screw</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="originGroup">
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>16777215</height>
+         </size>
+        </property>
+        <property name="title">
+         <string>origin</string>
+        </property>
+        <layout class="QHBoxLayout" name="horizontalLayout_10">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>5</number>
+         </property>
+         <item>
+          <widget class="Line" name="line_3">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="originType" native="true">
+           <layout class="QVBoxLayout" name="verticalLayout_3">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QRadioButton" name="originRadioObj">
+              <property name="text">
+               <string>obj[0,0,0]</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="originRadioPoint">
+              <property name="text">
+               <string>point coords:</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="originRadioBB">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="text">
+               <string>bbox ctr</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="originRadioWeight">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="text">
+               <string>weight ctr</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="originCoords" native="true">
+           <layout class="QVBoxLayout" name="verticalLayout">
+            <property name="spacing">
+             <number>0</number>
+            </property>
+            <property name="leftMargin">
+             <number>4</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>4</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QDoubleSpinBox" name="originX">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>7</pointsize>
+               </font>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">color:#00f;</string>
+              </property>
+              <property name="prefix">
+               <string>X: </string>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000000000048346692115553659057528394845890514255872.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000000000078291540404596243842305360299886116864.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QDoubleSpinBox" name="originY">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>7</pointsize>
+               </font>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">color:#080;</string>
+              </property>
+              <property name="prefix">
+               <string>Y: </string>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000000000048346692115553659057528394845890514255872.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000000000078291540404596243842305360299886116864.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QDoubleSpinBox" name="originZ">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>7</pointsize>
+               </font>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">color:#f00;</string>
+              </property>
+              <property name="prefix">
+               <string>Z: </string>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000000000048346692115553659057528394845890514255872.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000000000078291540404596243842305360299886116864.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="Line" name="line_2">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="widget_5" native="true">
+           <layout class="QVBoxLayout" name="verticalLayout_4">
+            <property name="spacing">
+             <number>0</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QPushButton" name="clearButton_2">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>24</width>
+                <height>24</height>
+               </size>
+              </property>
+              <property name="toolTip">
+               <string>clear transformation</string>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+              <property name="icon">
+               <iconset resource="dpVision.qrc">
+                <normaloff>:/icons/Erase.ico</normaloff>:/icons/Erase.ico</iconset>
+              </property>
+              <property name="flat">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="copyButton_2">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>24</width>
+                <height>24</height>
+               </size>
+              </property>
+              <property name="toolTip">
+               <string>copy matrix to clipboard</string>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+              <property name="icon">
+               <iconset resource="dpVision.qrc">
+                <normaloff>:/icons/Copy.ico</normaloff>:/icons/Copy.ico</iconset>
+              </property>
+              <property name="iconSize">
+               <size>
+                <width>16</width>
+                <height>16</height>
+               </size>
+              </property>
+              <property name="flat">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="pasteButton_2">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>24</width>
+                <height>24</height>
+               </size>
+              </property>
+              <property name="toolTip">
+               <string>paste matrix from clipboard</string>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+              <property name="icon">
+               <iconset resource="dpVision.qrc">
+                <normaloff>:/icons/Paste.ico</normaloff>:/icons/Paste.ico</iconset>
+              </property>
+              <property name="flat">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
       <item>
        <widget class="QWidget" name="widget_11" native="true">
         <layout class="QVBoxLayout" name="verticalLayout_10">
@@ -996,6 +1354,36 @@
              <number>2</number>
             </property>
             <item>
+             <widget class="QDoubleSpinBox" name="quatW">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>7</pointsize>
+               </font>
+              </property>
+              <property name="prefix">
+               <string/>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-100000000000000007629769841091887003294964970946560.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>999999999999999993220948674361627976461708441944064.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item>
              <widget class="QDoubleSpinBox" name="quatX">
               <property name="enabled">
                <bool>false</bool>
@@ -1073,36 +1461,6 @@
               </property>
               <property name="styleSheet">
                <string notr="true">color:#f00;</string>
-              </property>
-              <property name="decimals">
-               <number>6</number>
-              </property>
-              <property name="minimum">
-               <double>-100000000000000007629769841091887003294964970946560.000000000000000</double>
-              </property>
-              <property name="maximum">
-               <double>999999999999999993220948674361627976461708441944064.000000000000000</double>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QDoubleSpinBox" name="quatW">
-              <property name="enabled">
-               <bool>false</bool>
-              </property>
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <property name="font">
-               <font>
-                <pointsize>7</pointsize>
-               </font>
-              </property>
-              <property name="prefix">
-               <string/>
               </property>
               <property name="decimals">
                <number>6</number>
@@ -1384,6 +1742,134 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>originRadioPoint</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onOriginRadio(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>44</x>
+     <y>59</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>originRadioBB</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onOriginRadio(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>44</x>
+     <y>82</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>originRadioWeight</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onOriginRadio(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>44</x>
+     <y>104</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>originRadioObj</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onOriginRadio(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>44</x>
+     <y>36</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>originX</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onOriginPointValueChanged(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>142</x>
+     <y>43</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>originY</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onOriginPointValueChanged(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>142</x>
+     <y>68</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>originZ</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onOriginPointValueChanged(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>142</x>
+     <y>93</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>showScrewCheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>PropTransform</receiver>
+   <slot>onShowScrewCheckBox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>99</x>
+     <y>31</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>255</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>changedEul(double)</slot>
@@ -1395,5 +1881,8 @@
   <slot>pasteFromClipboard()</slot>
   <slot>onRotButton()</slot>
   <slot>onScaleCheck(int)</slot>
+  <slot>onOriginRadio(bool)</slot>
+  <slot>onOriginPointValueChanged(double)</slot>
+  <slot>onShowScrewCheckBox(bool)</slot>
  </slots>
 </ui>

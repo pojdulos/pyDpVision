@@ -4,6 +4,7 @@ from dpVision.Object import Object
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from OpenGL.GL import *
+from dpVision.K3RigidToScrew import *
 import numpy as np
 
 class Motion(Object):
@@ -80,6 +81,16 @@ class Motion(Object):
 	def renderFrame(self): # rysowanie bieżącej klatki
 		frame = self.currentFrame()
 		
+		if self.m_currentKey>0:
+			currTrans = frame.transform
+			prevTrans = self.m_seqlist[self.m_currentKey-1].transform
+			tr = Transform()
+			tr.fromNumPy( np.dot(currTrans.toNumPy(), prevTrans.invertedMatrix()) )
+			tr.renderScrew()
+			#del tr
+		
+		frame.transform.renderScrew(r=1., g=0., b=1.)
+
 		glPushMatrix()
 		frame.transform.renderSelf()
 		for obj in self.m_data:
@@ -87,7 +98,6 @@ class Motion(Object):
 		glPopMatrix()
 
 	def getGlobalTransformation(self):
-		return self.currentFrame().transform.matrix \
-			if self.m_parent is None \
+		return self.currentFrame().transform.matrix if self.m_parent is None \
 			else self.currentFrame().transform.matrix * self.m_parent.getGlobalTransformation()
 

@@ -7,11 +7,12 @@ Created on Sat Nov 25 20:40:37 2023
 
 from abc import ABC, abstractmethod
 from PyQt5 import uic
-from PyQt5.QtCore import QRegularExpression
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
+from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QVector3D
 from .GLViewer import GLViewer
 from .PropWidget import PropWidget
+from dpVision.Globals import AP
 
 class PropViewer(PropWidget):
 	def __init__(self, _viewer, parent=None):
@@ -20,7 +21,6 @@ class PropViewer(PropWidget):
 		self.viewer = _viewer
 		self.rot = self.viewer.transform.getEulerAnglesDeg()
 		self.tra = self.viewer.transform.getTranslation()
-		self.sca = self.viewer.transform.getScale()
 
 	@staticmethod
 	def create(m, parent = 0):
@@ -28,91 +28,95 @@ class PropViewer(PropWidget):
 
 
 	def updateProperties(self):
-		view = self.viewer
-		if not view is None:
-			self.rot = view.transform.getEulerAnglesDeg()
-			self.tra = view.transform.getTranslation()
-			self.sca = view.transform.getScale()
-			
-			self.spinViewRotX.blockSignals(True)
-			self.spinViewRotX.setValue( self.rot[0] )
-			self.spinViewRotX.blockSignals(False)
-	
-			self.spinViewRotY.blockSignals(True)
-			self.spinViewRotY.setValue( self.rot[1] )
-			self.spinViewRotY.blockSignals(False)
-	
-			self.spinViewRotZ.blockSignals(True)
-			self.spinViewRotZ.setValue( self.rot[2] )
-			self.spinViewRotZ.blockSignals(False)
-	
-			self.spinViewTransX.blockSignals(True);
-			self.spinViewTransX.setValue( self.tra[0] );
-			self.spinViewTransX.blockSignals(False);
-	
-			self.spinViewTransY.blockSignals(True);
-			self.spinViewTransY.setValue( self.tra[1] );
-			self.spinViewTransY.blockSignals(False);
-	
-			self.spinViewTransZ.blockSignals(True);
-			self.spinViewTransZ.setValue( self.tra[2] );
-			self.spinViewTransZ.blockSignals(False);
-	
-			self.spinViewScale.blockSignals(True);
-			self.spinViewScale.setValue( self.sca[0] ); #UWAGA !!! @@@
-			self.spinViewScale.blockSignals(False);
-	
-			self.spinBG.blockSignals(True);
-			self.spinBG.setValue(view._fBgColor.redF());
-			self.spinBG.blockSignals(False);
-	
-			isOrtho = view._projection == GLViewer.Projection.ORTHOGONAL
-	
-			self.radioOrtho.blockSignals(True);
-			self.radioOrtho.setChecked(isOrtho);
-			self.radioOrtho.blockSignals(False);
-	
-			self.spinOrthoViewSize.blockSignals(True);
-			self.spinOrthoViewSize.setValue(view._dOrthoViewSize);
-			self.spinOrthoViewSize.blockSignals(False);
-	
-			self.spinOrthoViewSize.setEnabled(isOrtho);
-	
-			isPersp = not isOrtho
-	
-			self.radioPersp.blockSignals(True);
-			self.radioPersp.setChecked(isPersp);
-			self.radioPersp.blockSignals(False);
-	
-			self.spinAngleOfView.blockSignals(True);
-			self.spinAngleOfView.setValue(view._dViewingAngle);
-			self.spinAngleOfView.blockSignals(False);
-	
-			self.spinAngleOfView.setEnabled(isPersp);
+		if self.viewer is None:
+			return
 
+		w = {	self.spinViewRotX, self.spinViewRotY, self.spinViewRotZ, \
+	   			self.spinViewTransX, self.spinViewTransY, self.spinViewTransZ, \
+				self.bgColorButton, self.radioOrtho, self.spinOrthoViewSize, \
+				self.radioPersp, self.spinAngleOfView }
+		
+		for i in w: i.blockSignals(True)
 
-	def rotXeditingFinished(self):
-		pass
-	
+		self.updateBgColorButton( self.viewer._fBgColor )
+
+		self.rot = self.viewer.transform.getEulerAnglesDeg()
+		self.tra = self.viewer.transform.getTranslation()
+		
+		self.spinViewRotX.setValue( self.rot[0] )
+		self.spinViewRotY.setValue( self.rot[1] )
+		self.spinViewRotZ.setValue( self.rot[2] )
+
+		self.spinViewTransX.setValue( self.tra[0] )
+		self.spinViewTransY.setValue( self.tra[1] )
+		self.spinViewTransZ.setValue( self.tra[2] )
+
+		isOrtho = self.viewer._projection == GLViewer.Projection.ORTHOGONAL
+
+		self.radioOrtho.setChecked(isOrtho)
+		self.spinOrthoViewSize.setValue(self.viewer._dOrthoViewSize)
+		self.spinOrthoViewSize.setEnabled(isOrtho)
+
+		isPersp = not isOrtho
+
+		self.radioPersp.setChecked(isPersp)
+		self.spinAngleOfView.setValue(self.viewer._dViewingAngle)
+		self.spinAngleOfView.setEnabled(isPersp)
+
+		self.orthoWidget.setVisible(isOrtho)
+		self.perspWidget.setVisible(isPersp)
+
+		self.updateMatrix()
+
+		for i in w: i.blockSignals(False)
+
+	def updateMatrix(self):
+		self.matrixTable.blockSignals(True)
+		for row in range(4):
+			for col in range(4):
+				index = self.matrixTable.model().index(row,col)
+				value = self.viewer.transform.matrix[row,col]
+				self.matrixTable.model().setData(index, round(value,6))
+		self.matrixTable.blockSignals(False)
+
+	def updateBgColorButton(self, col):
+		s = "background-color: rgb(" + str(col.red()) + ", " + str(col.green()) + ", " + str(col.blue()) + ");"
+		self.bgColorButton.setStyleSheet(s)
+
+	@pyqtSlot(float)
 	def changedRotX(self, d ):
 		r = d - self.rot[0]
-		self.viewer.transform.rotate(r, 1, 0, 0)
+		self.viewer.transform.rotate(r, [1, 0, 0])
 		self.rot[0] = d
 		self.viewer.update()
-
 	
+	@pyqtSlot(float)
 	def changedRotY(self, d ):
 		r = d - self.rot[1]
-		self.viewer.transform.rotate(r, 0, 1, 0)
+		self.viewer.transform.rotate(r, [0, 1, 0])
 		self.rot[1] = d
 		self.viewer.update()
 
+	@pyqtSlot(float)
 	def changedRotZ(self, d ):
 		r = d - self.rot[2]
-		self.viewer.transform.rotate(r, 0, 0, 1)
+		self.viewer.transform.rotate(r, [0, 0, 1])
 		self.rot[2] = d
 		self.viewer.update()
-	
+
+	@pyqtSlot(float)
+	def onChangedRotation(self, d):
+		x, y, z = self.spinViewRotX.value(), self.spinViewRotY.value(), self.spinViewRotZ.value()
+		rx, ry, rz = x - self.tra[0], y - self.tra[1], z - self.tra[2]
+		
+		self.viewer.transform.rotate(rz, [0, 0, 1])
+		self.viewer.transform.rotate(ry, [0, 1, 0])
+		self.viewer.transform.rotate(rx, [1, 0, 0])
+
+		self.rot = [x, y, z]
+		self.viewer.update()
+
+	@pyqtSlot(float)
 	def changedTraXYZ(self, d):
 		x, y, z = self.spinViewTransX.value(), self.spinViewTransY.value(), self.spinViewTransZ.value()
 
@@ -122,20 +126,37 @@ class PropViewer(PropWidget):
 		self.tra = [x, y, z]
 		self.viewer.update()
 
-
-# 	void changedScale( double );
-	def changedBGcolor(self, d ):
-		pass
+	@pyqtSlot()
+	def onBackgroundColorButton(self):
+		color = QColorDialog.getColor( self.viewer._fBgColor, self, "Select background color", QColorDialog.DontUseNativeDialog)
+		if color.isValid():
+			self.viewer._fBgColor = color
+			self.updateBgColorButton( color )
+			self.viewer.update()
 	
+	@pyqtSlot(int)
 	def changedAngle(self, i ):
-		pass
+		self.viewer._dViewingAngle = i
+		self.viewer.recalcView()
+		self.viewer.update()
 	
+	@pyqtSlot(int)
 	def changedOrthoViewSize(self, d):
-		pass
+		self.viewer._dOrthoViewSize = d
+		self.viewer.recalcView()
+		self.viewer.update()
 
+	@pyqtSlot(bool)
 	def radioPropToggled(self, t):
 		if t:
 			self.viewer._projection = GLViewer.Projection.PERSPECTIVE
 		else:
 			self.viewer._projection = GLViewer.Projection.ORTHOGONAL
+		self.viewer.recalcView()
 		self.viewer.update()
+		self.updateProperties()
+
+	def onClearMatrixButton(self):
+		self.viewer.transform.reset()
+		AP.mainWin.dock['properties'].updateProperties()
+		AP.updateAllViews()

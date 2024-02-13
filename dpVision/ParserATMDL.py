@@ -19,6 +19,7 @@ class ParserATMDL(Parser):
 	descr = 'ATMDL files'
 	load_exts = ['.atmdl']
 	#save_exts = ['.atmdl']
+	defs = {}
 	
 	@staticmethod	
 	def count_lines(path):
@@ -39,9 +40,11 @@ class ParserATMDL(Parser):
 	
 	def __init__(self):
 		self.atmdlFile = ''
+		self.back_defs = {}
 
 	def readChar(self, stream):
 		return stream.read(1) or None
+	
 	def readWord(self, stream):
 		znak = self.readChar(stream)
 		while znak and znak.isspace():
@@ -58,8 +61,10 @@ class ParserATMDL(Parser):
 			znak = self.readChar(stream)
 			
 		return slowo, znak
+	
 	def readLine(self, stream):
 		return stream.readline() or None
+	
 	def skip_comments(self, stream):
 		slowo, znak = self.readWord(stream)
 
@@ -80,6 +85,24 @@ class ParserATMDL(Parser):
 				print(komentarz)
 				return None
 		return slowo
+	
+	def replaceKeysWithValues(self, txt):
+		separator = "$#%#$" # Unikalny separator
+		counter = 0
+		tempMap = {}
+		
+		for key in ParserATMDL.defs.keys():
+			tempKey = separator + str(counter) + separator
+			counter = counter + 1
+			txt = txt.replace(key, tempKey)
+			tempMap[tempKey] = ParserATMDL.defs[key]
+		
+		for tempKey in tempMap.keys():
+			txt = txt.replace(tempKey, tempMap[tempKey])
+		
+		return txt
+
+
 	def parseType_string(self, stream):
 		def readQuotedString(stream, slowo, znak):
 			if slowo.endswith('"'):
@@ -127,15 +150,16 @@ class ParserATMDL(Parser):
 
 		if znak is None:
 			print("Osiągnięto koniec pliku podczas parsowania ciągu")
-			return slowo
-
-		if slowo.startswith('"'):
-			return readQuotedString(stream, slowo, znak)
+			return self.replaceKeysWithValues(slowo)
 		
+		if slowo.startswith('"'):
+			slowo = readQuotedString(stream, slowo, znak)
 		elif slowo.startswith('{'):
-			return readBracedString(stream, slowo, znak)
+			slowo = readBracedString(stream, slowo, znak)
 
+		slowo = self.replaceKeysWithValues(slowo)
 		return slowo
+	
 	def parseType_matrix(self, stream):
 		tekst, znak = self.readWord(stream)
 		if tekst is None:
@@ -737,10 +761,17 @@ class ParserATMDL(Parser):
 		with open(path,'r') as stream:
 			self.atmdlFile = path
 			root = Transform()
-
+			print("\n\nParsuję plik: "+path)
+			print(ParserATMDL.defs)
 			while True:
 				slowo = self.skip_comments(stream)
-				if slowo:
+				if slowo in {'define', 'replace'}:
+					slowo, _ = self.readWord(stream)
+					if slowo in ParserATMDL.defs:
+						self.back_defs[slowo] = ParserATMDL.defs[slowo]
+					ParserATMDL.defs[slowo] = self.parseType_string(stream)
+					print("\033[33mDEFINICJA: "+ slowo +" : "+ ParserATMDL.defs[slowo]+ "\033[0m")
+				elif slowo:
 					tmp = self.parseObject(stream, slowo)
 					if tmp:
 						self.add_kid(root, tmp)
@@ -750,7 +781,7 @@ class ParserATMDL(Parser):
 					print("\033[31mKONIEC PLIKU\033[0m")
 					break
 			
-
+			for d in self.back_defs.keys(): ParserATMDL.defs[d] = self.back_defs[d]
 			return root
 
 

@@ -26,6 +26,9 @@ class BaseObject(QObject):
 		self.m_modified = True
 		self.m_checked = False
 
+	def __del__(self):
+		print(self.__class__.__name__+" destructor")
+
 	def setLabel(self, _lbl):
 		self.m_label = _lbl
 
@@ -44,6 +47,12 @@ class BaseObject(QObject):
 	def getParent(self):
 		return self.m_parent
 
+	def setChecked(self, b):
+		self.m_checked = b
+
+	def isChecked(self):
+		return self.m_checked
+		
 	def setSelfVisibility(self, b):
 		self.m_showSelf = b
 

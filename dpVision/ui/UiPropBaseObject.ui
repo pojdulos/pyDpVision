@@ -49,7 +49,7 @@
    <property name="title">
     <string>BaseObject</string>
    </property>
-   <widget class="QCheckBox" name="selected">
+   <widget class="QCheckBox" name="selectedCheck">
     <property name="geometry">
      <rect>
       <x>20</x>
@@ -62,7 +62,7 @@
      <string>selected</string>
     </property>
    </widget>
-   <widget class="QCheckBox" name="visible">
+   <widget class="QCheckBox" name="selfVisibleCheck">
     <property name="geometry">
      <rect>
       <x>90</x>
@@ -78,7 +78,7 @@
      <bool>false</bool>
     </property>
     <property name="styleSheet">
-     <string notr="true">/*
+     <string notr="true">
 QCheckBox::indicator {
     image: url(:/icons/HideSelf.ico);
 }
@@ -90,7 +90,7 @@ QCheckBox::indicator:checked {
 QCheckBox::indicator:unchecked {
     image: url(:/icons/Hidden.ico);
 }
-*/
+
 </string>
     </property>
     <property name="text">
@@ -149,7 +149,7 @@ QCheckBox::indicator:unchecked {
      <string>Description:</string>
     </property>
    </widget>
-   <widget class="QCheckBox" name="visibleKids">
+   <widget class="QCheckBox" name="kidsVisibleCheck">
     <property name="geometry">
      <rect>
       <x>165</x>
@@ -159,7 +159,7 @@ QCheckBox::indicator:unchecked {
      </rect>
     </property>
     <property name="styleSheet">
-     <string notr="true">/*
+     <string notr="true">
 QCheckBox::indicator {
     image: url(:/icons/HideSelf.ico);
 }
@@ -171,7 +171,7 @@ QCheckBox::indicator:checked {
 QCheckBox::indicator:unchecked {
     image: url(:/icons/Hidden.ico);
 }
-*/
+
 </string>
     </property>
     <property name="text">
@@ -185,10 +185,10 @@ QCheckBox::indicator:unchecked {
  </resources>
  <connections>
   <connection>
-   <sender>selected</sender>
-   <signal>stateChanged(int)</signal>
+   <sender>selectedCheck</sender>
+   <signal>toggled(bool)</signal>
    <receiver>PropBaseObject</receiver>
-   <slot>changedSelection(int)</slot>
+   <slot>onChangedSelection(bool)</slot>
    <hints>
     <hint type="sourcelabel">
      <x>59</x>
@@ -201,10 +201,10 @@ QCheckBox::indicator:unchecked {
    </hints>
   </connection>
   <connection>
-   <sender>visible</sender>
-   <signal>stateChanged(int)</signal>
+   <sender>selfVisibleCheck</sender>
+   <signal>toggled(bool)</signal>
    <receiver>PropBaseObject</receiver>
-   <slot>changedVisibility(int)</slot>
+   <slot>onChangedSelfVisibility(bool)</slot>
    <hints>
     <hint type="sourcelabel">
      <x>129</x>
@@ -220,7 +220,7 @@ QCheckBox::indicator:unchecked {
    <sender>labelEdit</sender>
    <signal>textEdited(QString)</signal>
    <receiver>PropBaseObject</receiver>
-   <slot>changedLabel(QString)</slot>
+   <slot>onChangedLabel(QString)</slot>
    <hints>
     <hint type="sourcelabel">
      <x>119</x>
@@ -249,10 +249,10 @@ QCheckBox::indicator:unchecked {
    </hints>
   </connection>
   <connection>
-   <sender>visibleKids</sender>
+   <sender>kidsVisibleCheck</sender>
    <signal>toggled(bool)</signal>
    <receiver>PropBaseObject</receiver>
-   <slot>changedKidsVisibility(bool)</slot>
+   <slot>onChangedKidsVisibility(bool)</slot>
    <hints>
     <hint type="sourcelabel">
      <x>177</x>
@@ -266,10 +266,10 @@ QCheckBox::indicator:unchecked {
   </connection>
  </connections>
  <slots>
-  <slot>changedSelection(int)</slot>
-  <slot>changedVisibility(int)</slot>
-  <slot>changedLabel(QString)</slot>
+  <slot>onChangedSelection(bool)</slot>
+  <slot>onChangedSelfVisibility(bool)</slot>
+  <slot>onChangedLabel(QString)</slot>
   <slot>onDescrChanged()</slot>
-  <slot>changedKidsVisibility(bool)</slot>
+  <slot>onChangedKidsVisibility(bool)</slot>
  </slots>
 </ui>

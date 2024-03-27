@@ -80,6 +80,19 @@ class ParserOBJ(Parser):
 
 	@staticmethod	
 	def load( path ):
+		def dodaj_scianki(_f0, _f1=None, f2=None):
+			if len(_f0):
+				print( "dodaję scianki "+str(len(_f0)) )
+				f0 = [mesh.triangulate(f) if len(f) > 3 else [f] for f in _f0]
+				f0 = [item for sublist in f0 for item in sublist]  # Spłaszczenie listy list
+				mesh.m_faces = np.array(f0, dtype=np.uint)
+
+				if _f1 is not None:
+					f1 = [mesh.triangulate(t) if len(t) > 3 else [t] for t in _f1]
+					f1 = [item for sublist in f1 for item in sublist]  # Spłaszczenie listy list
+					mesh.m_tindices = np.array(f1, dtype=np.uint)
+		
+
 		AP.mainWin.progressIndicator.init(text="Wczytuję plik .obj")
 		total_lines = ParserOBJ.count_lines(path)
 		step = float(total_lines) / 100.0
@@ -174,9 +187,7 @@ class ParserOBJ(Parser):
 		print( "dodaję wierzcholki "+str(len(vces)) )
 		mesh.m_vertices = np.array(vces, dtype=np.float32)
 
-		if len(f0):
-			print( "dodaję scianki "+str(len(f0)) )
-			mesh.m_faces = np.array(f0, dtype=np.uint)
+		dodaj_scianki(f0, f1)
 
 		if len(vnorms):
 			print( "dodaję normalne "+str(len(vnorms)) )
@@ -192,10 +203,6 @@ class ParserOBJ(Parser):
 		if len(tcrds):
 			print( "dodaję koordynaty tekstury "+str(len(tcrds)) )
 			mesh.m_tcoords = np.array(tcrds, dtype=np.float32)
-
-		if len(f1):
-			print( "dodaję indeksy tekstury "+str(len(f1)) )
-			mesh.m_tindices = np.array(f1, dtype=np.uint)
 
 # 		mesh.recalcFNormals()
 		AP.mainWin.progressIndicator.hide()

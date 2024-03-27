@@ -54,17 +54,53 @@ class Mesh(PointCloud):
 		}
 		self.currentMaterial = ''
 
-	def addFace(self, a, b, c):
-		self.m_faces = np.vstack([self.m_faces, Face(a, b, c)])
+	def addFace(self, face, ti=None):
+		self.m_faces = np.vstack([self.m_faces, face])
+		if ti is not None and len(ti) == len(face):
+			self.m_tindices = np.vstack([self.m_tindices, ti])
 
-	def addFaceX(self, dane):
-		a, b, c = dane[0], dane[1], dane[2]
-		lastIDX = self.addFace(a, b, c) #, col);
-		for i in range(3, len(dane)):
-			b = c
-			c = dane[i]
-			lastIDX = self.addFace(a, b, c) #, col);
-		return lastIDX
+	def triangulate(self, vertices):
+		triangles = []
+		for i in range(1, len(vertices) - 1):
+			triangle = [vertices[0], vertices[i], vertices[i + 1]]
+			triangles.append(triangle)
+		return triangles
+
+	def addFaceX(self, face, ti=None):
+		def add_faces(faces, tis=None):
+			if tis is not None:
+				self.m_faces = np.vstack([self.m_faces] + faces)
+				self.m_tindices = np.vstack([self.m_tindices] + tis)
+			else:
+				self.m_faces = np.vstack([self.m_faces] + faces)
+
+		if ti is not None and len(ti) != len(face):
+			raise ValueError("number of texture indices do not match face indices")
+
+		if len(face) > 3:
+			new_faces = self.triangulate(face)
+			new_tis = self.triangulate(ti) if ti and len(ti) == len(face) else None
+			add_faces(new_faces, new_tis)
+		else:
+			add_faces([face], [ti] if ti and len(ti) == len(face) else None)
+
+	# def addFaceX(self, face, ti=None):
+	# 	def add_faces(faces, tis=None):
+	# 		last_idx = None
+	# 		for f in faces:
+	# 			t = tis.pop(0) if tis else None
+	# 			last_idx = self.addFace(face=f, ti=t)
+	# 		return last_idx
+
+	# 	if ti is not None and len(ti) != len(face):
+	# 		raise ValueError("number of texture indices do not match face indices")
+
+	# 	if len(face) > 3:
+	# 		new_faces = self.triangulate(face)
+	# 		new_tis = self.triangulate(ti) if ti and len(ti) == len(face) else None
+	# 		return add_faces(new_faces, new_tis)
+	# 	else:
+	# 		return add_faces([face], [ti] if ti and len(ti) == len(face) else None)
 
 	@staticmethod
 	def getNormal(v0, v1, v2):

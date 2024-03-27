@@ -1,0 +1,9 @@
+newmtl zuchwa
+Ka 0.540000 0.540000 0.540000
+Kd 0.550000 0.550000 0.550000
+Ks 0.500000 0.500000 0.500000
+illum 0
+map_Ka zuchwa.bmp
+map_Kd zuchwa.bmp
+map_Ks zuchwa.bmp
+

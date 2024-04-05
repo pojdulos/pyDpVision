@@ -42,6 +42,8 @@ from dpVision.ParserOBJ import ParserOBJ
 Parser.regParser(ParserOBJ)
 from dpVision.ParserATMDL import ParserATMDL
 Parser.regParser(ParserATMDL)
+from dpVision.ParserDICOM import ParserDICOM
+Parser.regParser(ParserDICOM)
 
 AP.mainApp.load_plugins("./plugins")
 

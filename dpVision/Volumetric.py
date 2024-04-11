@@ -37,7 +37,8 @@ class Volumetric(Object):
 		# Sortowanie plików DICOM w kolejności
 		self.m_dicom_files.sort(key=lambda x: float(x.SliceLocation))
 		# Tworzenie wolumetrycznego zestawu danych
-		self.m_volume = np.stack([self.moja_funkcja(file.pixel_array) for file in self.m_dicom_files])
+		self.m_volume = np.stack([file.pixel_array for file in self.m_dicom_files])
+		#self.m_volume = np.stack([self.moja_funkcja(file.pixel_array) for file in self.m_dicom_files])
 		self.m_min = np.min(self.m_volume)
 		self.m_max = np.max(self.m_volume)
 		
@@ -45,34 +46,32 @@ class Volumetric(Object):
 		dims = self.m_volume.shape
 		step = 4
 
-		indices = np.mgrid[0:dims[0]:step, 0:dims[1]:step, 0:dims[2]:step].reshape(3,-1)
-		
-		voxel_values = self.m_volume[tuple(indices)]
-		voxel_coords = indices.T
-
 		start_time = time.time()
-		
-		#DRAMATYCZNIE WOLNE (unique działa szybko, ale grupowanie danych po value to koszmar):
-		#self.m_displ = {value: voxel_coords[voxel_values == value] for value in np.unique(voxel_values)}
-		
-		#DUŻO SZYBSZE ALE WBREW MOIM OCZEKIWANIOM RÓWNIEŻ BARDZO WOLNE:		
-		# # Tworzenie DataFrame z wartościami i współrzędnymi vokseli
-		# df = pd.DataFrame({'values': voxel_values, 'coords': list(map(tuple, voxel_coords))})
-		# # Grupowanie DataFrame według wartości vokseli
-		# grouped = df.groupby('values')
-		# # Tworzenie słownika z grupami
-		# self.m_displ = {name: group['coords'].values.tolist() for name, group in grouped}
 
-		#NAJPROSTSZE ALE O DZIWO NAJSZYBSZE:
-		for val,coord in zip(voxel_values,voxel_coords):
-			#value = float(val - self.m_min) / (self.m_max - self.m_min)
-			self.m_displ[val].append(coord)	
-
-		# WSZYSTKO TO DZIALA ZA WOLNO....
+		indices = np.mgrid[0:dims[0]:step, 0:dims[1]:step, 0:dims[2]:step].reshape(3,-1).T
+		voxel_values = self.m_volume[indices[:,0],indices[:,1],indices[:,2]]
 		
+		self.m_values = (voxel_values - self.m_min) / (self.m_max - self.m_min)
+
 		end_time = time.time()
 		elapsed_time = end_time - start_time
-		print(f"Czas wykonania: {elapsed_time} sekund")
+		print(f"Punkt 1: {elapsed_time} sekund")
+
+		self.m_displ = {value: [] for value in self.m_values}
+
+		for value,coord in zip(self.m_values,indices):
+			self.m_displ[value].append(coord)	
+
+		end_time = time.time()
+		elapsed_time = end_time - start_time
+		print(f"Punkt 2: {elapsed_time} sekund")
+
+		self.m_displ = {value: np.array(self.m_displ[value], dtype=np.float32) for value in self.m_displ}
+
+		end_time = time.time()
+		elapsed_time = end_time - start_time
+		print(f"Punkt 3: {elapsed_time} sekund")
+
 
 	def renderSelf(self):	
 		glPushMatrix()
@@ -93,17 +92,11 @@ class Volumetric(Object):
 		glEnableVertexAttribArray(0)  # np. dla pozycji wierzchołka
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
 				
-		for val in self.m_displ:
-			if val > 1000:
-				value = (val - self.m_min) / (self.m_max - self.m_min)
+		for value in self.m_displ:
+			if value > 0.3:
 				glColor3f(value, value, value)
-
-				voxels = np.array(self.m_displ[val],dtype=np.float32)
-				#voxels = self.m_displ[val]
-
+				voxels = self.m_displ[value]
 				glBufferData(GL_ARRAY_BUFFER, voxels, GL_STATIC_DRAW)
-				
-				# Renderowanie
 				glDrawArrays(GL_POINTS, 0, voxels.shape[0])
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0)

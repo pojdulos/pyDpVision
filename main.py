@@ -9,6 +9,27 @@ from PyQt5.QtCore import QSettings
 from dpVision.Globals import AP
 from dpVision.MainApplication import MainApplication
 from dpVision.MainWindow import MainWindow
+from dpVision.Transform import Transform
+
+def fastTest2():
+	from dpVision.Image import Image
+	from PyQt5.QtGui import QImage
+
+	obj = Image(path = "d:\\rozmiary2.PNG")
+	if not obj is None:
+		tra = Transform()
+		if not tra is None:
+			tra.addChild(obj)
+			AP.mainWin.workspace.m_data.append(tra)
+			AP.mainWin.dock["workspace"].addNewItem(tra)
+
+		obj2 = Image(image = obj)
+		if not obj2 is None:
+			tra2 = Transform()
+			if not tra2 is None:
+				tra2.addChild(obj2)
+				AP.mainWin.workspace.m_data.append(tra2)
+				AP.mainWin.dock["workspace"].addNewItem(tra2)
 
 def fastTest():
 	from dpVision.AnnotationPoint import AnnotationPoint
@@ -44,6 +65,8 @@ from dpVision.ParserATMDL import ParserATMDL
 Parser.regParser(ParserATMDL)
 from dpVision.ParserDICOM import ParserDICOM
 Parser.regParser(ParserDICOM)
+from dpVision.ParserIMAGE2D import ParserIMAGE2D
+Parser.regParser(ParserIMAGE2D)
 
 AP.mainApp.load_plugins("./plugins")
 
@@ -52,6 +75,6 @@ if AP.settings.value("mainwindow/maximized", False, type=bool):
 else:
 	AP.mainWin.show()
 
-#fastTest()
+#fastTest2()
 
 sys.exit(AP.mainApp.exec_())

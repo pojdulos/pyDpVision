@@ -18,6 +18,7 @@ from math import tan, pi
 from enum import Enum
 
 from dpVision.Transform import Transform
+from dpVision.Globals import AP
 
 class Camera:
 	positionChanged = pyqtSignal(list)
@@ -264,15 +265,16 @@ class GLViewer(QOpenGLWidget):
 		#self.mainWindow.dock["properties"].m_widget.updateProperties()
 
 	def mousePressEvent(self, event ):
+		AP.mouse_key_pressed = True
 		self.lastPos = event.pos()
 
 	def mouseReleaseEvent(self, event ):
+		AP.mouse_key_pressed = False
 		self.update()
 
 	def wheelEvent(self, event):
 		d = -float(event.angleDelta().y())
 		self.translate( 0.0, 0.0, d/25 )
-	
 
 	def draw3Dcontent(self):
 		glMatrixMode(GL_MODELVIEW)

@@ -19,6 +19,9 @@ class Image(Object, QImage):
 
             self.width = self.imageRGBA.width()
             self.height = self.imageRGBA.height()
+            self.ratio = float(self.height) / self.width
+            self.w2 = self.width/200.0
+            self.h2 = self.height/200.0
 
             ptr = self.imageRGBA.constBits()
             ptr.setsize(self.height * self.width * 4)
@@ -27,6 +30,9 @@ class Image(Object, QImage):
             self.imageRGBA = self.convertToFormat(QImage.Format_RGBA8888).mirrored()
             self.width = self.imageRGBA.width()
             self.height = self.imageRGBA.height()
+            self.ratio = float(self.height) / self.width
+            self.w2 = self.width/200.0
+            self.h2 = self.height/200.0
 
     def load(self, path):
         QImage.load(self, path)
@@ -38,6 +44,8 @@ class Image(Object, QImage):
         self.width = self.imageRGBA.width()
         self.height = self.imageRGBA.height()
         self.ratio = float(self.height) / self.width
+        self.w2 = self.width/200.0
+        self.h2 = self.height/200.0
 
         ptr = self.imageRGBA.constBits()
         ptr.setsize(self.height * self.width * 4)
@@ -89,10 +97,14 @@ class Image(Object, QImage):
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
             glBegin(GL_QUADS)
-            glTexCoord2f(0, 0); glVertex2f(-1.0, -self.ratio)
-            glTexCoord2f(1, 0); glVertex2f( 1.0, -self.ratio)
-            glTexCoord2f(1, 1); glVertex2f( 1.0,  self.ratio)
-            glTexCoord2f(0, 1); glVertex2f(-1.0,  self.ratio)
+            # glTexCoord2f(0, 0); glVertex2f(-1.0, -self.ratio)
+            # glTexCoord2f(1, 0); glVertex2f( 1.0, -self.ratio)
+            # glTexCoord2f(1, 1); glVertex2f( 1.0,  self.ratio)
+            # glTexCoord2f(0, 1); glVertex2f(-1.0,  self.ratio)
+            glTexCoord2f(0, 0); glVertex2f(-self.w2, -self.h2)
+            glTexCoord2f(1, 0); glVertex2f( self.w2, -self.h2)
+            glTexCoord2f(1, 1); glVertex2f( self.w2,  self.h2)
+            glTexCoord2f(0, 1); glVertex2f(-self.w2,  self.h2)
             glEnd()
 
             glDisable(GL_TEXTURE_2D)

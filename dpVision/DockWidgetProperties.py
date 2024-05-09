@@ -8,6 +8,7 @@ Created on Thu Nov 23 13:51:54 2023
 from PyQt5.QtCore import QObject, pyqtSlot
 from PyQt5.QtWidgets import QDockWidget, QSizePolicy, QScrollArea,QVBoxLayout
 from PyQt5 import uic
+from dpVision.PropVolumetric import PropVolumetric
 from dpVision.PropMotion import PropMotion
 from dpVision.PropWidget import PropWidget
 from dpVision.PropViewer import PropViewer
@@ -54,6 +55,8 @@ class DockWidgetProperties(QDockWidget):
 				self.m_widget = PropMesh.create(obj, self)
 			elif name == 'Motion':
 				self.m_widget = PropMotion.create(obj, self)
+			elif name == 'Volumetric':
+				self.m_widget = PropVolumetric.create(obj, self)
 			else:
 				self.m_widget = PropBaseObject.create(obj, self)
 		elif obj.hasCategory(Annotation):

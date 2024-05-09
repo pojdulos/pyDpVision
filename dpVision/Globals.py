@@ -8,6 +8,7 @@ class Globals:
 			cls._instance.mainWin = None
 			cls._instance.settings = None
 			#cls._instance.docksettings = None
+			cls._instance.mouse_key_pressed = False
 		return cls._instance
 
 	# def updateGlobals(self):

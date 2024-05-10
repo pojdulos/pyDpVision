@@ -22,9 +22,12 @@ uniform mat4 projection;
 uniform float minColor;
 uniform float maxColor;
 
+uniform vec3 voxelSize;
+uniform vec3 imagePosition;
+
 uniform int sizeX;
 uniform int sizeY;
-uniform int aPosZ;
+//uniform int aPosZ;
 
 uniform int rescale;
 
@@ -45,16 +48,23 @@ void main()
 	{
 		int aPosY = int( float(gl_VertexID) / sizeX );
 		int aPosX = gl_VertexID - ( aPosY * sizeX );
-		vec3 aPos = rescale * vec3(aPosX, aPosY, aPosZ);	
+		vec3 aPos = imagePosition + ( rescale * voxelSize * vec3(aPosX, aPosY, 0.0) );	
 
 		vec4 worldPos = model * vec4(aPos, 1.0);
         //gl_Position = projection * view * worldPos;
 
-        vout.color = vec3(aCol);
+		float nCol = aCol;
+		if (maxColor > minColor)
+		{
+			nCol = nCol - minColor;
+			nCol = nCol / (maxColor - minColor);
+		}
+
+        vout.color = vec3(nCol);
 		vout.worldPos = worldPos.xyz;
 		vout.projectionMatrix = projection;
 		vout.viewMatrix = view;
-		vout.scale = float(rescale);
+		vout.scale = float(rescale * voxelSize);
         vout.validVoxel = true;
 
         FragPos = worldPos.xyz;		
@@ -98,7 +108,7 @@ void main(void)
 """
 
 # próba wyświetlania vokseli jako kostek zamiast pikseli
-geometry_shader_code1 = """
+geometry_shader_code2 = """
 #version 330 core
 layout (points) in;
 layout (triangle_strip, max_vertices = 36) out;
@@ -215,15 +225,16 @@ class Volumetric(Object):
 		Returns:
 			Windowed slice.
 		"""
-		# print(dcm.file_meta)
+		print(dcm)
 		# print(dcm.pixel_array)
   
 		# convert to HU
 		b = float(getattr(dcm, 'RescaleIntercept', 0.0))
 		m = float(getattr(dcm, 'RescaleSlope', 1.0))
 
-		# print(f"m = {m}, b = {b}")
+		# przeskalowanie do jednostek Hounsfielda
 		x = m * dcm.pixel_array + b
+		# print(f"m = {m}, b = {b}")
 
 		# print(f"slice.min = {np.min(x)}, slice.max = {np.max(x)}")
 
@@ -282,6 +293,38 @@ class Volumetric(Object):
 		#self.m_volume = np.stack([self.window_ct(file,w=4096,c=1024.0) for file in self.m_dicom_files])
 		#self.m_volume = np.stack([self.window_ct(file,w=3064.0,c=0.0) for file in self.m_dicom_files])
 		
+		self.metadata = []
+		for idx, file in enumerate(self.m_dicom_files):
+			position_image = getattr(file, 'ImagePositionPatient', [0.0, 0.0, idx])
+			pixel_spacing = getattr(file, 'PixelSpacing', [1.0, 1.0])
+			rows, cols = getattr(file, 'Rows'), getattr(file, 'Columns')
+
+			# korekcja polozenia w X i Y jesli zostało podane w pikselach zamiast milimetrach
+			if abs(position_image[0]) >= cols/2 or abs(position_image[1]) >= rows/2:
+				for i in range(2):
+					position_image[i] = pixel_spacing[i] * position_image[i]
+
+			# korekcja polozenia w X i Y jesli nie zostało ustawione
+			# elif position_image[0] == 0 and position_image[1] == 0:
+			# 	for i in range(2):
+			# 		position_image[0] = - pixel_spacing[0] * cols/2
+			# 		position_image[1] = - pixel_spacing[1] * rows/2
+
+			mydict = {
+				'ImagePositionPatient': position_image,
+				'SliceLocation': getattr(file, 'SliceLocation', idx),
+				'PixelSpacing': pixel_spacing,
+				'SliceThickness': getattr(file, 'SliceThickness', 1.0),
+				'GantryDetectorTilt': getattr(file, 'GantryDetectorTilt', 0.0)
+			}
+			
+			#print(f"file {idx}: GantryDetectorTilt = {mydict['GantryDetectorTilt']}, ImagePositionPatient = {mydict['ImagePositionPatient']}")
+			# print(f"PhotometricInterpretation = {getattr(file, 'PhotometricInterpretation')}")
+			#print(f"PixelRepresentation = {getattr(file, 'PixelRepresentation')}")
+			self.metadata.append(mydict)
+
+		# print(self.metadata)
+
 		self.m_min = np.min(self.m_volume)
 		self.m_max = np.max(self.m_volume)
 		print(f"wart.min = {self.m_min}, wart.maks = {self.m_max}")
@@ -350,13 +393,14 @@ class Volumetric(Object):
 		maxColor_loc = glGetUniformLocation(self.shader_program, "maxColor")
 		glUniform1f( maxColor_loc, self.m_maxDisplWin )
 
+		factor = 1
 		rescale_loc = glGetUniformLocation(self.shader_program, "rescale")
 		if self.m_fastDraw or AP.mouse_key_pressed:
-			my_data = self.m_volume[::4, ::4, ::4]
-			glUniform1i( rescale_loc, 4 )
+			factor = 4
+			my_data = self.m_volume[::factor, ::factor, ::factor]
 		else:
 			my_data = self.m_volume
-			glUniform1i( rescale_loc, 1 )
+		glUniform1i( rescale_loc, factor )
 		
 		sizeX_loc = glGetUniformLocation(self.shader_program, "sizeX")
 		glUniform1i( sizeX_loc, my_data.shape[2] )
@@ -370,8 +414,14 @@ class Volumetric(Object):
 		
 			glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
 		
-			aPosZ_loc = glGetUniformLocation(self.shader_program, "aPosZ")
-			glUniform1i( aPosZ_loc, z )
+			# aPosZ_loc = glGetUniformLocation(self.shader_program, "aPosZ")
+			# glUniform1i( aPosZ_loc, z )
+
+			voxelSize_loc = glGetUniformLocation(self.shader_program, "voxelSize")
+			glUniform3f( voxelSize_loc, self.metadata[factor*z]['PixelSpacing'][0], self.metadata[factor*z]['PixelSpacing'][1], self.metadata[factor*z]['SliceThickness'] )
+
+			imagePosition_loc = glGetUniformLocation(self.shader_program, "imagePosition")
+			glUniform3f( imagePosition_loc, self.metadata[factor*z]['ImagePositionPatient'][0], self.metadata[factor*z]['ImagePositionPatient'][1], self.metadata[factor*z]['ImagePositionPatient'][2] )
 
 			glDrawArrays(GL_POINTS, 0, colors.shape[0])
 

@@ -250,18 +250,33 @@ class GLViewer(QOpenGLWidget):
 			dx = float(event.pos().x()) - float(self.lastPos.x())
 			dy = float(event.pos().y()) - float(self.lastPos.y())
 
-			if event.buttons() & Qt.MouseButton.LeftButton:
-				self.rotate(dx, dy)
-			elif event.buttons() & Qt.MouseButton.RightButton:
-				self.translate( dx/5, -dy/5, 0.0 )
+			# if event.buttons() & Qt.MouseButton.LeftButton:
+			# 	self.rotate(dx, dy)
+			# elif event.buttons() & Qt.MouseButton.RightButton:
+			# 	self.translate( dx/5, -dy/5, 0.0 )
 		
-		x_angle, y_angle, z_angle = self.transform.getEulerAnglesDeg()
+			if event.buttons() & Qt.MouseButton.LeftButton:
+				modifiers = QApplication.keyboardModifiers()
+				if modifiers == Qt.ShiftModifier:
+					self.translate( 0.0, 0.0, -dy/5 )
+					#print('Shift+MouseMove')
+				elif modifiers == Qt.ControlModifier:
+					self.translate( dx/5, -dy/5, 0.0 )
+					#print('Control+MouseMove')
+				else:
+					self.rotate(dx, dy)
+					#print('MouseMove')
+			elif event.buttons() & Qt.MouseButton.RightButton:
+				obj = self.mainWindow.workspace.m_currentObject
+				if obj is not None:
+					obj.on_mouse_move(dx, dy)
+
+		#x_angle, y_angle, z_angle = self.transform.getEulerAnglesDeg()
 		#print("Kąty Eulera:", x_angle, y_angle, z_angle)
 		#print("Wektor translacji:", self.transform.getTranslation())
 		#print("Wektor skali:", self.transform.getScale())
+		
 		self.lastPos = event.pos()
-		
-		
 		#self.mainWindow.dock["properties"].m_widget.updateProperties()
 
 	def mousePressEvent(self, event ):
@@ -405,9 +420,9 @@ class GLViewer(QOpenGLWidget):
 
 
 	def rysujOsie(self):
-		xCol = [ 0.2, 0.2, 0.8 ]
+		zCol = [ 0.2, 0.2, 0.8 ]
 		yCol = [ 0.2, 0.8, 0.2 ]
-		zCol = [ 0.8, 0.2, 0.2 ]
+		xCol = [ 0.8, 0.2, 0.2 ]
 	
 		glPushAttrib(GL_ALL_ATTRIB_BITS)
 	
@@ -503,9 +518,9 @@ class GLViewer(QOpenGLWidget):
 		glPopAttrib()
 
 	def triad3D(self,  W1, L1, W2, L2, active):
-		xCol = [ 0.2, 0.2, 0.8 ]
+		zCol = [ 0.2, 0.2, 0.8 ]
 		yCol = [ 0.2, 0.8, 0.2 ]
-		zCol = [ 0.8, 0.2, 0.2 ]
+		xCol = [ 0.8, 0.2, 0.2 ]
 	
 		glColor3f( 0.2, 0.2, 0.2 )
 	

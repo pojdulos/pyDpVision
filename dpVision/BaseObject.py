@@ -77,7 +77,10 @@ class BaseObject(QObject):
 			return type(self) is typ
 		else:
 			raise TypeError("Argument 'typ' must be a class type")
-		
+	
+	def on_mouse_move(self, x, y):
+		#
+		pass
 
 	def children(self):
 		return []

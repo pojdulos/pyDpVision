@@ -32,6 +32,9 @@ class Globals:
 			self.mainWin.workspace.m_data.remove(child)
 		self.mainWin.dock["workspace"].removeItem(child)
 
+	def updateProperties(self):
+		self.mainWin.dock["properties"].updateProperties()
+
 	def updateAllViews(self):
 		for v in self.mainWin.allGLViewers():
 			v.update()

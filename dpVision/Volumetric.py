@@ -1,3 +1,4 @@
+from math import *
 from dpVision.Globals import AP
 from .Object import Object
 from PyQt5.QtGui import *
@@ -38,7 +39,7 @@ out VS_OUT{
 	vec3 worldPos;
 	mat4 projectionMatrix;
 	mat4 viewMatrix;
-	float scale;
+	vec3 boxSize;
 	bool validVoxel;
 } vout;
 
@@ -49,6 +50,8 @@ void main()
 		int aPosY = int( float(gl_VertexID) / sizeX );
 		int aPosX = gl_VertexID - ( aPosY * sizeX );
 		vec3 aPos = imagePosition + ( rescale * voxelSize * vec3(aPosX, aPosY, 0.0) );	
+		
+		//aPos[2] = aPos[2] / 2.0;
 
 		vec4 worldPos = model * vec4(aPos, 1.0);
         //gl_Position = projection * view * worldPos;
@@ -64,7 +67,7 @@ void main()
 		vout.worldPos = worldPos.xyz;
 		vout.projectionMatrix = projection;
 		vout.viewMatrix = view;
-		vout.scale = float(rescale * voxelSize);
+		vout.boxSize = rescale * voxelSize;
         vout.validVoxel = true;
 
         FragPos = worldPos.xyz;		
@@ -86,7 +89,7 @@ in VS_OUT{
 	vec3 worldPos;
 	mat4 projectionMatrix;
 	mat4 viewMatrix;
-	float scale;
+	vec3 boxSize;
 	bool validVoxel;
 } gs_in[];
 
@@ -108,7 +111,7 @@ void main(void)
 """
 
 # próba wyświetlania vokseli jako kostek zamiast pikseli
-geometry_shader_code2 = """
+geometry_shader_code_boxes = """
 #version 330 core
 layout (points) in;
 layout (triangle_strip, max_vertices = 36) out;
@@ -118,7 +121,7 @@ in VS_OUT {
 	vec3 worldPos;
 	mat4 projectionMatrix;
 	mat4 viewMatrix;
-	float scale;
+	vec3 boxSize;
     bool validVoxel;
 } gs_in[];
 
@@ -136,21 +139,51 @@ void main() {
         vec4 vertices[8];
 
         // Obliczenia pozycji wierzchołków
-        float halfSize = 0.5 * gs_in[0].scale; // Połowa długości boku kostki
+        vec3 halfSize = 0.5 * gs_in[0].boxSize; // Połowa długości boku kostki
+		
+		// Wierzchołki kostki
+        vertices[0] = pointPos + vec4(-halfSize[0], -halfSize[1], -halfSize[2], 0.0); // Lewy dolny tylny
+		vertices[1] = pointPos + vec4( halfSize[0], -halfSize[1], -halfSize[2], 0.0);  // Prawy dolny tylny
+		vertices[2] = pointPos + vec4(-halfSize[0],  halfSize[1], -halfSize[2], 0.0);  // Lewy górny tylny
+		vertices[3] = pointPos + vec4( halfSize[0],  halfSize[1], -halfSize[2], 0.0);   // Prawy górny tylny
+		vertices[4] = pointPos + vec4(-halfSize[0], -halfSize[1],  halfSize[2], 0.0);  // Lewy dolny przedni
+		vertices[5] = pointPos + vec4( halfSize[0], -halfSize[1],  halfSize[2], 0.0);   // Prawy dolny przedni
+		vertices[6] = pointPos + vec4(-halfSize[0],  halfSize[1],  halfSize[2], 0.0);   // Lewy górny przedni
+		vertices[7] = pointPos + vec4( halfSize[0],  halfSize[1],  halfSize[2], 0.0);    // Prawy górny przedni
 
-        // Wierzchołki kostki
-        vertices[0] = pointPos + vec4(-halfSize, -halfSize, -halfSize, 0.0);
-		vertices[1] = pointPos + vec4(halfSize, -halfSize, -halfSize, 0.0);  // Prawy dolny tylny
-		vertices[2] = pointPos + vec4(-halfSize, halfSize, -halfSize, 0.0);  // Lewy górny tylny
-		vertices[3] = pointPos + vec4(halfSize, halfSize, -halfSize, 0.0);   // Prawy górny tylny
-		vertices[4] = pointPos + vec4(-halfSize, -halfSize, halfSize, 0.0);  // Lewy dolny przedni
-		vertices[5] = pointPos + vec4(halfSize, -halfSize, halfSize, 0.0);   // Prawy dolny przedni
-		vertices[6] = pointPos + vec4(-halfSize, halfSize, halfSize, 0.0);   // Lewy górny przedni
-		vertices[7] = pointPos + vec4(halfSize, halfSize, halfSize, 0.0);    // Prawy górny przedni
+		int indices[20];
+		indices[0] = 0;
+		indices[1] = 1;
+		indices[2] = 2;
+		indices[3] = 3;
+		indices[4] = 6;
+		indices[5] = 7;
+		indices[6] = 4;
+		indices[7] = 5;
+		indices[8] = 0;
+		indices[9] = 1;
+
+		indices[10] = 1;
+		indices[11] = 5;
+		indices[12] = 3;
+		indices[13] = 7;
+		indices[14] = 2;
+		indices[15] = 6;
+		indices[16] = 0;
+		indices[17] = 4;
+		indices[18] = 1;
+		indices[19] = 5;
 
         // Generowanie ścian kostki
-        for (int i = 0; i < 8; ++i) {
-            gl_Position = gs_in[0].projectionMatrix * gs_in[0].viewMatrix *vertices[i];
+        for (int i = 0; i < 10; ++i) {
+			int idx = indices[i];
+            gl_Position = gs_in[0].projectionMatrix * gs_in[0].viewMatrix * vertices[idx];
+            EmitVertex();
+        }
+        EndPrimitive();
+        for (int i = 10; i < 20; ++i) {
+			int idx = indices[i];
+            gl_Position = gs_in[0].projectionMatrix * gs_in[0].viewMatrix * vertices[idx];
             EmitVertex();
         }
         EndPrimitive();
@@ -210,39 +243,15 @@ class Volumetric(Object):
 		self.m_minDisplWin = 0.0
 		self.m_maxDisplWin = 1.0
 		self.m_fastDraw = True
+		self.m_renderBoxes = False
 
-	def window_ct(self, dcm, ymin=0.0, ymax=1.0, w=None, c=None):
-		"""Windows a CT slice.
-		http://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.11.2.html
-
-		Args:
-			dcm (pydicom.dataset.FileDataset):
-			w: Window Width parameter.
-			c: Window Center parameter.
-			ymin: Minimum output value.
-			ymax: Maximum output value.
-
-		Returns:
-			Windowed slice.
-		"""
-		print(dcm)
-		# print(dcm.pixel_array)
-  
-		# convert to HU
-		b = float(getattr(dcm, 'RescaleIntercept', 0.0))
-		m = float(getattr(dcm, 'RescaleSlope', 1.0))
-
-		# przeskalowanie do jednostek Hounsfielda
+	def convert_to_HU(self, dcm, b=None, m=None):
+		if b is None: b = float(getattr(dcm, 'RescaleIntercept', 0.0))
+		if m is None: m = float(getattr(dcm, 'RescaleSlope', 1.0))
 		x = m * dcm.pixel_array + b
-		# print(f"m = {m}, b = {b}")
-
-		# print(f"slice.min = {np.min(x)}, slice.max = {np.max(x)}")
-
-		if w is None: w = dcm.WindowWidth
-		if c is None: c = dcm.WindowCenter
-
-		# print(f"win.center = {c}, win.width = {w}")
-
+		return x
+	
+	def aply_window(self, x, ymin=0.0, ymax=1.0, w=None, c=None):
 		# windowing C.11.2.1.2.1 Default LINEAR Function
 		#
 		y = np.zeros_like(x)
@@ -251,9 +260,16 @@ class Volumetric(Object):
 		y[(x > (c - 0.5 - (w - 1) / 2)) & (x <= (c - 0.5 + (w - 1) / 2))] = \
 			((x[(x > (c - 0.5 - (w - 1) / 2)) & (x <= (c - 0.5 + (w - 1) / 2))] - (c - 0.5)) / (w - 1) + 0.5) * (
 					ymax - ymin) + ymin
-
 		return y
 
+	def window_ct(self, dcm, ymin=0.0, ymax=1.0, w=None, c=None):
+		y = self.convert_to_HU(dcm)
+		# if w is None: w = dcm.WindowWidth
+		# if c is None: c = dcm.WindowCenter
+		# # print(f"win.center = {c}, win.width = {w}")
+		# y = self.aply_window(y, ymin, ymax, w, c)
+		return y
+	
 	def show_histogram(self):
 
 		data = np.array(self.m_volume).flatten()
@@ -298,7 +314,9 @@ class Volumetric(Object):
 			position_image = getattr(file, 'ImagePositionPatient', [0.0, 0.0, idx])
 			pixel_spacing = getattr(file, 'PixelSpacing', [1.0, 1.0])
 			rows, cols = getattr(file, 'Rows'), getattr(file, 'Columns')
-
+			
+			gantra = float(getattr(file, 'GantryDetectorTilt', 0.0))
+			
 			# korekcja polozenia w X i Y jesli zostało podane w pikselach zamiast milimetrach
 			if abs(position_image[0]) >= cols/2 or abs(position_image[1]) >= rows/2:
 				for i in range(2):
@@ -310,15 +328,27 @@ class Volumetric(Object):
 			# 		position_image[0] = - pixel_spacing[0] * cols/2
 			# 		position_image[1] = - pixel_spacing[1] * rows/2
 
+
+			if gantra != 0.0:
+				dy = position_image[2] * tan(gantra)
+				position_image[1] = position_image[1]+dy
+
+			slice_thickness = getattr(file, 'SliceThickness', 1.0)
+
 			mydict = {
 				'ImagePositionPatient': position_image,
 				'SliceLocation': getattr(file, 'SliceLocation', idx),
 				'PixelSpacing': pixel_spacing,
-				'SliceThickness': getattr(file, 'SliceThickness', 1.0),
-				'GantryDetectorTilt': getattr(file, 'GantryDetectorTilt', 0.0)
+				'SliceThickness': slice_thickness,
+				'GantryDetectorTilt': gantra
 			}
 			
-			#print(f"file {idx}: GantryDetectorTilt = {mydict['GantryDetectorTilt']}, ImagePositionPatient = {mydict['ImagePositionPatient']}")
+			print(f"file {idx}:")
+			print(f"    GantryDetectorTilt = {mydict['GantryDetectorTilt']}")
+			print(f"    SliceThickness = {mydict['SliceThickness']}")
+			print(f"    SliceLocation = {mydict['SliceLocation']}")
+			print(f"    PixelSpacing = {mydict['PixelSpacing']}")
+			print(f"    ImagePositionPatient = {mydict['ImagePositionPatient']}")
 			# print(f"PhotometricInterpretation = {getattr(file, 'PhotometricInterpretation')}")
 			#print(f"PixelRepresentation = {getattr(file, 'PixelRepresentation')}")
 			self.metadata.append(mydict)
@@ -328,16 +358,42 @@ class Volumetric(Object):
 		self.m_min = np.min(self.m_volume)
 		self.m_max = np.max(self.m_volume)
 		print(f"wart.min = {self.m_min}, wart.maks = {self.m_max}")
+		self.m_minDisplWin = self.m_min
+		self.m_maxDisplWin = self.m_max
 
 		# self.show_histogram()
 
+
+	def on_mouse_move(self, dx, dy):
+		self.m_minDisplWin = self.m_minDisplWin + dx
+		self.m_minDisplWin = self.m_minDisplWin + dy
+		if self.m_minDisplWin < self.m_min:
+			self.m_minDisplWin = self.m_min
+
+		self.m_maxDisplWin = self.m_maxDisplWin - dx
+		self.m_maxDisplWin = self.m_maxDisplWin + dy
+		if self.m_maxDisplWin > self.m_max:
+			self.m_maxDisplWin = self.m_max
+
+		AP.updateProperties()
+		AP.updateAllViews()
+		#print(f"dx={dx}, dy={dy}")
+
+	def remove_shader_program(self):
+		glDeleteProgram(self.shader_program)
+		self.shader_program = None
 
 	def renderSelf(self):
 		glEnable(GL_PROGRAM_POINT_SIZE)
 		if self.shader_program is None:
 			# Inicjalizacja i konfiguracja shaderów
 			vertex_shader = compile_shader(vertex_shader_code, GL_VERTEX_SHADER)
-			geometry_shader = compile_shader(geometry_shader_code, GL_GEOMETRY_SHADER)
+			
+			if self.m_renderBoxes:
+				geometry_shader = compile_shader(geometry_shader_code_boxes, GL_GEOMETRY_SHADER)
+			else:
+				geometry_shader = compile_shader(geometry_shader_code, GL_GEOMETRY_SHADER)
+
 			fragment_shader = compile_shader(fragment_shader_code, GL_FRAGMENT_SHADER)
 			
 			# Tworzenie programu shaderów
@@ -397,31 +453,31 @@ class Volumetric(Object):
 		rescale_loc = glGetUniformLocation(self.shader_program, "rescale")
 		if self.m_fastDraw or AP.mouse_key_pressed:
 			factor = 4
-			my_data = self.m_volume[::factor, ::factor, ::factor]
-		else:
-			my_data = self.m_volume
 		glUniform1i( rescale_loc, factor )
 		
 		sizeX_loc = glGetUniformLocation(self.shader_program, "sizeX")
-		glUniform1i( sizeX_loc, my_data.shape[2] )
+		glUniform1i( sizeX_loc, int(self.m_volume.shape[2]/factor) )
 
 		sizeY_loc = glGetUniformLocation(self.shader_program, "sizeY")
-		glUniform1i( sizeY_loc, my_data.shape[1] )
+		glUniform1i( sizeY_loc, int(self.m_volume.shape[1]/factor) )
 
-#		for z in range(int(my_data.shape[0]/2),int(my_data.shape[0]/2)+1):
-		for z in range(my_data.shape[0]):
-			colors = np.array(my_data[z,:,:].flatten(), dtype=np.float32)
+#		nn = [26, 66]
+#		for z in range(nn[0],nn[1],factor):
+		for z in range(0, self.m_volume.shape[0], factor):
+			colors = np.array(self.m_volume[z,::factor,::factor].flatten(), dtype=np.float32)
 		
 			glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
 		
-			# aPosZ_loc = glGetUniformLocation(self.shader_program, "aPosZ")
-			# glUniform1i( aPosZ_loc, z )
+			metadata = self.metadata[z]
 
+			voxel_size = [ metadata['PixelSpacing'][0], metadata['PixelSpacing'][1], metadata['SliceThickness'] ]
+			#voxel_size = [0.4, 0.4, 1.25]
+			
 			voxelSize_loc = glGetUniformLocation(self.shader_program, "voxelSize")
-			glUniform3f( voxelSize_loc, self.metadata[factor*z]['PixelSpacing'][0], self.metadata[factor*z]['PixelSpacing'][1], self.metadata[factor*z]['SliceThickness'] )
+			glUniform3f( voxelSize_loc, voxel_size[0], voxel_size[1], voxel_size[2] )
 
 			imagePosition_loc = glGetUniformLocation(self.shader_program, "imagePosition")
-			glUniform3f( imagePosition_loc, self.metadata[factor*z]['ImagePositionPatient'][0], self.metadata[factor*z]['ImagePositionPatient'][1], self.metadata[factor*z]['ImagePositionPatient'][2] )
+			glUniform3f( imagePosition_loc, metadata['ImagePositionPatient'][0], metadata['ImagePositionPatient'][1], metadata['ImagePositionPatient'][2] )
 
 			glDrawArrays(GL_POINTS, 0, colors.shape[0])
 

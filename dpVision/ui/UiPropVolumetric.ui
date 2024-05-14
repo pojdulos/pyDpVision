@@ -50,9 +50,9 @@
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>120</y>
+      <y>150</y>
       <width>171</width>
-      <height>111</height>
+      <height>81</height>
      </rect>
     </property>
    </widget>
@@ -234,13 +234,16 @@
       </rect>
      </property>
      <property name="decimals">
-      <number>3</number>
+      <number>0</number>
+     </property>
+     <property name="minimum">
+      <double>-100000.000000000000000</double>
      </property>
      <property name="maximum">
-      <double>1.000000000000000</double>
+      <double>100000.000000000000000</double>
      </property>
      <property name="singleStep">
-      <double>0.001000000000000</double>
+      <double>1.000000000000000</double>
      </property>
     </widget>
     <widget class="QDoubleSpinBox" name="spinWinMax">
@@ -253,13 +256,16 @@
       </rect>
      </property>
      <property name="decimals">
-      <number>3</number>
+      <number>0</number>
+     </property>
+     <property name="minimum">
+      <double>-100000.000000000000000</double>
      </property>
      <property name="maximum">
-      <double>1.000000000000000</double>
+      <double>100000.000000000000000</double>
      </property>
      <property name="singleStep">
-      <double>0.001000000000000</double>
+      <double>1.000000000000000</double>
      </property>
      <property name="value">
       <double>1.000000000000000</double>
@@ -277,6 +283,19 @@
     </property>
     <property name="text">
      <string>fast (worse) drawing</string>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="renderBoxesCheckBox">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>110</y>
+      <width>141</width>
+      <height>17</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>render voxels as boxes</string>
     </property>
    </widget>
   </widget>
@@ -446,6 +465,22 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>renderBoxesCheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_render_boxes_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>93</x>
+     <y>118</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>winMinValueChanged(double)</slot>
@@ -458,5 +493,6 @@
   <slot>yEchanged(int)</slot>
   <slot>zEchanged(int)</slot>
   <slot>on_fast_draw_checkbox(bool)</slot>
+  <slot>on_render_boxes_checkbox(bool)</slot>
  </slots>
 </ui>

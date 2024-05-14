@@ -26,19 +26,23 @@ class PropVolumetric(PropWidget):
 	def create(m, parent = 0):
 		return PropWidget.build( [ PropBaseObject(m), PropVolumetric(m) ], parent )
 
+	def blockAll(self, b):
+		for w in {self.spinWinMin, self.spinWinMax, self.fastDrawCheckBox, self.renderBoxesCheckBox}:
+			w.blockSignals(b)
 
 	def updateProperties(self):
-		self.spinWinMin.blockSignals(True)
+		self.blockAll(True)
+
 		self.spinWinMin.setValue(self.obj.m_minDisplWin)
-		self.spinWinMin.blockSignals(False)
+		self.spinWinMin.setMinimum(self.obj.m_min)
 
-		self.spinWinMax.blockSignals(True)
 		self.spinWinMax.setValue(self.obj.m_maxDisplWin)
-		self.spinWinMax.blockSignals(False)
+		self.spinWinMax.setMaximum(self.obj.m_max)
 
-		self.fastDrawCheckBox.blockSignals(True)
 		self.fastDrawCheckBox.setChecked(self.obj.m_fastDraw)
-		self.fastDrawCheckBox.blockSignals(False)
+		self.renderBoxesCheckBox.setChecked(self.obj.m_renderBoxes)
+
+		self.blockAll(False)
 
 
 	@pyqtSlot()
@@ -50,10 +54,10 @@ class PropVolumetric(PropWidget):
 		val = np.round(val,4)
 		print(f"win min={val}")
 
-		if val < 0.0:
-			val = 0.0
-		elif val > self.obj.m_maxDisplWin:
+		if val > self.obj.m_maxDisplWin:
 			val = self.obj.m_maxDisplWin
+		elif val < self.obj.m_min:
+			val = self.obj.m_min
 
 		self.obj.m_minDisplWin = val
 		self.spinWinMax.blockSignals(True)
@@ -66,10 +70,10 @@ class PropVolumetric(PropWidget):
 		val = np.round(val,4)
 		print(f"win max={val}")
 
-		if val > 1.0:
-			val = 1.0
-		elif val < self.obj.m_minDisplWin:
+		if val < self.obj.m_minDisplWin:
 			val = self.obj.m_minDisplWin
+		elif val > self.obj.m_max:
+			val = self.obj.m_max
 
 		self.obj.m_maxDisplWin = val
 		self.spinWinMin.blockSignals(True)
@@ -78,8 +82,15 @@ class PropVolumetric(PropWidget):
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
+	def on_render_boxes_checkbox(self, b):
+		self.obj.m_renderBoxes = b
+		print(f"render boxes: {b}")
+		self.obj.remove_shader_program()
+		AP.updateAllViews()
+
+
+	@pyqtSlot(bool)
 	def on_fast_draw_checkbox(self, b):
-		print(f"checkbox state is {b}")
 		self.obj.m_fastDraw = b
 		AP.updateAllViews()
 

@@ -1014,6 +1014,294 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>f1CheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f1_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>14</x>
+     <y>168</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f2CheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f2_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>14</x>
+     <y>195</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f3CheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f3_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>14</x>
+     <y>222</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f4CheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f4_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>14</x>
+     <y>249</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f5CheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f5_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>14</x>
+     <y>276</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f6CheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f6_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>14</x>
+     <y>303</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f1SpinMin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f1_min_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>63</x>
+     <y>167</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f1SpinMax</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f1_max_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>144</x>
+     <y>167</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f4SpinMin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f4_min_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>63</x>
+     <y>248</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f4SpinMax</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f4_max_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>144</x>
+     <y>248</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f2SpinMin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f2_min_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>63</x>
+     <y>194</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f2SpinMax</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f2_max_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>144</x>
+     <y>194</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f3SpinMin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f3_min_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>63</x>
+     <y>221</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f3SpinMax</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f3_max_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>144</x>
+     <y>221</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f5SpinMin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f5_min_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>63</x>
+     <y>275</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f5SpinMax</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f5_max_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>144</x>
+     <y>275</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f6SpinMin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f6_min_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>63</x>
+     <y>302</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>f6SpinMax</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_f6_min_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>144</x>
+     <y>302</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>winMinValueChanged(double)</slot>
@@ -1027,5 +1315,23 @@
   <slot>zEchanged(int)</slot>
   <slot>on_fast_draw_checkbox(bool)</slot>
   <slot>on_render_boxes_checkbox(bool)</slot>
+  <slot>on_f1_checkbox(bool)</slot>
+  <slot>on_f2_checkbox(bool)</slot>
+  <slot>on_f3_checkbox(bool)</slot>
+  <slot>on_f4_checkbox(bool)</slot>
+  <slot>on_f5_checkbox(bool)</slot>
+  <slot>on_f6_checkbox(bool)</slot>
+  <slot>on_f1_min_changed(double)</slot>
+  <slot>on_f1_max_changed(double)</slot>
+  <slot>on_f2_min_changed(double)</slot>
+  <slot>on_f3_min_changed(double)</slot>
+  <slot>on_f4_min_changed(double)</slot>
+  <slot>on_f5_min_changed(double)</slot>
+  <slot>on_f6_min_changed(double)</slot>
+  <slot>on_f2_max_changed(double)</slot>
+  <slot>on_f3_max_changed(double)</slot>
+  <slot>on_f4_max_changed(double)</slot>
+  <slot>on_f5_max_changed(double)</slot>
+  <slot>on_f6_max_changed(double)</slot>
  </slots>
 </ui>

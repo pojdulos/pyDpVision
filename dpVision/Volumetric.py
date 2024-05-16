@@ -22,6 +22,13 @@ uniform mat4 projectionMatrix;
 uniform float minColor;
 uniform float maxColor;
 
+uniform vec3 f1;
+uniform vec3 f2;
+uniform vec3 f3;
+uniform vec3 f4;
+uniform vec3 f5;
+uniform vec3 f6;
+
 uniform vec3 voxelSize;
 uniform vec3 imagePosition;
 
@@ -50,13 +57,84 @@ void main()
 		vec3 vPos = imagePosition + ( vScale *  vec3(aPosX, aPosY, 0.0) );	
 		
 		float nCol = aCol;
-		if (maxColor > minColor)
+		if (f1[0] != 0.0 && aCol >= f1[1] && aCol <= f1[2])
 		{
-			nCol = nCol - minColor;
-			nCol = nCol / (maxColor - minColor);
+			if (f1[2] > f1[1])
+			{
+				nCol = nCol - f1[1];
+				nCol = nCol / (f1[2] - f1[1]);
+	        	vout.color = vec3(1.0, 0.0, 0.0) * vec3(nCol);
+			}
+			else
+        		vout.color = vec3(1.0, 0.0, 0.0);
+		}
+		else if (f2[0] != 0.0 && aCol >= f2[1] && aCol <= f2[2])
+		{
+			if (f2[2] > f2[1])
+			{
+				nCol = nCol - f2[1];
+				nCol = nCol / (f2[2] - f2[1]);
+        		vout.color = vec3(0.0, 1.0, 0.0) * vec3(nCol);
+			}
+			else
+        		vout.color = vec3(0.0, 1.0, 0.0);
+		}
+		else if (f3[0] != 0.0 && aCol >= f3[1] && aCol <= f3[2])
+		{
+			if (f3[2] > f3[1])
+			{
+				nCol = nCol - f3[1];
+				nCol = nCol / (f3[2] - f3[1]);
+        		vout.color = vec3(0.0, 0.0, 1.0) * vec3(nCol);
+			}
+			else
+        		vout.color = vec3(0.0, 0.0, 1.0);
+		}
+		else if (f4[0] != 0.0 && aCol >= f4[1] && aCol <= f4[2])
+		{
+			if (f4[2] > f4[1])
+			{
+				nCol = nCol - f4[1];
+				nCol = nCol / (f4[2] - f4[1]);
+        		vout.color = vec3(1.0, 1.0, 0.0) * vec3(nCol);
+			}
+			else
+        		vout.color = vec3(1.0, 1.0, 0.0);
+		}
+		else if (f5[0] != 0.0 && aCol >= f5[1] && aCol <= f5[2])
+		{
+			if (f5[2] > f5[1])
+			{
+				nCol = nCol - f5[1];
+				nCol = nCol / (f5[2] - f5[1]);
+        		vout.color = vec3(0.0, 1.0, 1.0) * vec3(nCol);
+			}
+			else
+        		vout.color = vec3(0.0, 1.0, 1.0);
+		}
+		else if (f6[0] != 0.0 && aCol >= f6[1] && aCol <= f6[2])
+		{
+			if (f6[2] > f6[1])
+			{
+				nCol = nCol - f6[1];
+				nCol = nCol / (f6[2] - f6[1]);
+        		vout.color = vec3(1.0, 0.0, 1.0) * vec3(nCol);
+			}
+			else
+        		vout.color = vec3(1.0, 0.0, 1.0);
+		}
+		else
+		{
+			if (maxColor > minColor)
+			{
+				nCol = nCol - minColor;
+				nCol = nCol / (maxColor - minColor);
+				vout.color = vec3(nCol);
+			}
+			else
+				vout.color = vec3(1.0, 1.0, 1.0);
 		}
 
-        vout.color = vec3(nCol);
 		vout.vPos = vPos;
 		vout.modelviewMatrix = modelviewMatrix;
 		vout.projectionMatrix = projectionMatrix;
@@ -236,6 +314,7 @@ class Volumetric(Object):
 		self.metadata = []
 		self.m_minSlice = 0
 		self.m_maxSlice = 0
+		self.m_filters = [[0,-9999,99999],[1,0,400],[0,-9999,99999],[0,-9999,9999],[1,1500,4000],[0,-9999,99999],[0,-9999,99999]]
 
 	def convert_to_HU(self, dcm, b=None, m=None):
 		if b is None: b = float(getattr(dcm, 'RescaleIntercept', 0.0))
@@ -442,7 +521,24 @@ class Volumetric(Object):
 		maxColor_loc = glGetUniformLocation(self.shader_program, "maxColor")
 		glUniform1f( maxColor_loc, self.m_maxDisplWin )
 
-		
+		f1_loc = glGetUniformLocation(self.shader_program, "f1")
+		glUniform3f( f1_loc, self.m_filters[1][0], self.m_filters[1][1], self.m_filters[1][2] )
+
+		f2_loc = glGetUniformLocation(self.shader_program, "f2")
+		glUniform3f( f2_loc, self.m_filters[2][0], self.m_filters[2][1], self.m_filters[2][2] )
+
+		f3_loc = glGetUniformLocation(self.shader_program, "f3")
+		glUniform3f( f3_loc, self.m_filters[3][0], self.m_filters[3][1], self.m_filters[3][2] )
+
+		f4_loc = glGetUniformLocation(self.shader_program, "f4")
+		glUniform3f( f4_loc, self.m_filters[4][0], self.m_filters[4][1], self.m_filters[4][2] )
+
+		f5_loc = glGetUniformLocation(self.shader_program, "f5")
+		glUniform3f( f5_loc, self.m_filters[5][0], self.m_filters[5][1], self.m_filters[5][2] )
+
+		f6_loc = glGetUniformLocation(self.shader_program, "f6")
+		glUniform3f( f6_loc, self.m_filters[6][0], self.m_filters[6][1], self.m_filters[6][2] )
+
 		factor = 4 if self.m_fastDraw or AP.mouse_key_pressed else 1
 		factor_loc = glGetUniformLocation(self.shader_program, "factor")
 		glUniform1i( factor_loc, factor )

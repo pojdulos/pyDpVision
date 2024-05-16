@@ -65,6 +65,8 @@ from dpVision.ParserATMDL import ParserATMDL
 Parser.regParser(ParserATMDL)
 from dpVision.ParserDICOM import ParserDICOM
 Parser.regParser(ParserDICOM)
+from dpVision.ParserNRRD import ParserNRRD
+Parser.regParser(ParserNRRD)
 from dpVision.ParserIMAGE2D import ParserIMAGE2D
 Parser.regParser(ParserIMAGE2D)
 

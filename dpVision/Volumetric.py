@@ -16,9 +16,8 @@ vertex_shader_code = """
 #version 330 core
 layout (location = 0) in float aCol;
 
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
+uniform mat4 modelviewMatrix;
+uniform mat4 projectionMatrix;
 
 uniform float minColor;
 uniform float maxColor;
@@ -28,19 +27,16 @@ uniform vec3 imagePosition;
 
 uniform int sizeX;
 uniform int sizeY;
-//uniform int aPosZ;
 
-uniform int rescale;
-
-out vec3 FragPos;
+uniform int factor;
 
 out VS_OUT{
 	vec3 color;
-	vec3 worldPos;
+	vec3 vPos;
+	vec3 vScale;
+	mat4 modelviewMatrix;
 	mat4 projectionMatrix;
-	mat4 viewMatrix;
-	vec3 boxSize;
-	bool validVoxel;
+	bool isValid;
 } vout;
 
 void main()
@@ -49,13 +45,10 @@ void main()
 	{
 		int aPosY = int( float(gl_VertexID) / sizeX );
 		int aPosX = gl_VertexID - ( aPosY * sizeX );
-		vec3 aPos = imagePosition + ( rescale * voxelSize * vec3(aPosX, aPosY, 0.0) );	
+
+		vec3 vScale = voxelSize * factor;
+		vec3 vPos = imagePosition + ( vScale *  vec3(aPosX, aPosY, 0.0) );	
 		
-		//aPos[2] = aPos[2] / 2.0;
-
-		vec4 worldPos = model * vec4(aPos, 1.0);
-        //gl_Position = projection * view * worldPos;
-
 		float nCol = aCol;
 		if (maxColor > minColor)
 		{
@@ -64,17 +57,15 @@ void main()
 		}
 
         vout.color = vec3(nCol);
-		vout.worldPos = worldPos.xyz;
-		vout.projectionMatrix = projection;
-		vout.viewMatrix = view;
-		vout.boxSize = rescale * voxelSize;
-        vout.validVoxel = true;
-
-        FragPos = worldPos.xyz;		
+		vout.vPos = vPos;
+		vout.modelviewMatrix = modelviewMatrix;
+		vout.projectionMatrix = projectionMatrix;
+		vout.vScale = vScale;
+        vout.isValid = true;
 	}
 	else
 	{
-		vout.validVoxel = false;
+		vout.isValid = false;
 	}
 }
 """
@@ -86,23 +77,21 @@ layout(points, max_vertices = 1) out;
 
 in VS_OUT{
 	vec3 color;
-	vec3 worldPos;
+	vec3 vPos;
+	vec3 vScale;
+	mat4 modelviewMatrix;
 	mat4 projectionMatrix;
-	mat4 viewMatrix;
-	vec3 boxSize;
-	bool validVoxel;
+	bool isValid;
 } gs_in[];
 
 out vec3 vertexColor;
 
 void main(void)
 {
-	if (gs_in[0].validVoxel)
+	if (gs_in[0].isValid)
 	{
 		vertexColor = gs_in[0].color;
-		gl_Position = gs_in[0].projectionMatrix * gs_in[0].viewMatrix * vec4(gs_in[0].worldPos, 0.1);
-		//gl_Position = gl_in[0].gl_Position;
-		//gl_PointSize = gl_in[0].gl_PointSize;
+		gl_Position = gs_in[0].projectionMatrix * gs_in[0].modelviewMatrix * vec4(gs_in[0].vPos, 1.0);
 
 		EmitVertex();
 		EndPrimitive();
@@ -118,39 +107,39 @@ layout (triangle_strip, max_vertices = 36) out;
 
 in VS_OUT {
     vec3 color;
-	vec3 worldPos;
+	vec3 vPos;
+	vec3 vScale;
+	mat4 modelviewMatrix;
 	mat4 projectionMatrix;
-	mat4 viewMatrix;
-	vec3 boxSize;
-    bool validVoxel;
+    bool isValid;
 } gs_in[];
 
 out vec3 vertexColor;
 
 void main() {
-    if (gs_in[0].validVoxel) {
+    if (gs_in[0].isValid) {
         vertexColor = gs_in[0].color;
 
         // Pozycja wierzchołka (punkt)
-        //vec4 pointPos = gl_in[0].gl_Position;
-        vec4 pointPos = vec4(gs_in[0].worldPos, 1.0);
+        vec4 pointPos = vec4(gs_in[0].vPos, 1.0);
 
         // Wierzchołki tworzące ściany kostki
         vec4 vertices[8];
 
         // Obliczenia pozycji wierzchołków
-        vec3 halfSize = 0.5 * gs_in[0].boxSize; // Połowa długości boku kostki
+        vec3 halfSize = 0.5 * gs_in[0].vScale; // Połowa długości boku kostki
 		
 		// Wierzchołki kostki
         vertices[0] = pointPos + vec4(-halfSize[0], -halfSize[1], -halfSize[2], 0.0); // Lewy dolny tylny
-		vertices[1] = pointPos + vec4( halfSize[0], -halfSize[1], -halfSize[2], 0.0);  // Prawy dolny tylny
-		vertices[2] = pointPos + vec4(-halfSize[0],  halfSize[1], -halfSize[2], 0.0);  // Lewy górny tylny
-		vertices[3] = pointPos + vec4( halfSize[0],  halfSize[1], -halfSize[2], 0.0);   // Prawy górny tylny
-		vertices[4] = pointPos + vec4(-halfSize[0], -halfSize[1],  halfSize[2], 0.0);  // Lewy dolny przedni
-		vertices[5] = pointPos + vec4( halfSize[0], -halfSize[1],  halfSize[2], 0.0);   // Prawy dolny przedni
-		vertices[6] = pointPos + vec4(-halfSize[0],  halfSize[1],  halfSize[2], 0.0);   // Lewy górny przedni
-		vertices[7] = pointPos + vec4( halfSize[0],  halfSize[1],  halfSize[2], 0.0);    // Prawy górny przedni
+		vertices[1] = pointPos + vec4( halfSize[0], -halfSize[1], -halfSize[2], 0.0); // Prawy dolny tylny
+		vertices[2] = pointPos + vec4(-halfSize[0],  halfSize[1], -halfSize[2], 0.0); // Lewy górny tylny
+		vertices[3] = pointPos + vec4( halfSize[0],  halfSize[1], -halfSize[2], 0.0); // Prawy górny tylny
+		vertices[4] = pointPos + vec4(-halfSize[0], -halfSize[1],  halfSize[2], 0.0); // Lewy dolny przedni
+		vertices[5] = pointPos + vec4( halfSize[0], -halfSize[1],  halfSize[2], 0.0); // Prawy dolny przedni
+		vertices[6] = pointPos + vec4(-halfSize[0],  halfSize[1],  halfSize[2], 0.0); // Lewy górny przedni
+		vertices[7] = pointPos + vec4( halfSize[0],  halfSize[1],  halfSize[2], 0.0); // Prawy górny przedni
 
+		// TO TRZEBA ROZRYSOWAC I SPRAWDZIC !!!:
 		int indices[20];
 		indices[0] = 0;
 		indices[1] = 1;
@@ -177,13 +166,13 @@ void main() {
         // Generowanie ścian kostki
         for (int i = 0; i < 10; ++i) {
 			int idx = indices[i];
-            gl_Position = gs_in[0].projectionMatrix * gs_in[0].viewMatrix * vertices[idx];
+            gl_Position = gs_in[0].projectionMatrix * gs_in[0].modelviewMatrix * vertices[idx];
             EmitVertex();
         }
         EndPrimitive();
         for (int i = 10; i < 20; ++i) {
 			int idx = indices[i];
-            gl_Position = gs_in[0].projectionMatrix * gs_in[0].viewMatrix * vertices[idx];
+            gl_Position = gs_in[0].projectionMatrix * gs_in[0].modelviewMatrix * vertices[idx];
             EmitVertex();
         }
         EndPrimitive();
@@ -244,6 +233,9 @@ class Volumetric(Object):
 		self.m_maxDisplWin = 1.0
 		self.m_fastDraw = True
 		self.m_renderBoxes = False
+		self.metadata = []
+		self.m_minSlice = 0
+		self.m_maxSlice = 0
 
 	def convert_to_HU(self, dcm, b=None, m=None):
 		if b is None: b = float(getattr(dcm, 'RescaleIntercept', 0.0))
@@ -301,6 +293,7 @@ class Volumetric(Object):
 		# Sortowanie plików DICOM w kolejności
 		self.m_dicom_files.sort(key=lambda x: float(getattr(x, 'SliceLocation', float(getattr(x, 'ImagePositionPatient')[2]))))
 
+		print(self.m_dicom_files)
 		# Tworzenie wolumetrycznego zestawu danych
 		#self.m_volume = np.stack([file.pixel_array for file in self.m_dicom_files])
 		self.m_volume = np.stack([self.window_ct(file) for file in self.m_dicom_files])
@@ -360,6 +353,9 @@ class Volumetric(Object):
 		print(f"wart.min = {self.m_min}, wart.maks = {self.m_max}")
 		self.m_minDisplWin = self.m_min
 		self.m_maxDisplWin = self.m_max
+
+		self.m_minSlice = 0
+		self.m_maxSlice = self.m_volume.shape[0]-1
 
 		# self.show_histogram()
 
@@ -428,19 +424,16 @@ class Volumetric(Object):
 		glEnableVertexAttribArray(0)  # np. dla pozycji wierzchołka
 		glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, None)
 
-		model_loc = glGetUniformLocation(self.shader_program, "model")
-		view_loc = glGetUniformLocation(self.shader_program, "view")
-		projection_loc = glGetUniformLocation(self.shader_program, "projection")
+		modelview_loc = glGetUniformLocation(self.shader_program, "modelviewMatrix")
+		projection_loc = glGetUniformLocation(self.shader_program, "projectionMatrix")
 		
-		model = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
+		modelview = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
 		projection = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
-		view = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
 
-		glGetFloatv(GL_MODELVIEW_MATRIX, model)
+		glGetFloatv(GL_MODELVIEW_MATRIX, modelview)
 		glGetFloatv(GL_PROJECTION_MATRIX, projection)
 		
-		glUniformMatrix4fv(model_loc, 1, GL_FALSE, model)
-		glUniformMatrix4fv(view_loc, 1, GL_FALSE, view)
+		glUniformMatrix4fv(modelview_loc, 1, GL_FALSE, modelview)
 		glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection)
 
 		minColor_loc = glGetUniformLocation(self.shader_program, "minColor")
@@ -449,11 +442,10 @@ class Volumetric(Object):
 		maxColor_loc = glGetUniformLocation(self.shader_program, "maxColor")
 		glUniform1f( maxColor_loc, self.m_maxDisplWin )
 
-		factor = 1
-		rescale_loc = glGetUniformLocation(self.shader_program, "rescale")
-		if self.m_fastDraw or AP.mouse_key_pressed:
-			factor = 4
-		glUniform1i( rescale_loc, factor )
+		
+		factor = 4 if self.m_fastDraw or AP.mouse_key_pressed else 1
+		factor_loc = glGetUniformLocation(self.shader_program, "factor")
+		glUniform1i( factor_loc, factor )
 		
 		sizeX_loc = glGetUniformLocation(self.shader_program, "sizeX")
 		glUniform1i( sizeX_loc, int(self.m_volume.shape[2]/factor) )
@@ -461,9 +453,7 @@ class Volumetric(Object):
 		sizeY_loc = glGetUniformLocation(self.shader_program, "sizeY")
 		glUniform1i( sizeY_loc, int(self.m_volume.shape[1]/factor) )
 
-#		nn = [26, 66]
-#		for z in range(nn[0],nn[1],factor):
-		for z in range(0, self.m_volume.shape[0], factor):
+		for z in range(factor*int(self.m_minSlice/factor), self.m_maxSlice+1, factor):
 			colors = np.array(self.m_volume[z,::factor,::factor].flatten(), dtype=np.float32)
 		
 			glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)

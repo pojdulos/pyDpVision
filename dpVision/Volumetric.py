@@ -3,12 +3,7 @@ from dpVision.Globals import AP
 from .Object import Object
 from PyQt5.QtGui import *
 from OpenGL.GL import *
-import os
-import concurrent.futures
-from collections import defaultdict
 import numpy as np
-import pydicom
-import time
 import matplotlib.pyplot as plt
 from dpVision.Shaders import Volumetric_vertex_shader_code, Volumetric_fragment_shader_code, compile_shader
 
@@ -22,12 +17,7 @@ uniform mat4 projectionMatrix;
 uniform float minColor;
 uniform float maxColor;
 
-uniform vec3 f1;
-uniform vec3 f2;
-uniform vec3 f3;
-uniform vec3 f4;
-uniform vec3 f5;
-uniform vec3 f6;
+uniform vec3 f[7];
 
 uniform vec3 voxelSize;
 uniform vec3 imagePosition;
@@ -46,6 +36,27 @@ out VS_OUT{
 	bool isValid;
 } vout;
 
+vec3 get_filter(int i, float nCol)
+{
+	vec3 colors[7];
+	colors[0] = vec3(1.0, 1.0, 1.0);
+	colors[1] = vec3(1.0, 0.0, 0.0);
+	colors[2] = vec3(0.0, 1.0, 0.0);
+	colors[3] = vec3(0.0, 0.0, 1.0);
+	colors[4] = vec3(1.0, 1.0, 0.0);
+	colors[5] = vec3(0.0, 1.0, 1.0);
+	colors[6] = vec3(1.0, 0.0, 1.0);
+
+	if (f[i][2] > f[i][1])
+	{
+		nCol = nCol - f[i][1];
+		nCol = nCol / (f[i][2] - f[i][1]);
+		return colors[i] * vec3(nCol);
+	}
+	else
+		return colors[i];
+}
+
 void main()
 {
 	if (aCol >= minColor && aCol <= maxColor)
@@ -53,77 +64,12 @@ void main()
 		int aPosY = int( float(gl_VertexID) / sizeX );
 		int aPosX = gl_VertexID - ( aPosY * sizeX );
 
-		vec3 vScale = voxelSize * factor;
-		vec3 vPos = imagePosition + ( vScale *  vec3(aPosX, aPosY, 0.0) );	
+		vout.vScale = voxelSize * factor;
+		vout.vPos = imagePosition + ( vout.vScale *  vec3(aPosX, aPosY, 0.0) );	
 		
 		float nCol = aCol;
-		if (f1[0] != 0.0 && aCol >= f1[1] && aCol <= f1[2])
-		{
-			if (f1[2] > f1[1])
-			{
-				nCol = nCol - f1[1];
-				nCol = nCol / (f1[2] - f1[1]);
-	        	vout.color = vec3(1.0, 0.0, 0.0) * vec3(nCol);
-			}
-			else
-        		vout.color = vec3(1.0, 0.0, 0.0);
-		}
-		else if (f2[0] != 0.0 && aCol >= f2[1] && aCol <= f2[2])
-		{
-			if (f2[2] > f2[1])
-			{
-				nCol = nCol - f2[1];
-				nCol = nCol / (f2[2] - f2[1]);
-        		vout.color = vec3(0.0, 1.0, 0.0) * vec3(nCol);
-			}
-			else
-        		vout.color = vec3(0.0, 1.0, 0.0);
-		}
-		else if (f3[0] != 0.0 && aCol >= f3[1] && aCol <= f3[2])
-		{
-			if (f3[2] > f3[1])
-			{
-				nCol = nCol - f3[1];
-				nCol = nCol / (f3[2] - f3[1]);
-        		vout.color = vec3(0.0, 0.0, 1.0) * vec3(nCol);
-			}
-			else
-        		vout.color = vec3(0.0, 0.0, 1.0);
-		}
-		else if (f4[0] != 0.0 && aCol >= f4[1] && aCol <= f4[2])
-		{
-			if (f4[2] > f4[1])
-			{
-				nCol = nCol - f4[1];
-				nCol = nCol / (f4[2] - f4[1]);
-        		vout.color = vec3(1.0, 1.0, 0.0) * vec3(nCol);
-			}
-			else
-        		vout.color = vec3(1.0, 1.0, 0.0);
-		}
-		else if (f5[0] != 0.0 && aCol >= f5[1] && aCol <= f5[2])
-		{
-			if (f5[2] > f5[1])
-			{
-				nCol = nCol - f5[1];
-				nCol = nCol / (f5[2] - f5[1]);
-        		vout.color = vec3(0.0, 1.0, 1.0) * vec3(nCol);
-			}
-			else
-        		vout.color = vec3(0.0, 1.0, 1.0);
-		}
-		else if (f6[0] != 0.0 && aCol >= f6[1] && aCol <= f6[2])
-		{
-			if (f6[2] > f6[1])
-			{
-				nCol = nCol - f6[1];
-				nCol = nCol / (f6[2] - f6[1]);
-        		vout.color = vec3(1.0, 0.0, 1.0) * vec3(nCol);
-			}
-			else
-        		vout.color = vec3(1.0, 0.0, 1.0);
-		}
-		else
+
+		if (f[0][0] == 0.0 && f[1][0] == 0.0 && f[2][0] == 0.0 && f[3][0] == 0.0 && f[4][0] == 0.0 && f[5][0] == 0.0 && f[6][0] == 0.0) 
 		{
 			if (maxColor > minColor)
 			{
@@ -133,13 +79,28 @@ void main()
 			}
 			else
 				vout.color = vec3(1.0, 1.0, 1.0);
+			
+			vout.modelviewMatrix = modelviewMatrix;
+			vout.projectionMatrix = projectionMatrix;
+			vout.isValid = true;
+			return;
 		}
+		else
+		{
+			for (int i=0; i<7; i++)
+			{
+				if (f[i][0] != 0.0 && aCol >= f[i][1] && aCol <= f[i][2])
+				{
+					vout.color = get_filter(i, nCol);
 
-		vout.vPos = vPos;
-		vout.modelviewMatrix = modelviewMatrix;
-		vout.projectionMatrix = projectionMatrix;
-		vout.vScale = vScale;
-        vout.isValid = true;
+					vout.modelviewMatrix = modelviewMatrix;
+					vout.projectionMatrix = projectionMatrix;
+        			vout.isValid = true;
+					return;
+				}
+			}
+			vout.isValid = false;
+		}
 	}
 	else
 	{
@@ -299,6 +260,26 @@ void main()
 def convert_to_np_array(key, list):
     return key, np.array(list, dtype=np.float32)
 
+class SliceMetadata():
+	def __init__(self):
+		self.image_position_patient = [0.0,0.0,0.0]
+		self.slice_location = 0.0
+		self.pixel_spacing = 1.0
+		self.slice_thickness = 1.0
+		self.gantry_detector_tilt = 0.0
+	
+	def __str__(self):
+		txt  = f"SliceMetadata"
+		txt += f"( gantry_detector_tilt = {self.gantry_detector_tilt}"
+		txt += f", slice_thickness = {self.slice_thickness}"
+		txt += f", slice_location = {self.slice_location}"
+		txt += f", pixel_spacing = {self.pixel_spacing}"
+		txt += f", image_position_patient = {self.image_position_patient} )"
+		return txt
+	
+	def __repr__(self):
+		return self.__str__()
+	
 class Volumetric(Object):
 	def __init__(self, parent=None):
 		super( Volumetric, self ).__init__( parent )
@@ -316,15 +297,11 @@ class Volumetric(Object):
 		self.m_maxSlice = 0
 		self.m_filters = [[0,-9999,99999],[1,0,400],[0,-9999,99999],[0,-9999,9999],[1,1500,4000],[0,-9999,99999],[0,-9999,99999]]
 
-	def convert_to_HU(self, dcm, b=None, m=None):
-		if b is None: b = float(getattr(dcm, 'RescaleIntercept', 0.0))
-		if m is None: m = float(getattr(dcm, 'RescaleSlope', 1.0))
-		x = m * dcm.pixel_array + b
-		return x
-	
-	def aply_window(self, x, ymin=0.0, ymax=1.0, w=None, c=None):
-		# windowing C.11.2.1.2.1 Default LINEAR Function
-		#
+	def aply_window(self, x, c, w, ymin=0.0, ymax=1.0):
+		'''	windowing C.11.2.1.2.1 Default LINEAR Function
+			c - window center, w - window width
+			ymin, ymax - destination data intensity range
+		'''
 		y = np.zeros_like(x)
 		y[x <= (c - 0.5 - (w - 1) / 2)] = ymin
 		y[x > (c - 0.5 + (w - 1) / 2)] = ymax
@@ -333,16 +310,7 @@ class Volumetric(Object):
 					ymax - ymin) + ymin
 		return y
 
-	def window_ct(self, dcm, ymin=0.0, ymax=1.0, w=None, c=None):
-		y = self.convert_to_HU(dcm)
-		# if w is None: w = dcm.WindowWidth
-		# if c is None: c = dcm.WindowCenter
-		# # print(f"win.center = {c}, win.width = {w}")
-		# y = self.aply_window(y, ymin, ymax, w, c)
-		return y
-	
 	def show_histogram(self):
-
 		data = np.array(self.m_volume).flatten()
 
 		#data = data.clip(lower=data.quantile(0.1), upper=data.quantile(0.9))
@@ -365,79 +333,6 @@ class Volumetric(Object):
 		plt.grid(axis='y', alpha=0.5)
 		plt.show()
 
-	def read_as_directory(self, folder_path):
-		# Wczytanie wszystkich plików DICOM z folderu
-		self.m_dicom_files = [pydicom.dcmread(os.path.join(folder_path, f)) for f in os.listdir(folder_path) if f.endswith('.dcm')]
-		
-		# Sortowanie plików DICOM w kolejności
-		self.m_dicom_files.sort(key=lambda x: float(getattr(x, 'SliceLocation', float(getattr(x, 'ImagePositionPatient')[2]))))
-
-		print(self.m_dicom_files)
-		# Tworzenie wolumetrycznego zestawu danych
-		#self.m_volume = np.stack([file.pixel_array for file in self.m_dicom_files])
-		self.m_volume = np.stack([self.window_ct(file) for file in self.m_dicom_files])
-		#self.m_volume = np.stack([self.window_ct(file,w=4096.0,c=1024.0) for file in self.m_dicom_files])
-		#self.m_volume = np.stack([self.window_ct(file,w=2048.0,c=2048.0) for file in self.m_dicom_files])
-		#self.m_volume = np.stack([self.window_ct(file,w=4096,c=1024.0) for file in self.m_dicom_files])
-		#self.m_volume = np.stack([self.window_ct(file,w=3064.0,c=0.0) for file in self.m_dicom_files])
-		
-		self.metadata = []
-		for idx, file in enumerate(self.m_dicom_files):
-			position_image = getattr(file, 'ImagePositionPatient', [0.0, 0.0, idx])
-			pixel_spacing = getattr(file, 'PixelSpacing', [1.0, 1.0])
-			rows, cols = getattr(file, 'Rows'), getattr(file, 'Columns')
-			
-			gantra = float(getattr(file, 'GantryDetectorTilt', 0.0))
-			
-			# korekcja polozenia w X i Y jesli zostało podane w pikselach zamiast milimetrach
-			if abs(position_image[0]) >= cols/2 or abs(position_image[1]) >= rows/2:
-				for i in range(2):
-					position_image[i] = pixel_spacing[i] * position_image[i]
-
-			# korekcja polozenia w X i Y jesli nie zostało ustawione
-			# elif position_image[0] == 0 and position_image[1] == 0:
-			# 	for i in range(2):
-			# 		position_image[0] = - pixel_spacing[0] * cols/2
-			# 		position_image[1] = - pixel_spacing[1] * rows/2
-
-
-			if gantra != 0.0:
-				dy = position_image[2] * tan(gantra)
-				position_image[1] = position_image[1]+dy
-
-			slice_thickness = getattr(file, 'SliceThickness', 1.0)
-
-			mydict = {
-				'ImagePositionPatient': position_image,
-				'SliceLocation': getattr(file, 'SliceLocation', idx),
-				'PixelSpacing': pixel_spacing,
-				'SliceThickness': slice_thickness,
-				'GantryDetectorTilt': gantra
-			}
-			
-			print(f"file {idx}:")
-			print(f"    GantryDetectorTilt = {mydict['GantryDetectorTilt']}")
-			print(f"    SliceThickness = {mydict['SliceThickness']}")
-			print(f"    SliceLocation = {mydict['SliceLocation']}")
-			print(f"    PixelSpacing = {mydict['PixelSpacing']}")
-			print(f"    ImagePositionPatient = {mydict['ImagePositionPatient']}")
-			# print(f"PhotometricInterpretation = {getattr(file, 'PhotometricInterpretation')}")
-			#print(f"PixelRepresentation = {getattr(file, 'PixelRepresentation')}")
-			self.metadata.append(mydict)
-
-		# print(self.metadata)
-
-		self.m_min = np.min(self.m_volume)
-		self.m_max = np.max(self.m_volume)
-		print(f"wart.min = {self.m_min}, wart.maks = {self.m_max}")
-		self.m_minDisplWin = self.m_min
-		self.m_maxDisplWin = self.m_max
-
-		self.m_minSlice = 0
-		self.m_maxSlice = self.m_volume.shape[0]-1
-
-		# self.show_histogram()
-
 
 	def on_mouse_move(self, dx, dy):
 		self.m_minDisplWin = self.m_minDisplWin + dx
@@ -458,37 +353,41 @@ class Volumetric(Object):
 		glDeleteProgram(self.shader_program)
 		self.shader_program = None
 
+	def create_program(self):
+		# Inicjalizacja i konfiguracja shaderów
+		vertex_shader = compile_shader(vertex_shader_code, GL_VERTEX_SHADER)
+		
+		if self.m_renderBoxes:
+			geometry_shader = compile_shader(geometry_shader_code_boxes, GL_GEOMETRY_SHADER)
+		else:
+			geometry_shader = compile_shader(geometry_shader_code, GL_GEOMETRY_SHADER)
+
+		fragment_shader = compile_shader(fragment_shader_code, GL_FRAGMENT_SHADER)
+		
+		# Tworzenie programu shaderów
+		self.shader_program = glCreateProgram()
+		
+		glAttachShader(self.shader_program, vertex_shader)
+		glAttachShader(self.shader_program, geometry_shader)
+		glAttachShader(self.shader_program, fragment_shader)
+		
+		glLinkProgram(self.shader_program)
+		
+		# Sprawdzanie, czy program został powiązany poprawnie
+		if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
+			print(glGetProgramInfoLog(self.shader_program))
+			raise Exception("Error linking shaders")
+		
+		# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
+		glDeleteShader(vertex_shader)
+		glDeleteShader(geometry_shader)
+		glDeleteShader(fragment_shader)
+
+
 	def renderSelf(self):
 		glEnable(GL_PROGRAM_POINT_SIZE)
 		if self.shader_program is None:
-			# Inicjalizacja i konfiguracja shaderów
-			vertex_shader = compile_shader(vertex_shader_code, GL_VERTEX_SHADER)
-			
-			if self.m_renderBoxes:
-				geometry_shader = compile_shader(geometry_shader_code_boxes, GL_GEOMETRY_SHADER)
-			else:
-				geometry_shader = compile_shader(geometry_shader_code, GL_GEOMETRY_SHADER)
-
-			fragment_shader = compile_shader(fragment_shader_code, GL_FRAGMENT_SHADER)
-			
-			# Tworzenie programu shaderów
-			self.shader_program = glCreateProgram()
-			
-			glAttachShader(self.shader_program, vertex_shader)
-			glAttachShader(self.shader_program, geometry_shader)
-			glAttachShader(self.shader_program, fragment_shader)
-			
-			glLinkProgram(self.shader_program)
-			
-			# Sprawdzanie, czy program został powiązany poprawnie
-			if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
-				print(glGetProgramInfoLog(self.shader_program))
-				raise Exception("Error linking shaders")
-			
-			# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
-			glDeleteShader(vertex_shader)
-			glDeleteShader(geometry_shader)
-			glDeleteShader(fragment_shader)
+			self.create_program()
 
 		# Używanie programu shaderów
 		glUseProgram(self.shader_program)
@@ -498,21 +397,16 @@ class Volumetric(Object):
 
 		glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
 		
-
 		# Konfiguracja atrybutów wierzchołka
 		glEnableVertexAttribArray(0)  # np. dla pozycji wierzchołka
 		glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, None)
 
+		modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32)
 		modelview_loc = glGetUniformLocation(self.shader_program, "modelviewMatrix")
-		projection_loc = glGetUniformLocation(self.shader_program, "projectionMatrix")
-		
-		modelview = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
-		projection = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
-
-		glGetFloatv(GL_MODELVIEW_MATRIX, modelview)
-		glGetFloatv(GL_PROJECTION_MATRIX, projection)
-		
 		glUniformMatrix4fv(modelview_loc, 1, GL_FALSE, modelview)
+
+		projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32)
+		projection_loc = glGetUniformLocation(self.shader_program, "projectionMatrix")
 		glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection)
 
 		minColor_loc = glGetUniformLocation(self.shader_program, "minColor")
@@ -521,23 +415,8 @@ class Volumetric(Object):
 		maxColor_loc = glGetUniformLocation(self.shader_program, "maxColor")
 		glUniform1f( maxColor_loc, self.m_maxDisplWin )
 
-		f1_loc = glGetUniformLocation(self.shader_program, "f1")
-		glUniform3f( f1_loc, self.m_filters[1][0], self.m_filters[1][1], self.m_filters[1][2] )
-
-		f2_loc = glGetUniformLocation(self.shader_program, "f2")
-		glUniform3f( f2_loc, self.m_filters[2][0], self.m_filters[2][1], self.m_filters[2][2] )
-
-		f3_loc = glGetUniformLocation(self.shader_program, "f3")
-		glUniform3f( f3_loc, self.m_filters[3][0], self.m_filters[3][1], self.m_filters[3][2] )
-
-		f4_loc = glGetUniformLocation(self.shader_program, "f4")
-		glUniform3f( f4_loc, self.m_filters[4][0], self.m_filters[4][1], self.m_filters[4][2] )
-
-		f5_loc = glGetUniformLocation(self.shader_program, "f5")
-		glUniform3f( f5_loc, self.m_filters[5][0], self.m_filters[5][1], self.m_filters[5][2] )
-
-		f6_loc = glGetUniformLocation(self.shader_program, "f6")
-		glUniform3f( f6_loc, self.m_filters[6][0], self.m_filters[6][1], self.m_filters[6][2] )
+		f_loc = glGetUniformLocation(self.shader_program, "f")
+		glUniform3fv(f_loc, 7, self.m_filters)
 
 		factor = 4 if self.m_fastDraw or AP.mouse_key_pressed else 1
 		factor_loc = glGetUniformLocation(self.shader_program, "factor")
@@ -556,14 +435,14 @@ class Volumetric(Object):
 		
 			metadata = self.metadata[z]
 
-			voxel_size = [ metadata['PixelSpacing'][0], metadata['PixelSpacing'][1], metadata['SliceThickness'] ]
-			#voxel_size = [0.4, 0.4, 1.25]
-			
-			voxelSize_loc = glGetUniformLocation(self.shader_program, "voxelSize")
-			glUniform3f( voxelSize_loc, voxel_size[0], voxel_size[1], voxel_size[2] )
+			imagePosition = [ metadata.image_position_patient[0], metadata.image_position_patient[1], metadata.image_position_patient[2] ]
+			voxel_size = [ metadata.pixel_spacing[0], metadata.pixel_spacing[1], metadata.slice_thickness ]
 
 			imagePosition_loc = glGetUniformLocation(self.shader_program, "imagePosition")
-			glUniform3f( imagePosition_loc, metadata['ImagePositionPatient'][0], metadata['ImagePositionPatient'][1], metadata['ImagePositionPatient'][2] )
+			glUniform3fv( imagePosition_loc, 1, imagePosition )
+			
+			voxelSize_loc = glGetUniformLocation(self.shader_program, "voxelSize")
+			glUniform3fv( voxelSize_loc, 1, voxel_size )
 
 			glDrawArrays(GL_POINTS, 0, colors.shape[0])
 

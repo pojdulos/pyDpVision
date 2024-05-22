@@ -21,6 +21,9 @@ class PropVolumetric(PropWidget):
 		super( PropVolumetric, self ).__init__( parent )
 		uic.loadUi('dpVision/ui/UiPropVolumetric.ui', self)
 		self.obj = _obj
+		self.f_check = [self.f0CheckBox, self.f1CheckBox, self.f2CheckBox, self.f3CheckBox, self.f4CheckBox, self.f5CheckBox, self.f6CheckBox]
+		self.spin_min = [self.f0SpinMin, self.f1SpinMin, self.f2SpinMin, self.f3SpinMin, self.f4SpinMin, self.f5SpinMin, self.f6SpinMin]
+		self.spin_max = [self.f0SpinMax, self.f1SpinMax, self.f2SpinMax, self.f3SpinMax, self.f4SpinMax, self.f5SpinMax, self.f6SpinMax]
 
 	@staticmethod
 	def create(m, parent = 0):
@@ -54,49 +57,17 @@ class PropVolumetric(PropWidget):
 		self.zEspin.setValue(self.obj.m_maxSlice)
 		self.zEspin.setMaximum(self.obj.m_volume.shape[0]-1)
 
+		for idx in range(7):
+			self.f_check[idx].setChecked(self.obj.m_filters[idx][0] != 0)
 
-		self.f0CheckBox.setChecked(self.obj.m_filters[0][0] != 0)
-		self.f1CheckBox.setChecked(self.obj.m_filters[1][0] != 0)
-		self.f2CheckBox.setChecked(self.obj.m_filters[2][0] != 0)
-		self.f3CheckBox.setChecked(self.obj.m_filters[3][0] != 0)
-		self.f4CheckBox.setChecked(self.obj.m_filters[4][0] != 0)
-		self.f5CheckBox.setChecked(self.obj.m_filters[5][0] != 0)
-		self.f6CheckBox.setChecked(self.obj.m_filters[6][0] != 0)
+			self.spin_min[idx].setMinimum(self.obj.m_min)
+			self.spin_min[idx].setValue(self.obj.m_filters[idx][1])
 
-		self.f0SpinMin.setValue(self.obj.m_filters[0][1])
-		self.f0SpinMin.setMinimum(self.obj.m_min)
-		self.f0SpinMax.setValue(self.obj.m_filters[0][2])
-		self.f0SpinMax.setMaximum(self.obj.m_max)
+			self.spin_max[idx].setMaximum(self.obj.m_max)
+			self.spin_max[idx].setValue(self.obj.m_filters[idx][2])
 
-		self.f1SpinMin.setValue(self.obj.m_filters[1][1])
-		self.f1SpinMin.setMinimum(self.obj.m_min)
-		self.f1SpinMax.setValue(self.obj.m_filters[1][2])
-		self.f1SpinMax.setMaximum(self.obj.m_max)
-
-		self.f2SpinMin.setValue(self.obj.m_filters[2][1])
-		self.f2SpinMin.setMinimum(self.obj.m_min)
-		self.f2SpinMax.setValue(self.obj.m_filters[2][2])
-		self.f2SpinMax.setMaximum(self.obj.m_max)
-
-		self.f3SpinMin.setValue(self.obj.m_filters[3][1])
-		self.f3SpinMin.setMinimum(self.obj.m_min)
-		self.f3SpinMax.setValue(self.obj.m_filters[3][2])
-		self.f3SpinMax.setMaximum(self.obj.m_max)
-
-		self.f4SpinMin.setValue(self.obj.m_filters[4][1])
-		self.f4SpinMin.setMinimum(self.obj.m_min)
-		self.f4SpinMax.setValue(self.obj.m_filters[4][2])
-		self.f4SpinMax.setMaximum(self.obj.m_max)
-
-		self.f5SpinMin.setValue(self.obj.m_filters[5][1])
-		self.f5SpinMin.setMinimum(self.obj.m_min)
-		self.f5SpinMax.setValue(self.obj.m_filters[5][2])
-		self.f5SpinMax.setMaximum(self.obj.m_max)
-
-		self.f6SpinMin.setValue(self.obj.m_filters[6][1])
-		self.f6SpinMin.setMinimum(self.obj.m_min)
-		self.f6SpinMax.setValue(self.obj.m_filters[6][2])
-		self.f6SpinMax.setMaximum(self.obj.m_max)
+			self.spin_max[idx].setMinimum(max(self.obj.m_min,self.spin_min[idx].value()))
+			self.spin_min[idx].setMaximum(min(self.obj.m_max,self.spin_max[idx].value()))
 
 		self.fastDrawCheckBox.setChecked(self.obj.m_fastDraw)
 		self.renderBoxesCheckBox.setChecked(self.obj.m_renderBoxes)
@@ -184,231 +155,92 @@ class PropVolumetric(PropWidget):
 		AP.updateAllViews()
 
 
-	@pyqtSlot(float)
-	def on_f0_min_changed(self, val):
+	def change_filter_min(self, idx, val):
 		val = np.round(val,4)
-		print(f"f0 min={val}")
+		print(f"f{idx} min={val}")
 
-		if val > self.obj.m_filters[0][2]:
-			val = self.obj.m_filters[0][2]
+		if val > self.obj.m_filters[idx][2]:
+			val = self.obj.m_filters[idx][2]
 		elif val < self.obj.m_minDisplWin:
 			val = self.obj.m_minDisplWin
 
-		self.obj.m_filters[0][1] = val
-		self.f0SpinMax.blockSignals(True)
-		self.f0SpinMax.setMinimum(val)
-		self.f0SpinMax.blockSignals(False)
+		self.obj.m_filters[idx][1] = val
+		self.spin_max[idx].blockSignals(True)
+		self.spin_max[idx].setMinimum(val)
+		self.spin_max[idx].blockSignals(False)
 		AP.updateAllViews()
 
 
 	@pyqtSlot(float)
-	def on_f0_max_changed(self, val):
-		val = np.round(val,4)
-		print(f"f0 max={val}")
-
-		if val < self.obj.m_filters[0][1]:
-			val = self.obj.m_filters[0][1]
-		elif val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
-
-		self.obj.m_filters[0][2] = val
-		self.f0SpinMin.blockSignals(True)
-		self.f0SpinMin.setMaximum(val)
-		self.f0SpinMin.blockSignals(False)
-		AP.updateAllViews()
-
+	def on_f0_min_changed(self, val):
+		self.change_filter_min(0, val)
 
 	@pyqtSlot(float)
 	def on_f1_min_changed(self, val):
-		val = np.round(val,4)
-		print(f"f1 min={val}")
-
-		if val > self.obj.m_filters[1][2]:
-			val = self.obj.m_filters[1][2]
-		elif val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
-
-		self.obj.m_filters[1][1] = val
-		self.f1SpinMax.blockSignals(True)
-		self.f1SpinMax.setMinimum(val)
-		self.f1SpinMax.blockSignals(False)
-		AP.updateAllViews()
-
-	@pyqtSlot(float)
-	def on_f1_max_changed(self, val):
-		val = np.round(val,4)
-		print(f"f1 max={val}")
-
-		if val < self.obj.m_filters[1][1]:
-			val = self.obj.m_filters[1][1]
-		elif val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
-
-		self.obj.m_filters[1][2] = val
-		self.f1SpinMin.blockSignals(True)
-		self.f1SpinMin.setMaximum(val)
-		self.f1SpinMin.blockSignals(False)
-		AP.updateAllViews()
+		self.change_filter_min(1, val)
 
 	@pyqtSlot(float)
 	def on_f2_min_changed(self, val):
-		val = np.round(val,4)
-		print(f"f2 min={val}")
-
-		if val > self.obj.m_filters[2][2]:
-			val = self.obj.m_filters[2][2]
-		elif val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
-
-		self.obj.m_filters[2][1] = val
-		self.f2SpinMax.blockSignals(True)
-		self.f2SpinMax.setMinimum(val)
-		self.f2SpinMax.blockSignals(False)
-		AP.updateAllViews()
-
-	@pyqtSlot(float)
-	def on_f2_max_changed(self, val):
-		val = np.round(val,4)
-		print(f"f2 max={val}")
-
-		if val < self.obj.m_filters[2][1]:
-			val = self.obj.m_filters[2][1]
-		elif val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
-
-		self.obj.m_filters[2][2] = val
-		self.f2SpinMin.blockSignals(True)
-		self.f2SpinMin.setMaximum(val)
-		self.f2SpinMin.blockSignals(False)
-		AP.updateAllViews()
+		self.change_filter_min(2, val)
 
 	@pyqtSlot(float)
 	def on_f3_min_changed(self, val):
-		val = np.round(val,4)
-		print(f"f3 min={val}")
-
-		if val > self.obj.m_filters[3][2]:
-			val = self.obj.m_filters[3][2]
-		elif val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
-
-		self.obj.m_filters[3][1] = val
-		self.f3SpinMax.blockSignals(True)
-		self.f3SpinMax.setMinimum(val)
-		self.f3SpinMax.blockSignals(False)
-		AP.updateAllViews()
-	
-	@pyqtSlot(float)
-	def on_f3_max_changed(self, val):
-		val = np.round(val,4)
-		print(f"f3 max={val}")
-
-		if val < self.obj.m_filters[3][1]:
-			val = self.obj.m_filters[3][1]
-		elif val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
-
-		self.obj.m_filters[3][2] = val
-		self.f3SpinMin.blockSignals(True)
-		self.f3SpinMin.setMaximum(val)
-		self.f3SpinMin.blockSignals(False)
-		AP.updateAllViews()
+		self.change_filter_min(3, val)
 
 	@pyqtSlot(float)
 	def on_f4_min_changed(self, val):
-		val = np.round(val,4)
-		print(f"f4 min={val}")
-
-		if val > self.obj.m_filters[4][2]:
-			val = self.obj.m_filters[4][2]
-		elif val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
-
-		self.obj.m_filters[4][1] = val
-		self.f4SpinMax.blockSignals(True)
-		self.f4SpinMax.setMinimum(val)
-		self.f4SpinMax.blockSignals(False)
-		AP.updateAllViews()
-
-	@pyqtSlot(float)
-	def on_f4_max_changed(self, val):
-		val = np.round(val,4)
-		print(f"f4 max={val}")
-
-		if val < self.obj.m_filters[4][1]:
-			val = self.obj.m_filters[4][1]
-		elif val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
-
-		self.obj.m_filters[4][2] = val
-		self.f4SpinMin.blockSignals(True)
-		self.f4SpinMin.setMaximum(val)
-		self.f4SpinMin.blockSignals(False)
-		AP.updateAllViews()
+		self.change_filter_min(4, val)
 
 	@pyqtSlot(float)
 	def on_f5_min_changed(self, val):
-		val = np.round(val,4)
-		print(f"f5 min={val}")
-
-		if val > self.obj.m_filters[5][2]:
-			val = self.obj.m_filters[5][2]
-		elif val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
-
-		self.obj.m_filters[5][1] = val
-		self.f5SpinMax.blockSignals(True)
-		self.f5SpinMax.setMinimum(val)
-		self.f5SpinMax.blockSignals(False)
-		AP.updateAllViews()
-	
-	@pyqtSlot(float)
-	def on_f5_max_changed(self, val):
-		val = np.round(val,4)
-		print(f"f5 max={val}")
-
-		if val < self.obj.m_filters[5][1]:
-			val = self.obj.m_filters[5][1]
-		elif val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
-
-		self.obj.m_filters[5][2] = val
-		self.f5SpinMin.blockSignals(True)
-		self.f5SpinMin.setMaximum(val)
-		self.f5SpinMin.blockSignals(False)
-		AP.updateAllViews()
+		self.change_filter_min(5, val)
 
 	@pyqtSlot(float)
 	def on_f6_min_changed(self, val):
+		self.change_filter_min(6, val)
+
+	def change_filter_max(self, idx, val):
 		val = np.round(val,4)
-		print(f"f6 min={val}")
+		print(f"f{idx} max={val}")
 
-		if val > self.obj.m_filters[6][2]:
-			val = self.obj.m_filters[6][2]
-		elif val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
-
-		self.obj.m_filters[6][1] = val
-		self.f6SpinMax.blockSignals(True)
-		self.f6SpinMax.setMinimum(val)
-		self.f6SpinMax.blockSignals(False)
-		AP.updateAllViews()
-	
-	@pyqtSlot(float)
-	def on_f6_max_changed(self, val):
-		val = np.round(val,4)
-		print(f"f6 max={val}")
-
-		if val < self.obj.m_filters[6][1]:
-			val = self.obj.m_filters[6][1]
+		if val < self.obj.m_filters[idx][1]:
+			val = self.obj.m_filters[idx][1]
 		elif val > self.obj.m_maxDisplWin:
 			val = self.obj.m_maxDisplWin
 
-		self.obj.m_filters[6][2] = val
-		self.f6SpinMin.blockSignals(True)
-		self.f6SpinMin.setMaximum(val)
-		self.f6SpinMin.blockSignals(False)
+		self.obj.m_filters[idx][2] = val
+		self.spin_min[idx].blockSignals(True)
+		self.spin_min[idx].setMaximum(val)
+		self.spin_min[idx].blockSignals(False)
 		AP.updateAllViews()
+
+	@pyqtSlot(float)
+	def on_f0_max_changed(self, val):
+		self.change_filter_max(0, val)
+
+	@pyqtSlot(float)
+	def on_f1_max_changed(self, val):
+		self.change_filter_max(1, val)
+
+	@pyqtSlot(float)
+	def on_f2_max_changed(self, val):
+		self.change_filter_max(2, val)
+
+	@pyqtSlot(float)
+	def on_f3_max_changed(self, val):
+		self.change_filter_max(3, val)
+
+	@pyqtSlot(float)
+	def on_f4_max_changed(self, val):
+		self.change_filter_max(4, val)
+
+	@pyqtSlot(float)
+	def on_f5_max_changed(self, val):
+		self.change_filter_max(5, val)
+
+	@pyqtSlot(float)
+	def on_f6_max_changed(self, val):
+		self.change_filter_max(6, val)
 
 	@pyqtSlot(bool)
 	def on_fast_draw_checkbox(self, b):

@@ -18,6 +18,7 @@ class ParserDICOM(Parser):
 
 	@staticmethod	
 	def convert_to_HU(dcm, b=None, m=None):
+		print(dcm)
 		if b is None: b = float(getattr(dcm, 'RescaleIntercept', 0.0))
 		if m is None: m = float(getattr(dcm, 'RescaleSlope', 1.0))
 		x = m * dcm.pixel_array + b
@@ -72,8 +73,8 @@ class ParserDICOM(Parser):
 		volum.m_maxSlice = volum.m_volume.shape[0]-1
 
 		for filter in volum.m_filters:
-			filter[1] = volum.m_minDisplWin
-			filter[2] = volum.m_maxDisplWin
+			filter[1] = max(filter[1], volum.m_minDisplWin)
+			filter[2] = min(filter[2], volum.m_maxDisplWin)
 
 		# self.show_histogram()
 		return volum

@@ -47,6 +47,16 @@ def fastTest():
 		AP.mainWin.dock["workspace"].addNewItem(obj)
 	AP.mainWin.update()
 
+def fastTest3():
+	from dpVision.AnnotationPath import AnnotationPath
+
+	obj = AnnotationPath( points=[[-5,-5,-5],[-5,-5,5],[5,-5,5],[5,5,5]] )
+	if not obj is None:
+		AP.mainWin.workspace.m_data.append(obj)
+		AP.mainWin.dock["workspace"].addNewItem(obj)
+
+	AP.mainWin.update()
+
 
 
 MainApplication.setOrganizationName('IITiS PAN')
@@ -77,6 +87,6 @@ if AP.settings.value("mainwindow/maximized", False, type=bool):
 else:
 	AP.mainWin.show()
 
-#fastTest2()
+#fastTest3()
 
 sys.exit(AP.mainApp.exec_())

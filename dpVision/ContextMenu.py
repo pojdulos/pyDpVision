@@ -32,6 +32,12 @@ class ContextMenu(QMenu):
 			self.addSeparator()
 			self.addMenu(self.createMoveMenu())
 
+		self.addSeparator()
+		action = QAction("Refresh tree", self)
+		action.triggered.connect(self.refreshTree)
+		self.addAction(action)
+
+
 	def createMoveMenu(self):
 		menu = QMenu("move to...", self)
 		menu.setIcon(QIcon(":/icons/MoveTo.ico"))
@@ -70,6 +76,10 @@ class ContextMenu(QMenu):
 					menu2.addMenu( self.createMoveSubMenu(m.getLabel(), m) )
 		return menu2
 
+
+	@pyqtSlot()
+	def refreshTree(self):
+		AP.mainWin.dock["workspace"].refreshAll()
 
 	@pyqtSlot()
 	def slotCreateEmptyModel(self):

@@ -57,8 +57,6 @@ def fastTest3():
 
 	AP.mainWin.update()
 
-
-
 MainApplication.setOrganizationName('IITiS PAN')
 MainApplication.setOrganizationDomain("iitis.pl")
 MainApplication.setApplicationName("dpVision")

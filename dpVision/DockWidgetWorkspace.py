@@ -8,9 +8,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
-
 class DeselectableTreeView(QTreeView):
-	
 	clickedSomewhere = pyqtSignal(QModelIndex)
 	
 	def __init__(self, parent):
@@ -108,11 +106,9 @@ class DockWidgetWorkspace(QDockWidget):
 				# colNameClicked(clickedObject, clickedItem)
 				pass
 			elif col == 1:
-				# colSelfVisibilityClicked(clickedObject, clickedItem)
-				pass
+				clickedObject.setSelfVisibility(not clickedObject.getSelfVisibility())
 			elif col == 2:
-				# colKidsVisibilityClicked(clickedObject, clickedItem)
-				pass
+				clickedObject.setKidsVisibility(not clickedObject.getKidsVisibility())
 			elif col == 3:
 				# colLockClicked((CModel3D*)clickedObject, clickedItem)
 				pass
@@ -150,6 +146,21 @@ class DockWidgetWorkspace(QDockWidget):
 	def getItemObject(self, item):
 		return item.data(Qt.UserRole)
 
+	@staticmethod
+	def getNewIcon(obj, col):
+		if col == 1:
+			if obj.typeStr() == "Transform":
+				return QIcon(":/icons/VisibleMatrix.ico") if obj.getSelfVisibility() else QIcon(":/icons/HiddenMatrix.ico")
+			else:
+				return QIcon(":/icons/Visible.ico") if obj.getSelfVisibility() else QIcon(":/icons/Hidden.ico")
+		elif col == 2:
+			return QIcon(":/icons/VisibleKids.ico") if obj.getKidsVisibility() else QIcon(":/icons/HiddenKids.ico")
+		elif col == 3:
+			return QIcon(":/icons/Unlock.ico")
+			#return QIcon(":/icons/Lock.ico") if obj.isLocked() else QIcon(":/icons/Unlock.ico")
+		return QIcon()
+
+
 	def addTreeItem(self,root,obj):
 		item = QStandardItem(obj.getLabel())
 		item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
@@ -157,28 +168,51 @@ class DockWidgetWorkspace(QDockWidget):
 		item.setCheckState(Qt.Unchecked)
 		self.setItemObject(item, obj)
 
-		sV = QStandardItem('sV')
+		sV = QStandardItem()
+		sV.setIcon(DockWidgetWorkspace.getNewIcon(obj, 1))
 		sV.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
 		sV.setToolTip("change own visibility")
 		self.setItemObject(sV, obj)
 
-		kV = QStandardItem('kV')
+		kV = QStandardItem()
+		kV.setIcon(DockWidgetWorkspace.getNewIcon(obj, 2))
 		kV.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
 		kV.setToolTip("change kids visibility")
 		self.setItemObject(kV, obj)
 
-		lK = QStandardItem('Lck')
+		lK = QStandardItem()
+		lK.setIcon(DockWidgetWorkspace.getNewIcon(obj, 3))
 		lK.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
 		lK.setToolTip("Lock / Unlock")
 		self.setItemObject(lK, obj)
 		
-		items = [item, sV, kV, lK]
-		root.appendRow(items)
+		items = [item, sV, kV, lK] # all are QStandardItem type
+		root.appendRow(items)	# root is QStandardItem type
 		for child in obj.children():
 			self.addTreeItem(item, child)
 		
 		return item
 		
+	def refreshAll(self, rootItem=None):
+		model = self.treeView.model()
+		if (rootItem is None):
+			rootItem = model.invisibleRootItem()
+
+		for row in range(rootItem.rowCount()):
+			for col in range(4):
+				childItem = rootItem.child(row,col)
+				obj = self.getItemObject(childItem)
+
+				if col == 0:
+					childItem.setText(obj.getLabel())
+					# Rekurencyjne wywołanie dla dzieci, jeśli istnieją
+					if childItem.hasChildren():
+						self.refreshAll(childItem)
+				elif col == 1:
+					childItem.setIcon(DockWidgetWorkspace.getNewIcon(obj, 1))
+				elif col == 2:
+					childItem.setIcon(DockWidgetWorkspace.getNewIcon(obj, 2))
+
 	def rebuildTree(self):
 		self.treeView.blockSignals(True)
 		self.treeView.reset()

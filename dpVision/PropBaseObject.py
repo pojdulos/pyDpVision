@@ -38,11 +38,13 @@ class PropBaseObject(PropWidget):
 	@pyqtSlot(bool)
 	def onChangedKidsVisibility(self, b):
 		self.obj.setKidsVisibility(b)
+		AP.mainWin.dock["workspace"].refreshAll()
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def onChangedSelfVisibility(self, b):
 		self.obj.setSelfVisibility(b)
+		AP.mainWin.dock["workspace"].refreshAll()
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
@@ -52,8 +54,8 @@ class PropBaseObject(PropWidget):
 	@pyqtSlot(str)
 	def onChangedLabel(self, s):
 		self.obj.setLabel(s)
+		AP.mainWin.dock["workspace"].refreshAll()
 		AP.updateAllViews()
-		#AP.mainWin.UI::DOCK::WORKSPACE::setItemLabelById(obj->id(), s.toStdWString());
 
 	@pyqtSlot()
 	def onDescrChanged(self):

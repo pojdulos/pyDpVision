@@ -165,6 +165,7 @@ class MainWindow(QMainWindow):
 	@pyqtSlot(QObject)	
 	def onCurrentObjectUpdated( self, obj ):
 		self.dock["properties"].updateProperties()
+		self.dock["workspace"].refreshAll()
 
 	@pyqtSlot(QObject)	
 	def onCurrentObjectChanged( self, obj ):
@@ -172,6 +173,7 @@ class MainWindow(QMainWindow):
 		if obj is None:
 			obj = self.currentGLViewer()
 		self.dock["properties"].selectionChanged(obj)
+		self.dock["workspace"].refreshAll()
 
 	def viewerSelected(self):
 		pass

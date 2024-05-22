@@ -71,6 +71,7 @@ class ParserATMDL(Parser):
 		if slowo is None:
 			return None
 		
+		print(slowo)
 		while slowo.startswith('#'):
 			komentarz = 'Komentarz: ' + slowo
 			if znak:
@@ -80,6 +81,8 @@ class ParserATMDL(Parser):
 				else:
 					komentarz += znak
 				slowo, znak = self.readWord(stream)
+				if slowo is None:
+					return None
 				print(komentarz)
 			else:
 				print(komentarz)
@@ -161,6 +164,62 @@ class ParserATMDL(Parser):
 		return slowo
 	
 	def parseType_matrix(self, stream):
+		print("po słowie kluczowym 'matrix' spodziewam się macierzy !!!")
+		
+		znak = self.readChar(stream)
+		while znak and znak.isspace():
+			znak = self.readChar(stream)
+
+		if znak is None:
+			print("Osiągnięto koniec pliku podczas parsowania macierzy")
+			return None
+		
+		znaki = []
+		if znak == '[':
+			print("wykryto znak '[': spodziewana macierz w nawiasach prostokątnych")
+			while znak:
+				znak = self.readChar(stream)
+
+				while znak and znak.isspace():
+					znak = self.readChar(stream)
+
+				if znak is None:
+					print(f"Osiągnięto koniec pliku podczas parsowania macierzy, odczytane znaki: {znaki}")
+					return None
+
+				if znak == ']':
+					print("wykryto znak ']': kończe odczyt macierzy")
+					break
+				elif znak.isdigit() or znak in {'.', ',', ';', 'e', 'E', '-'}:
+					znaki.append(znak)
+				else:
+					print(f"Nieoczekiwany znak {znak} podczas parsowania macierzy, dotychczas odczytane znaki: {znaki}")
+					return None
+		else:
+			print("nie wykryto znaku '[': spodziewana macierz w formie jednego łańcucha liczb rozdzielonych przecinkami, biały znak kończy odczyt")
+			
+			while znak and not znak.isspace():
+				if znak.isdigit() or znak in {'.', ',', 'e', 'E', '-'}:
+					znaki.append(znak)
+				else:
+					print(f"Nieoczekiwany znak {znak} podczas parsowania macierzy, dotychczas odczytane znaki: {znaki}")
+					return None
+				znak = self.readChar(stream)
+				if znak is None:
+					print(f"Osiągnięto koniec pliku podczas parsowania macierzy, odczytane znaki: {znaki}")
+					return None
+				elif znak.isspace():
+					print("wykryto biały znak: kończe odczyt macierzy")
+
+		tekst = ''.join(znaki)
+
+		tekst = re.sub(r"[\s,;]+", ",", tekst).strip(',')
+
+		print("Odczytano macierz: [" + tekst +"]")
+		return tekst
+
+	def parseType_matrix_BACK(self, stream):
+		print("po słowie kluczowym 'matrix' spodziewam się macierzy !!!")
 		tekst, znak = self.readWord(stream)
 		if tekst is None:
 			print("Osiągnięto koniec pliku podczas parsowania macierzy")
@@ -170,8 +229,16 @@ class ParserATMDL(Parser):
 			print("Osiągnięto koniec pliku podczas parsowania macierzy")
 			return tekst
 
+		tekst = tekst.strip()
+
 		if tekst.startswith('['):
+			print("wykryto znak '[': macierz w nawiasach prostokątnych")
+			if tekst.endswith(']'):
+				print("wykryto znak ']': wydaje się że jest ok")
+				return tekst[1:-1]
+
 			znaki = [tekst]
+
 			while znak:
 				if znak == ']':
 					print("Poprawnie domknięto nawiasy")

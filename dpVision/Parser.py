@@ -51,6 +51,7 @@ class Parser:
 		for p in Parser.parsers:
 			if p.canLoadExt(fext):
 				return p.load(path)
+		print(f"File extention '{fext}' not supported yet: {path}")
 		return None
 	
 	@staticmethod	

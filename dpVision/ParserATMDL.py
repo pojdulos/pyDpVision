@@ -7,6 +7,7 @@ Created on Mon Nov 27 12:58:12 2023
 from dpVision.AnnotationPoint import AnnotationPoint
 from dpVision.AnnotationTriangle import AnnotationTriangle
 from dpVision.Motion import Motion
+from dpVision.Object import Object
 from .Parser import Parser
 from .AnnotationSphere import AnnotationSphere
 from .Transform import Transform
@@ -71,7 +72,6 @@ class ParserATMDL(Parser):
 		if slowo is None:
 			return None
 		
-		print(slowo)
 		while slowo.startswith('#'):
 			komentarz = 'Komentarz: ' + slowo
 			if znak:
@@ -218,49 +218,6 @@ class ParserATMDL(Parser):
 		print("Odczytano macierz: [" + tekst +"]")
 		return tekst
 
-	def parseType_matrix_BACK(self, stream):
-		print("po słowie kluczowym 'matrix' spodziewam się macierzy !!!")
-		tekst, znak = self.readWord(stream)
-		if tekst is None:
-			print("Osiągnięto koniec pliku podczas parsowania macierzy")
-			return None
-
-		if znak is None:
-			print("Osiągnięto koniec pliku podczas parsowania macierzy")
-			return tekst
-
-		tekst = tekst.strip()
-
-		if tekst.startswith('['):
-			print("wykryto znak '[': macierz w nawiasach prostokątnych")
-			if tekst.endswith(']'):
-				print("wykryto znak ']': wydaje się że jest ok")
-				return tekst[1:-1]
-
-			znaki = [tekst]
-
-			while znak:
-				if znak == ']':
-					print("Poprawnie domknięto nawiasy")
-					znaki.append(znak)
-					break
-				else:	
-					znaki.append(znak)
-					znak = self.readChar(stream)
-
-			if znak is None:
-				print("BŁĄD: Oczekiwano zamknięcia nawiasu, ale osiągnięto koniec pliku podczas parsowania macierzy")
-				tekst = ''.join(znaki)
-				tekst = tekst[1:]
-
-			tekst = ''.join(znaki)
-			tekst = tekst[1:-1]
-
-		tekst = re.sub(r"[\s,;]+", ",", tekst).strip(',')
-
-		print("Odczytano macierz: [" + tekst +"]")
-		return tekst
-
 	def loadShellFile(self, filepath, mainFile, cleanIt=False):
 		myPath = filepath
 
@@ -271,7 +228,6 @@ class ParserATMDL(Parser):
 				return None
 
 		result = Parser.load(myPath)
-
 		return result #cleanIt?clean_model(result):result;
 
 	def parseObject_shell(self, stream):
@@ -311,19 +267,21 @@ class ParserATMDL(Parser):
 					print("BLAD. W czasie parsowania obiektu 'shell' znaleziono nierozpoznany symbol: "+ slowo)
 					return None
 
-		obj = None
-		if 'file' in opis:
-			obj = self.loadShellFile(opis["file"], self.atmdlFile)
-			if obj is not None:
-				if 'label' in opis:
-					obj.setLabel(opis["label"])
-				if 'descr' in opis:
-					obj.setDescription(opis["descr"])
+		obj = self.loadShellFile(opis["file"], self.atmdlFile) if 'file' in opis else None
 
-				for kid in kids:
-					self.add_kid(obj, kid)
-				
-				print("Zakonczono parsowanie obiektu 'shell'")
+		if obj is None:
+			print("Creating generic object")
+			obj = Object()
+
+		if 'label' in opis:
+			obj.setLabel(opis["label"])
+		if 'descr' in opis:
+			obj.setDescription(opis["descr"])
+
+		for kid in kids:
+			self.add_kid(obj, kid)
+			
+		print(f"Zakonczono parsowanie obiektu 'shell'")
 		return obj
 	
 	def parseObject_transformation(self, stream):
@@ -372,7 +330,7 @@ class ParserATMDL(Parser):
 				if tmp:
 					kids.append(tmp)
 				else:
-					print("BŁĄD. Nierozpoznany symbol "+ slowo)
+					print(f"BŁĄD podczas przetwarzania słowa {slowo}")
 					#return None
 
 
@@ -827,9 +785,9 @@ class ParserATMDL(Parser):
 	def loadATMDL(self, path):
 		with open(path,'r') as stream:
 			self.atmdlFile = path
-			root = Transform()
 			print("\n\nParsuję plik: "+path)
 			print(ParserATMDL.defs)
+			kids = []
 			while True:
 				slowo = self.skip_comments(stream)
 				if slowo in {'define', 'replace'}:
@@ -841,14 +799,22 @@ class ParserATMDL(Parser):
 				elif slowo:
 					tmp = self.parseObject(stream, slowo)
 					if tmp:
-						self.add_kid(root, tmp)
+						kids.append(tmp)
 					else:
 						print("\033[33mNierozpoznany symbol: " + slowo + "\033[0m" )
 				else:
 					print("\033[31mKONIEC PLIKU\033[0m")
 					break
-			
+
 			for d in self.back_defs.keys(): ParserATMDL.defs[d] = self.back_defs[d]
+
+			if len(kids)==1 and kids[0].hasType("Transform"):
+				root = kids[0]
+			else:
+				root = Transform()
+				for tmp in kids:
+					self.add_kid(root, tmp)
+			
 			return root
 
 

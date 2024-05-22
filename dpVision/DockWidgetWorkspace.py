@@ -149,7 +149,7 @@ class DockWidgetWorkspace(QDockWidget):
 	@staticmethod
 	def getNewIcon(obj, col):
 		if col == 1:
-			if obj.typeStr() == "Transform":
+			if obj.hasType("Transform"):
 				return QIcon(":/icons/VisibleMatrix.ico") if obj.getSelfVisibility() else QIcon(":/icons/HiddenMatrix.ico")
 			else:
 				return QIcon(":/icons/Visible.ico") if obj.getSelfVisibility() else QIcon(":/icons/Hidden.ico")

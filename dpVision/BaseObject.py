@@ -65,18 +65,24 @@ class BaseObject(QObject):
 	def getKidsVisibility(self):
 		return self.m_showKids
 
-	def hasCategory(self, cat):
-		if not isinstance(cat, type):
-			raise TypeError("Argument 'cat' must be a class type")
-		return issubclass(type(self), cat)
+	def hasCategory(self, object_category):
+		'''Check if object is instance of subclass of object_category
+		'object_category' must be given as type'''
 
-	def hasType(self, typ):
-		if isinstance(typ, str):
-			return self.__class__.__name__ == typ
-		elif isinstance(typ, type):
-			return type(self) is typ
+		if not isinstance(object_category, type):
+			raise TypeError("Argument 'object_category' must be a class type")
+		return issubclass(type(self), object_category)
+
+	def hasType(self, object_type):
+		'''Check if object is instance of object_type
+		'object_type' could be given as string or type'''
+
+		if isinstance(object_type, str):
+			return self.__class__.__name__ == object_type
+		elif isinstance(object_type, type):
+			return type(self) is object_type
 		else:
-			raise TypeError("Argument 'typ' must be a class type")
+			raise TypeError("Argument 'object_type' must be a class type")
 	
 	def typeStr(self):
 		return self.__class__.__name__

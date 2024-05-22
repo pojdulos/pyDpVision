@@ -211,7 +211,15 @@ class MainWindow(QMainWindow):
 		
 		if fileName[0] != "":
 			obj = Parser.load(fileName[0])
-			if not obj is None:
+			if obj is None:
+				print(f"can't load file: {fileName[0]}")
+				return
+			elif obj.hasType("Transform"):
+					self.workspace.m_data.append(obj)
+					self.dock["workspace"].addNewItem(obj)
+					self.adjustForCurrentFile(fileName[0])
+					AP.settings.setValue("recentFile", fileName[0])
+			else:
 				tra = Transform()
 				if not tra is None:
 					tra.addChild(obj)

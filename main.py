@@ -57,6 +57,21 @@ def fastTest3():
 
 	AP.mainWin.update()
 
+def init_parsers():
+	from dpVision.Parser import Parser
+	from dpVision.ParserSTL import ParserSTL
+	Parser.regParser(ParserSTL)
+	from dpVision.ParserOBJ import ParserOBJ
+	Parser.regParser(ParserOBJ)
+	from dpVision.ParserATMDL import ParserATMDL
+	Parser.regParser(ParserATMDL)
+	from dpVision.ParserDICOM import ParserDICOM
+	Parser.regParser(ParserDICOM)
+	from dpVision.ParserNRRD import ParserNRRD
+	Parser.regParser(ParserNRRD)
+	from dpVision.ParserIMAGE2D import ParserIMAGE2D
+	Parser.regParser(ParserIMAGE2D)
+
 MainApplication.setOrganizationName('IITiS PAN')
 MainApplication.setOrganizationDomain("iitis.pl")
 MainApplication.setApplicationName("dpVision")
@@ -66,17 +81,7 @@ AP.settings = QSettings()
 AP.mainWin = MainWindow()
 # AP.updateGlobals()
 
-from dpVision.Parser import Parser
-from dpVision.ParserOBJ import ParserOBJ
-Parser.regParser(ParserOBJ)
-from dpVision.ParserATMDL import ParserATMDL
-Parser.regParser(ParserATMDL)
-from dpVision.ParserDICOM import ParserDICOM
-Parser.regParser(ParserDICOM)
-from dpVision.ParserNRRD import ParserNRRD
-Parser.regParser(ParserNRRD)
-from dpVision.ParserIMAGE2D import ParserIMAGE2D
-Parser.regParser(ParserIMAGE2D)
+init_parsers()
 
 AP.mainApp.load_plugins("./plugins")
 

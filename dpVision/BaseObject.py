@@ -84,9 +84,6 @@ class BaseObject(QObject):
 		else:
 			raise TypeError("Argument 'object_type' must be a class type")
 	
-	def typeStr(self):
-		return self.__class__.__name__
-	
 	def on_mouse_move(self, x, y):
 		#
 		pass

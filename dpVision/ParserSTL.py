@@ -1,4 +1,5 @@
 from dpVision.Globals import AP
+from dpVision.Transform import Transform
 from .Parser import Parser
 from .Mesh import Mesh
 import numpy as np
@@ -32,78 +33,124 @@ def remove_duplicate_vertices(vertices, triangles):
     
     return new_vertices, new_triangles
 
+def read_line(stream):
+    while True:
+        line = stream.readline()
+        if line == '':  # Koniec pliku
+            return None
+        if line.strip():  # Linia z treścią
+            return line.strip().split()
+        # Jeśli linia jest pusta, pętla kontynuuje, aby pominąć pustą linię
+
+class Solid:
+	def __init__(self):
+		self.header = None
+		self.vertices = []
+		self.faces = []
+
 class ParserSTL(Parser):
 	descr = 'STL files'
-	load_exts = ['.stl'] #,'.dcm']
-	#save_exts = ['.dcm']
+	load_exts = ['.stl']
+	#save_exts = ['.stl']
 
-	@staticmethod	
-	def loadTextStl( path ):
-		mesh = None
-		with open(path,'r') as stream:
-			print("\n\nParsuję plik: "+path)
-			
-			# solid szyna_ver0.stl
-			header = stream.readline() or None
+	def __init__(self):
+		self.solids = []
 
-			vertices = []
-			# vnormals = []
-			faces = []
-
-			while True:
-				line = stream.readline() or None
-
-				if line is None:
-					break
-
-				line = line.strip()
-
-				if line.startswith("endsolid"):
-					break
-
-				if line.startswith("facet"):
-					# facet normal 0.9370570467 0.3490924633 -0.0076513615
-					vTxt = line.split()
-					nx,ny,nz = map(float, vTxt[2:])
-					
-					line = stream.readline() or None
-					# outer loop  
-
-
-					face = []
-
-					# vertex    93.3950725187    32.3959506068    -0.3892593974
-					line = stream.readline() or None
-					vTxt = line.split()
-
-					while vTxt[0] == 'vertex':
-						x,y,z = map(float, vTxt[1:])
-						vidx = len(vertices)
-						vertices.append([x, y, z])
-						# vnormals.append([nx, ny, nz])
-						face.append(vidx)
-						line = stream.readline() or None
-						vTxt = line.split()
-
-					faces.append(face)
-
-					line = stream.readline() or None
-					# endloop
-					
-					line = stream.readline() or None
-					# endfacet
-
-			# print(f"Przed - liczba wierzchołków: {len(vertices)}, liczba ścianek: {len(faces)}")
-			vertices, faces = remove_duplicate_vertices(vertices, faces)
-			# print(f"Po    - liczba wierzchołków: {len(vertices)}, liczba ścianek: {len(faces)}")
+	def end_procedure(self):
+		meshes = []
+		for solid in self.solids:
+			header = solid.header
+			vertices, faces = remove_duplicate_vertices(solid.vertices, solid.faces)
 
 			mesh = Mesh()
+
+			if header:
+				if len(header)>2:
+					descr = ' '.join(header[1:])
+					mesh.setDescription(descr)
+					mesh.setLabel(os.path.basename(path))
+				elif len(header)>1:
+					mesh.setLabel(header[1])
+				else:
+					mesh.setLabel(os.path.basename(path))
+
 			mesh.m_vertices = np.array(vertices, dtype=np.float32)
-			# mesh.m_vnormals = np.array(vnormals, dtype=np.float32)
 			mesh.m_faces = np.array(faces, dtype=np.uint)
 
 			mesh.calcVN()
-		return mesh
+			meshes.append(mesh)
+
+		if len(meshes) > 1:
+			return meshes
+		elif len(meshes) > 0:	
+			return mesh
+		return None
+
+	def error(self, message):
+		print(message)
+		return self.end_procedure()
+
+	def loadTextStl( self, path ):
+		with open(path,'r') as stream:
+			print("\n\nParsuję plik: "+path)
+			
+			header = read_line(stream) # solid szyna_ver0.stl
+			if header is None:
+				return self.error("'solid' expected, but end of file detected")
+
+			while header[0] == 'solid':
+				solid = Solid()
+				solid.header = header
+
+				while True: # while (not 'endsolid') or 'facet normal'
+					line = read_line(stream) # facet normal nx ny nz
+					if line is None:
+						return self.error(f"'endsolid' or 'facet normal nx ny nz' expected, but found end of file")
+					elif line[0] == "endsolid":
+						self.solids.append(solid)
+						header = read_line(stream) # solid szyna_ver0.stl
+						if header is None:
+							return self.error("End of file detected (it is not error)")
+						break
+
+					elif not (line[0] == 'facet' and line[1] == 'normal' ):
+						return self.error(f"'endsolid' or 'facet normal nx ny nz' expected, but found: {line}")
+					else:
+						line = read_line(stream) # outer loop
+						if line is None:
+							return self.error(f"'outer loop' expected, but found end of file")
+						elif line[0] != 'outer' or line[1] != 'loop':
+							return self.error(f"'outer loop' expected, but found: {line}")
+						else:
+							vTxt = read_line(stream)
+							if vTxt is None:
+								return self.error(f"'vertex x y z' expected, but found end of file")
+							elif vTxt[0] != 'vertex':
+								return self.error(f"'vertex x y z' expected, but found: {line}")
+							else:
+								face = []
+								while vTxt[0] == 'vertex':
+									x,y,z = map(float, vTxt[1:])
+									vidx = len(solid.vertices)
+									solid.vertices.append([x, y, z])
+									# vnormals.append([nx, ny, nz])
+									face.append(vidx)
+									vTxt = read_line(stream)
+									if vTxt is None:
+										return self.error(f"'vertex x y z' or 'endloop' expected, but found end of file")
+								solid.faces.append(face)
+
+								# in vTxt should now be 'endloop'
+								if vTxt[0] != 'endloop':
+									return self.error(f"'endloop' expected, but found: {line}")
+								else:
+									line = read_line(stream) # endfacet
+									if line is None:
+										return self.error(f"'endfacet' expected, but found end of file")
+									elif line[0] != 'endfacet':
+										return self.error(f"'endfacet' expected, but found: {line}")
+		return self.end_procedure()
+
 
 	@staticmethod	
 	def loadBinaryStl( path ):
@@ -137,6 +184,18 @@ class ParserSTL(Parser):
 				vertices, faces = remove_duplicate_vertices(vertices, faces)
 
 				mesh = Mesh()
+
+				if header:
+					header = header.decode('ascii', errors='ignore').strip().split()
+					if len(header)>2:
+						descr = ' '.join(header[1:])
+						mesh.setDescription(descr)
+						mesh.setLabel(os.path.basename(path))
+					elif len(header)>1:
+						mesh.setLabel(header[1])
+					else:
+						mesh.setLabel(os.path.basename(path))
+
 				mesh.m_vertices = np.array(vertices, dtype=np.float32)
 				mesh.m_faces = np.array(faces, dtype=np.uint)
 
@@ -156,7 +215,7 @@ class ParserSTL(Parser):
 				file.close()
             	# Sprawdzamy, czy nagłówek zaczyna się od "solid"
 				if header[:5].decode('ascii', errors='ignore').lower() == 'solid':
-					mesh = ParserSTL.loadTextStl(path)
+					mesh = ParserSTL().loadTextStl(path)
 				else:
 					mesh = ParserSTL.loadBinaryStl(path)
 		except Exception as e:

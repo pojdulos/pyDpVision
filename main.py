@@ -57,7 +57,7 @@ def fastTest3():
 
 	AP.mainWin.update()
 
-def init_parsers():
+def register_parsers():
 	from dpVision.Parser import Parser
 	from dpVision.ParserSTL import ParserSTL
 	Parser.regParser(ParserSTL)
@@ -81,7 +81,7 @@ AP.settings = QSettings()
 AP.mainWin = MainWindow()
 # AP.updateGlobals()
 
-init_parsers()
+register_parsers()
 
 AP.mainApp.load_plugins("./plugins")
 

@@ -202,6 +202,26 @@ class MainWindow(QMainWindow):
 	def viewChildFS(self):
 		pass
 
+	def load_file(self, fileName):
+		obj = Parser.load(fileName)
+		if obj:
+			if isinstance(obj, list) and len(obj)>0:
+				tra = Transform()
+				for kid in obj:
+					tra.addChild(kid)
+			elif isinstance(obj, dpVision.BaseObject):
+				if obj.hasType('Transform'):
+					tra = obj
+				else:
+					tra = Transform()
+					tra.addChild(obj)
+
+			self.workspace.m_data.append(tra)
+			self.dock["workspace"].addNewItem(tra)
+			self.adjustForCurrentFile(fileName)
+			AP.settings.setValue("recentFile", fileName)
+			AP.updateAllViews()
+
 	@pyqtSlot()
 	def fileOpen(self):
 		recentFile = AP.settings.value("recentFile","")
@@ -209,43 +229,15 @@ class MainWindow(QMainWindow):
 		exts = Parser.getLoadExts()
 		fileName = QFileDialog.getOpenFileName( self, "Open File", recentFile, exts )
 		
-		if fileName[0] != "":
-			obj = Parser.load(fileName[0])
-			if obj is None:
-				print(f"can't load file: {fileName[0]}")
-				return
-			elif obj.hasType("Transform"):
-					self.workspace.m_data.append(obj)
-					self.dock["workspace"].addNewItem(obj)
-					self.adjustForCurrentFile(fileName[0])
-					AP.settings.setValue("recentFile", fileName[0])
-			else:
-				tra = Transform()
-				if not tra is None:
-					tra.addChild(obj)
-					self.workspace.m_data.append(tra)
-					self.dock["workspace"].addNewItem(tra)
-					self.adjustForCurrentFile(fileName[0])
-					AP.settings.setValue("recentFile", fileName[0])
-		AP.updateAllViews()
-
+		if fileName[0] != '':
+			self.load_file(fileName[0])
 
 	@pyqtSlot()
 	def openRecent(self):
 		action = self.sender()
 		if action:
 			fileName = action.data()
-			obj = Parser.load(fileName)
-			if not obj is None:
-				tra = Transform()
-				if not tra is None:
-					tra.addChild(obj)
-					self.workspace.m_data.append(tra)
-					self.dock["workspace"].addNewItem(tra)
-					self.adjustForCurrentFile(fileName)
-					AP.settings.setValue("recentFile", fileName)
-		AP.updateAllViews()
-
+			self.load_file(fileName)
 
 	def stereoscopyOff(self):
 		pass

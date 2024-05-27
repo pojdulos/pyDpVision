@@ -4,15 +4,19 @@ Created on Mon Nov 27 12:58:12 2023
 
 @author: pojdulos
 """
+from PyQt5.QtCore import *
 import os
 
-class Parser:
+class Parser(QObject):
 	descr = "Generic parser"
 	load_exts = []
 	save_exts = []
 
 	parsers = []
 
+	def __init__(self):
+		super( Parser, self ).__init__()
+		
 	@staticmethod
 	def regParser( t ):
 		if not t in Parser.parsers:

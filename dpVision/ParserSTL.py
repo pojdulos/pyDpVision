@@ -5,9 +5,10 @@ from .Mesh import Mesh
 import numpy as np
 import os
 from PyQt5.QtGui import *
-import SimpleITK as sitk
 from math import *
 import struct
+from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
 
 def remove_duplicate_vertices(vertices, triangles):
     # Słownik do przechowywania unikalnych wierzchołków i ich nowych indeksów
@@ -33,14 +34,26 @@ def remove_duplicate_vertices(vertices, triangles):
     
     return new_vertices, new_triangles
 
+def policz_linie(nazwa_pliku):
+	liczba_linii = 0
+	with open(nazwa_pliku, 'r') as plik:
+		for linia in plik:
+			liczba_linii += 1
+		plik.close()
+	return liczba_linii
+
 def read_line(stream):
-    while True:
-        line = stream.readline()
-        if line == '':  # Koniec pliku
-            return None
-        if line.strip():  # Linia z treścią
-            return line.strip().split()
-        # Jeśli linia jest pusta, pętla kontynuuje, aby pominąć pustą linię
+	if ParserSTL.cnt%100 == 0:
+		AP.mainWin.progressIndicator.setValue(ParserSTL.cnt)
+	
+	while True:
+		ParserSTL.cnt = ParserSTL.cnt+1
+		line = stream.readline()
+		if line == '':  # Koniec pliku
+			return None
+		if line.strip():  # Linia z treścią
+			return line.strip().split()
+		# Jeśli linia jest pusta, pętla kontynuuje, aby pominąć pustą linię
 
 class Solid:
 	def __init__(self):
@@ -49,12 +62,17 @@ class Solid:
 		self.faces = []
 
 class ParserSTL(Parser):
+	updateProgress = pyqtSignal()
+
 	descr = 'STL files'
 	load_exts = ['.stl']
 	#save_exts = ['.stl']
+	cnt = 0
 
 	def __init__(self):
+		super( ParserSTL, self ).__init__()
 		self.solids = []
+		self.path = ''
 
 	def end_procedure(self):
 		meshes = []
@@ -68,17 +86,19 @@ class ParserSTL(Parser):
 				if len(header)>2:
 					descr = ' '.join(header[1:])
 					mesh.setDescription(descr)
-					mesh.setLabel(os.path.basename(path))
+					mesh.setLabel(os.path.basename(self.path))
 				elif len(header)>1:
 					mesh.setLabel(header[1])
 				else:
-					mesh.setLabel(os.path.basename(path))
+					mesh.setLabel(os.path.basename(self.path))
 
 			mesh.m_vertices = np.array(vertices, dtype=np.float32)
 			mesh.m_faces = np.array(faces, dtype=np.uint)
 
 			mesh.calcVN()
 			meshes.append(mesh)
+
+		AP.mainWin.progressIndicator.hide()
 
 		if len(meshes) > 1:
 			return meshes
@@ -91,9 +111,18 @@ class ParserSTL(Parser):
 		return self.end_procedure()
 
 	def loadTextStl( self, path ):
+		liczba_linii = policz_linie(path)
+
 		with open(path,'r') as stream:
 			print("\n\nParsuję plik: "+path)
 			
+			self.path = path
+			self.solids = []
+
+			ParserSTL.cnt = 0
+			AP.mainWin.progressIndicator.init(text="Wczytuję tekstowy plik .stl",max=liczba_linii)
+			# self.updateProgress.connect(AP.mainWin.progressIndicator.increase)
+
 			header = read_line(stream) # solid szyna_ver0.stl
 			if header is None:
 				return self.error("'solid' expected, but end of file detected")
@@ -166,8 +195,12 @@ class ParserSTL(Parser):
 
 				vertices = []
 				faces = []
+
+				AP.mainWin.progressIndicator.init(text="Wczytuję binarny plik .stl", max=lb)
 				for _ in range(lb):
 					t = file.read(50)
+
+					AP.mainWin.progressIndicator.increase()
 
 					# Pomiń pierwsze 12 bajtów i odczytaj tylko 9 floatów z zakresu od 12 do 47 bajtu
 					floats = struct.unpack('9f', t[12:48])
@@ -200,6 +233,8 @@ class ParserSTL(Parser):
 				mesh.m_faces = np.array(faces, dtype=np.uint)
 
 				mesh.calcVN()
+
+				AP.mainWin.progressIndicator.hide()
 				return mesh
 		except Exception as e:
 			print(f"Error reading file: {e}")

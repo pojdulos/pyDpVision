@@ -1,5 +1,6 @@
 from PyQt5 import uic
 from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
 
 class ProgressIndicator(QWidget):
 	def __init__(self, _obj, parent=None):
@@ -21,11 +22,16 @@ class ProgressIndicator(QWidget):
 		self.workInfo.setText("Cancelled ! Please wait...")
 		self.actionCancelled = True
 
+	@pyqtSlot(int)
 	def setValue(self, value):
 		self.progressBar.setValue(value)
 
+	@pyqtSlot()
 	def increase(self):
-		self.progressBar.setValue(self.progressBar.value()+1)
+		val = self.progressBar.value()+1
+		if val > self.progressBar.maximum():
+			val = self.progressBar.minimum()
+		self.progressBar.setValue(val)
 
 	def setText(self, text):
 		self.workInfo.setText(text)

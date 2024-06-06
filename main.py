@@ -6,14 +6,10 @@ import sys
 
 from PyQt5.QtCore import QSettings
 
-from dpVision.Globals import AP
-from dpVision.MainApplication import MainApplication
-from dpVision.MainWindow import MainWindow
-from dpVision.Transform import Transform
+from dpVision import AP, MainApplication, MainWindow, Transform
 
 def fastTest2():
-	from dpVision.Image import Image
-	from PyQt5.QtGui import QImage
+	from dpVision import Image
 
 	obj = Image(path = "d:\\rozmiary2.PNG")
 	if not obj is None:
@@ -32,14 +28,12 @@ def fastTest2():
 				AP.mainWin.dock["workspace"].addNewItem(tra2)
 
 def fastTest():
-	from dpVision.AnnotationPoint import AnnotationPoint
+	from dpVision import AnnotationPoint, AnnotationSphere
 
 	obj = AnnotationPoint( point=[5,5,5], vector=[1.0,0.0,0.0] )
 	if not obj is None:
 		AP.mainWin.workspace.m_data.append(obj)
 		AP.mainWin.dock["workspace"].addNewItem(obj)
-
-	from dpVision.AnnotationSphere import AnnotationSphere
 
 	obj = AnnotationSphere()
 	if not obj is None:
@@ -48,7 +42,7 @@ def fastTest():
 	AP.mainWin.update()
 
 def fastTest3():
-	from dpVision.AnnotationPath import AnnotationPath
+	from dpVision import AnnotationPath
 
 	obj = AnnotationPath( points=[[-5,-5,-5],[-5,-5,5],[5,-5,5],[5,5,5]] )
 	if not obj is None:
@@ -58,18 +52,12 @@ def fastTest3():
 	AP.mainWin.update()
 
 def register_parsers():
-	from dpVision.Parser import Parser
-	from dpVision.ParserSTL import ParserSTL
+	from dpVision import Parser, ParserATMDL, ParserDICOM, ParserIMAGE2D, ParserNRRD, ParserOBJ, ParserSTL
 	Parser.regParser(ParserSTL)
-	from dpVision.ParserOBJ import ParserOBJ
 	Parser.regParser(ParserOBJ)
-	from dpVision.ParserATMDL import ParserATMDL
 	Parser.regParser(ParserATMDL)
-	from dpVision.ParserDICOM import ParserDICOM
 	Parser.regParser(ParserDICOM)
-	from dpVision.ParserNRRD import ParserNRRD
 	Parser.regParser(ParserNRRD)
-	from dpVision.ParserIMAGE2D import ParserIMAGE2D
 	Parser.regParser(ParserIMAGE2D)
 
 MainApplication.setOrganizationName('IITiS PAN')

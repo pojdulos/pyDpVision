@@ -6,11 +6,11 @@ from PyQt5 import uic
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
-from dpVision.Globals import AP
 
-from dpVision.PropWidget import PropWidget
-from dpVision.PropBaseObject import PropBaseObject
-from dpVision.Transform import Transform
+from .globals import AP
+from .propWidget import PropWidget
+from .propBaseObject import PropBaseObject
+from .transform import Transform
 
 class PropTransform(PropWidget):
 	def __init__(self, _obj, parent=None):

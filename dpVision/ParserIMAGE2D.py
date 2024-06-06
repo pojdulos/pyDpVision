@@ -1,6 +1,6 @@
-from dpVision.Globals import AP
-from dpVision.Image import Image
-from .Parser import Parser
+from .globals import AP
+from .image import Image
+from .parser import Parser
 from PyQt5.QtGui import *
 
 class ParserIMAGE2D(Parser):

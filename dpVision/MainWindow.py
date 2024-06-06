@@ -4,21 +4,21 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt, QObject, QFileInfo, pyqtSlot
 from PyQt5 import uic
 
-from dpVision.Globals import AP
+from .globals import AP
 
-from dpVision.DockWidgetWorkspace import DockWidgetWorkspace
-from dpVision.DockWidgetProperties import DockWidgetProperties
-from dpVision.DockWidgetPluginList import DockWidgetPluginList
-from dpVision.DockWidgetPluginPanel import DockWidgetPluginPanel
-from dpVision.MdiChild import MdiChild
-from dpVision.Workspace import Workspace
-from dpVision.Parser import Parser
-from dpVision.GLViewer import GLViewer
-from dpVision.Transform import Transform
-from dpVision.ProgressIndicator import ProgressIndicator
+from .dockWidgetWorkspace import DockWidgetWorkspace
+from .dockWidgetProperties import DockWidgetProperties
+from .dockWidgetPluginList import DockWidgetPluginList
+from .dockWidgetPluginPanel import DockWidgetPluginPanel
+from .mdiChild import MdiChild
+from .workspace import Workspace
+from .parser import Parser
+from .gLViewer import GLViewer
+from .transform import Transform
+from .progressIndicator import ProgressIndicator
 
 
-maxRecentFiles = 10
+MAX_NUMBER_OF_RECENT_FILES = 10
 
 class MainWindow(QMainWindow):
 	def __init__(self):
@@ -65,9 +65,7 @@ class MainWindow(QMainWindow):
 		self.progressIndicator.hide()
 		self.statusBar.addPermanentWidget(self.progressIndicator, 0)
 
-		self.recentFileActionList = []
-		self.createRecentActions()
-		self.createRecentMenus()
+		self.create_recent_files_menu()
 
 		self.mdiArea.subWindowActivated.connect(self.onSubWindowActivated)
 		MdiChild.create(self, self.mdiArea, MdiChild.Show.Maximized)
@@ -86,48 +84,67 @@ class MainWindow(QMainWindow):
 	def buttonClicked(self):
 		QMessageBox.information(self, 'Komunikat', 'Kliknięto przycisk!')
 
-	def createRecentActions(self):
-		for i in range(maxRecentFiles):
+	def create_recent_files_menu(self):
+		# create empty recent menu (all actions are invisible)
+		for _ in range(MAX_NUMBER_OF_RECENT_FILES):
 			action = QAction(self)
 			action.setVisible(False)
 			action.triggered.connect(self.openRecent)
-			self.recentFileActionList.append( action )
+			self.menuRecentFiles.addAction(action)
+		
+		self.menuRecentFiles.setToolTipsVisible(True)
+		# and fill it with recentFiles from registry
+		self.update_recent_files_menu()
+
 	
+	def	update_recent_files_menu(self, paths=None):
+		def shorten_path(my_path, max_length=60):
+			if len(my_path) <= max_length:
+				return my_path
+			else:
+				part_length = (max_length - 3) // 2
+				return my_path[:part_length] + '...' + my_path[-part_length:]
 
-	def createRecentMenus(self):
-		for i in range(maxRecentFiles):
-			self.menuRecentFiles.addAction(self.recentFileActionList[i])
-		self.updateRecentActionList()
+		if not paths or not isinstance(paths, list):
+			paths = AP.settings.value("recentFiles",[])
 
+		actions_list = self.menuRecentFiles.actions()
+		paths_count = min(len(paths), MAX_NUMBER_OF_RECENT_FILES)
 
-	def adjustForCurrentFile(self, filePath):
-		currentFilePath = filePath
-		self.setWindowFilePath(currentFilePath)
-
-		recentFilePaths = AP.settings.value("recentFiles",[])
-		recentFilePaths = [i for i in recentFilePaths if i != filePath]
-		recentFilePaths.insert(0, filePath)
-		while len(recentFilePaths) > maxRecentFiles:
-			recentFilePaths.pop()
-		AP.settings.setValue("recentFiles", recentFilePaths)
-
-		self.updateRecentActionList()
-
-
-	def	updateRecentActionList(self):
-		recentFilePaths = AP.settings.value("recentFiles",[])
-
-		itEnd = min( len(recentFilePaths), maxRecentFiles )
-
-		for i in range(itEnd):
-			strippedName = QFileInfo(recentFilePaths[i]).fileName()
-			self.recentFileActionList[i].setText(strippedName)
-			self.recentFileActionList[i].setData(recentFilePaths[i])
-			self.recentFileActionList[i].setVisible(True)
+		# Aktualizacja widoczności i danych akcji
+		for i in range(MAX_NUMBER_OF_RECENT_FILES):
+			if i < paths_count:
+				actions_list[i].setText(QFileInfo(paths[i]).fileName())
+				# actions_list[i].setToolTip(shorten_path(paths[i]))
+				actions_list[i].setToolTip(paths[i])
+				actions_list[i].setData(paths[i])
+				actions_list[i].setVisible(True)
+			else:
+				actions_list[i].setVisible(False)
 
 
-		for i in range(itEnd, maxRecentFiles):
-			self.recentFileActionList[i].setVisible(False)
+	def update_recent_files(self, file_path):
+		self.setWindowFilePath(file_path)
+
+		recent_paths = AP.settings.value("recentFiles",[])
+		
+		recent_paths = [i for i in recent_paths if i != file_path]
+		recent_paths.insert(0, file_path)
+
+		recent_paths = recent_paths[:MAX_NUMBER_OF_RECENT_FILES]
+		# while len(recent_paths) > MAX_NUMBER_OF_RECENT_FILES:
+		# 	recent_paths.pop()
+		
+		AP.settings.setValue("recentFiles", recent_paths)
+		AP.settings.setValue("recentFile", file_path)
+		self.update_recent_files_menu(paths=recent_paths)
+
+	def remove_from_recent_files(self, file_path):
+		recent_paths = AP.settings.value("recentFiles",[])
+		if file_path in recent_paths:
+			recent_paths.remove(file_path)
+			AP.settings.setValue("recentFiles", recent_paths)
+			self.update_recent_files_menu(paths=recent_paths)
 
 
 	@pyqtSlot(QMdiSubWindow)
@@ -203,6 +220,10 @@ class MainWindow(QMainWindow):
 		pass
 
 	def load_file(self, fileName):
+		import os
+		if not os.path.exists(fileName):
+			print(f"File not exists: {fileName}")
+			return False
 		obj = Parser.load(fileName)
 		if obj:
 			if isinstance(obj, list) and len(obj)>0:
@@ -215,12 +236,14 @@ class MainWindow(QMainWindow):
 				else:
 					tra = Transform()
 					tra.addChild(obj)
-
+			else:
+				return False
+			
 			self.workspace.m_data.append(tra)
 			self.dock["workspace"].addNewItem(tra)
-			self.adjustForCurrentFile(fileName)
-			AP.settings.setValue("recentFile", fileName)
 			AP.updateAllViews()
+			return True
+		return False
 
 	@pyqtSlot()
 	def fileOpen(self):
@@ -230,14 +253,18 @@ class MainWindow(QMainWindow):
 		fileName = QFileDialog.getOpenFileName( self, "Open File", recentFile, exts )
 		
 		if fileName[0] != '':
-			self.load_file(fileName[0])
+			if self.load_file(fileName[0]):
+				self.update_recent_files(fileName[0])
 
 	@pyqtSlot()
 	def openRecent(self):
 		action = self.sender()
 		if action:
 			fileName = action.data()
-			self.load_file(fileName)
+			if self.load_file(fileName):
+				self.update_recent_files(fileName)
+			else:
+				self.remove_from_recent_files(fileName)
 
 	def stereoscopyOff(self):
 		pass

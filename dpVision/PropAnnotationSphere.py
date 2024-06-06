@@ -10,11 +10,11 @@ from PyQt5 import uic
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import *
 
-from dpVision.PropWidget import PropWidget
-from dpVision.PropBaseObject import PropBaseObject
-from dpVision.PropAnnotation import PropAnnotation
-from dpVision.AnnotationSphere import AnnotationSphere
-from dpVision.Globals import AP
+from .propWidget import PropWidget
+from .propBaseObject import PropBaseObject
+from .propAnnotation import PropAnnotation
+from .annotationSphere import AnnotationSphere
+from .globals import AP
 
 class PropAnnotationSphere(PropWidget):
 	def __init__(self, _obj, parent=None):

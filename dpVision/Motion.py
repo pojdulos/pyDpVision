@@ -1,11 +1,12 @@
-from dpVision.Globals import AP
-from dpVision.Transform import Transform
-from dpVision.Object import Object
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from OpenGL.GL import *
-from dpVision.K3RigidToScrew import *
 import numpy as np
+
+from .globals import AP
+from .transform import Transform
+from .object import Object
+from .k3RigidToScrew import *
 
 class Motion(Object):
 	class FrameVal:

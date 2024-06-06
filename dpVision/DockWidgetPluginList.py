@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5 import uic
 
-from dpVision.Globals import AP
+from .globals import AP
 
 class DockWidgetPluginList(QDockWidget):
 	def __init__(self, parent):

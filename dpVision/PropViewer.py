@@ -10,9 +10,10 @@ from PyQt5 import uic
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QVector3D
-from .GLViewer import GLViewer
-from .PropWidget import PropWidget
-from dpVision.Globals import AP
+
+from .gLViewer import GLViewer
+from .propWidget import PropWidget
+from .globals import AP
 
 class PropViewer(PropWidget):
 	def __init__(self, _viewer, parent=None):

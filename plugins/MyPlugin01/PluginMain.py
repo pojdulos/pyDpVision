@@ -8,8 +8,8 @@ Created on Wed Nov 22 11:08:03 2023
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
-from dpVision.Globals import AP 
-from dpVision import PluginInterface
+
+from dpVision import AP, PluginInterface
 
 class Plugin01(PluginInterface):
 	def __init__(self):

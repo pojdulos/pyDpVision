@@ -10,10 +10,10 @@ from PyQt5 import uic
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from dpVision.PropWidget import PropWidget
-from dpVision.BaseObject import BaseObject
+from .propWidget import PropWidget
+from .baseObject import BaseObject
 
-from dpVision.Globals import AP
+from dpVision.globals import AP
 
 class PropBaseObject(PropWidget):
 	def __init__(self, _obj, parent=None):

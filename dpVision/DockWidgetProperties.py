@@ -8,18 +8,19 @@ Created on Thu Nov 23 13:51:54 2023
 from PyQt5.QtCore import QObject, pyqtSlot
 from PyQt5.QtWidgets import QDockWidget, QSizePolicy, QScrollArea,QVBoxLayout
 from PyQt5 import uic
-from dpVision.PropVolumetric import PropVolumetric
-from dpVision.PropMotion import PropMotion
-from dpVision.PropWidget import PropWidget
-from dpVision.PropViewer import PropViewer
-from dpVision.PropBaseObject import PropBaseObject
-from dpVision.PropMesh import PropMesh
-from dpVision.PropTransform import PropTransform
-from dpVision.PropAnnotation import PropAnnotation
-from dpVision.PropAnnotationPoint import PropAnnotationPoint
-from dpVision.PropAnnotationSphere import PropAnnotationSphere
-from dpVision.Annotation import Annotation
-from dpVision.Object import Object
+
+from .propVolumetric import PropVolumetric
+from .propMotion import PropMotion
+from .propWidget import PropWidget
+from .propViewer import PropViewer
+from .propBaseObject import PropBaseObject
+from .propMesh import PropMesh
+from .propTransform import PropTransform
+from .propAnnotation import PropAnnotation
+from .propAnnotationPoint import PropAnnotationPoint
+from .propAnnotationSphere import PropAnnotationSphere
+from .annotation import Annotation
+from .object import Object
 
 class DockWidgetProperties(QDockWidget):
 	def __init__(self, parent):

@@ -1,7 +1,7 @@
-from dpVision.Globals import AP
-from dpVision.Transform import Transform
-from .Parser import Parser
-from .Mesh import Mesh
+from .globals import AP
+from .transform import Transform
+from .parser import Parser
+from .mesh import Mesh
 import numpy as np
 import os
 from PyQt5.QtGui import *

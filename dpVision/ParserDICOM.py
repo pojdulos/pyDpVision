@@ -1,34 +1,50 @@
-from dpVision.Globals import AP
-from dpVision.Volumetric import Volumetric, SliceMetadata
-from .Parser import Parser
+from .globals import AP
+from .volumetric import Volumetric, SliceMetadata
+from .parser import Parser
 import numpy as np
 from math import *
 import os
 from PyQt5.QtGui import *
 import pydicom
 
-# Zaczątek parsera plików DICOM na bazie biblioteki pyDICOM.
-# Pamiętajmy wiec, podobnie jak w przypadku klasy Volumetric,
-# że to jeszcze nie ma prawa działać
 
 class ParserDICOM(Parser):
 	descr = 'DICOM files'
-	load_exts = ['.dcm']
+	load_exts = ['.dcm','.dcm.ptl']
 	#save_exts = ['.dcm']
 
 	@staticmethod	
 	def convert_to_HU(dcm, b=None, m=None):
-		print(dcm)
+		#print(dcm)
 		if b is None: b = float(getattr(dcm, 'RescaleIntercept', 0.0))
 		if m is None: m = float(getattr(dcm, 'RescaleSlope', 1.0))
 		x = m * dcm.pixel_array + b
 		return x
 	
 	@staticmethod	
+	def read_dir( current_dir, current_ext ):
+		dicom_files = []
+		for f in os.listdir(current_dir):
+			if not current_ext or f.endswith(current_ext):
+				try:
+					# Próba odczytania pliku DICOM
+					dicom_file = pydicom.dcmread(os.path.join(current_dir, f))
+					dicom_files.append(dicom_file)
+				except Exception as e:
+					# Jeśli wystąpi błąd, plik zostanie pominięty
+					print(f"Plik {f} jest uszkodzony lub nie można go odczytać: {e}")
+		return dicom_files
+
+	@staticmethod	
 	def load( path ):
 		volum = Volumetric()
 
-		dicom_files = [pydicom.dcmread(os.path.join(os.path.dirname(path), f)) for f in os.listdir(os.path.dirname(path)) if f.endswith('.dcm')]
+		current_ext = next((ext for ext in ParserDICOM.load_exts if path.endswith(ext)), None)
+		current_dir = os.path.dirname(path)
+		
+		# dicom_files = [pydicom.dcmread(os.path.join(current_dir, f)) for f in os.listdir(current_dir) if f.endswith(current_ext)]
+		dicom_files = ParserDICOM.read_dir(current_dir, current_ext)
+
 		dicom_files.sort(key=lambda x: float(getattr(x, 'SliceLocation', float(getattr(x, 'ImagePositionPatient')[2]))))
 		volum.m_volume = np.stack([ParserDICOM.convert_to_HU(file) for file in dicom_files])
 		
@@ -77,6 +93,8 @@ class ParserDICOM(Parser):
 			filter[2] = min(filter[2], volum.m_maxDisplWin)
 
 		# self.show_histogram()
+		# volum.test_gauss()
+		
 		return volum
 
 	@staticmethod	
@@ -87,3 +105,14 @@ class ParserDICOM(Parser):
 	def inPlugin():
 		return False
 
+	@staticmethod	
+	def check_by_content(path):
+		from PyQt5.QtCore import QFile, QIODevice
+		plik = QFile(path)
+		if plik.open(QIODevice.ReadOnly):
+			plik.seek(0x80)
+			dcm = plik.read(4)
+			if dcm.decode('ascii', errors='ignore').upper().startswith("DICM"):
+				plik.close()
+				return True
+		return False

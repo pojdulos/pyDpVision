@@ -11,7 +11,6 @@ from PyQt5.QtCore import *
 #from OpenGL.GL import *
 import OpenGL.GL as gl
 
-#from dpVision.Transform import Transform
 
 class BaseObject(QObject):
 	def __init__(self, parent=None):

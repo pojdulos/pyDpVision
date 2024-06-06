@@ -5,7 +5,7 @@ Created on Mon Nov 27 10:05:30 2023
 @author: pojdulos
 """
 
-from .Object import Object
+from .object import Object
 from PyQt5.QtGui import *
 from OpenGL.GL import *
 import numpy as np

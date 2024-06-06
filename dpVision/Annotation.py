@@ -6,7 +6,7 @@ Created on Sat Nov 25 13:15:53 2023
 """
 
 from PyQt5.QtGui import *
-from dpVision.BaseObject import BaseObject
+from .baseObject import BaseObject
 
 class Annotation(BaseObject):
 	def __init__(self, parent=None):

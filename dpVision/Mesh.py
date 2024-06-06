@@ -10,8 +10,8 @@ import numpy as np
 import math
 
 
-from dpVision.PointCloud import PointCloud
-from dpVision.Shaders import Mesh_vertex_shader_code, Mesh_fragment_shader_code, compile_shader
+from .pointCloud import PointCloud
+from .shaders import Mesh_vertex_shader_code, Mesh_fragment_shader_code, compile_shader
 
 def Face(a,b,c):
 	return np.array([a, b, c], dtype=np.uint)

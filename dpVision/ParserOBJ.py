@@ -4,10 +4,10 @@ Created on Mon Nov 27 12:58:12 2023
 
 @author: pojdulos
 """
-from dpVision.Globals import AP
-from .Parser import Parser
-from .PointCloud import PointCloud
-from .Mesh import Mesh
+from .globals import AP
+from .parser import Parser
+from .pointCloud import PointCloud
+from .mesh import Mesh
 import numpy as np
 import math
 import os

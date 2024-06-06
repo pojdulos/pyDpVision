@@ -14,9 +14,9 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import math
 
-from dpVision.Globals import AP
-from .Object import Object
-from dpVision.K3RigidToScrew import *
+from .globals import AP
+from .object import Object
+from .k3RigidToScrew import *
 
 class Transform(Object):
 	def __init__(self, matrix = None, parent=None):

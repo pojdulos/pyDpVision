@@ -1,8 +1,9 @@
 from PyQt5.QtGui import QImage
-from dpVision.Object import Object
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 import numpy as np
+
+from .object import Object
 
 class Image(Object, QImage):
     def __init__(self, parent=None, path=None, image=None):

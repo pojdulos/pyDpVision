@@ -1,6 +1,6 @@
-from dpVision.Globals import AP
-from dpVision.Volumetric import Volumetric, SliceMetadata
-from .Parser import Parser
+from .globals import AP
+from .volumetric import Volumetric, SliceMetadata
+from .parser import Parser
 import numpy as np
 import os
 from PyQt5.QtGui import *

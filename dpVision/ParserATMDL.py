@@ -4,13 +4,13 @@ Created on Mon Nov 27 12:58:12 2023
 
 @author: pojdulos
 """
-from dpVision.AnnotationPoint import AnnotationPoint
-from dpVision.AnnotationTriangle import AnnotationTriangle
-from dpVision.Motion import Motion
-from dpVision.Object import Object
-from .Parser import Parser
-from .AnnotationSphere import AnnotationSphere
-from .Transform import Transform
+from .annotationPoint import AnnotationPoint
+from .annotationTriangle import AnnotationTriangle
+from .motion import Motion
+from .object import Object
+from .parser import Parser
+from .annotationSphere import AnnotationSphere
+from .transform import Transform
 import os
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *

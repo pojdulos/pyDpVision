@@ -34,28 +34,19 @@ class Parser(QObject):
 			ext = parser.loadExts(ext)
 		return ext
 
-	@staticmethod
-	def getExtByFileContent(path):
-		from PyQt5.QtCore import QFile, QIODevice
-		ext = ""
-		plik = QFile(path)
-		if plik.open(QIODevice.ReadOnly):
-			plik.seek(0x80)
-			dcm = plik.read(4)
-			if dcm.startswith("DICM"):
-				ext = ".dcm"
-			plik.close()
-		return ext
+	@staticmethod	
+	def check_by_content(path):
+		return False
 
 	@staticmethod	
 	def load(path):
-		fname, fext = os.path.splitext(path)
-		if not len(fext):
-			fext = Parser.getExtByFileContent(path)
-		for p in Parser.parsers:
-			if p.canLoadExt(fext):
+		for p in tuple(Parser.parsers):
+			if p.canLoadExt(path=path):
 				return p.load(path)
-		print(f"File extention '{fext}' not supported yet: {path}")
+			elif p.check_by_content(path=path):
+				return p.load(path)
+
+		print(f"File format is not supported yet: {path}")
 		return None
 	
 	@staticmethod	
@@ -70,12 +61,13 @@ class Parser(QObject):
 	def inPlugin():
 		return False
 	
-
 	###### CLASS METHODS #####
 
 	@classmethod
-	def canLoadExt(cls, ext):
-		return ext in cls.load_exts
+	def canLoadExt(cls, path=None):
+		if path:
+			return path.endswith(tuple(cls.load_exts))
+		return False
 
 	@classmethod
 	def canSaveExt(cls, ext):

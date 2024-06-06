@@ -8,9 +8,9 @@ Created on Sat Nov 25 20:40:37 2023
 from abc import ABC, abstractmethod
 from PyQt5 import uic
 
-from dpVision.PropWidget import PropWidget
-from dpVision.PropBaseObject import PropBaseObject
-from dpVision.Mesh import Mesh
+from .propWidget import PropWidget
+from .propBaseObject import PropBaseObject
+from .mesh import Mesh
 
 class PropMesh(PropWidget):
 	def __init__(self, _obj, parent=None):

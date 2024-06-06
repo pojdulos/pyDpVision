@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dpVision.Globals import AP
+from .globals import AP
 
 class PluginInterface(ABC):
 	def __init__(self):

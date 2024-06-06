@@ -1,11 +1,12 @@
 from math import *
-from dpVision.Globals import AP
-from .Object import Object
 from PyQt5.QtGui import *
 from OpenGL.GL import *
 import numpy as np
 import matplotlib.pyplot as plt
-from dpVision.Shaders import Volumetric_vertex_shader_code, Volumetric_fragment_shader_code, compile_shader
+
+from .globals import AP
+from .object import Object
+from .shaders import Volumetric_vertex_shader_code, Volumetric_fragment_shader_code, compile_shader
 
 vertex_shader_code = """
 #version 330 core
@@ -407,6 +408,13 @@ class Volumetric(Object):
 			[1.0, 0.0, 1.0],
 			[1.0, 1.0, 1.0]]
 		
+	def test_gauss(self):
+		from scipy.ndimage import gaussian_filter
+		#volume = np.array(trójwymiarowa_lista)  # zamień 'trójwymiarowa_lista' na swoją listę
+		
+		sigma = 3  # Parametr sigma kontroluje stopień rozmycia
+		self.m_volume = gaussian_filter(self.m_volume, sigma=sigma)
+
 	def aply_window(self, x, c, w, ymin=0.0, ymax=1.0):
 		'''	windowing C.11.2.1.2.1 Default LINEAR Function
 			c - window center, w - window width

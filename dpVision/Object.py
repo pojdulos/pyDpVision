@@ -5,7 +5,7 @@ Created on Sat Nov 25 13:15:53 2023
 @author: darek
 """
 
-from .BaseObject import BaseObject
+from .baseObject import BaseObject
 
 class Object(BaseObject):
 	def __init__(self, parent=None):
@@ -49,3 +49,4 @@ class Object(BaseObject):
 				_b = True
 
 		return _b, _min, _max
+

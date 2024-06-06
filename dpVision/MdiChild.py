@@ -6,7 +6,7 @@ Created on Thu Nov 23 20:18:03 2023
 """
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
-from .GLViewer import GLViewer
+from .gLViewer import GLViewer
 from enum import Enum
 
 # class syntax

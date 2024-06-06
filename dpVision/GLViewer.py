@@ -17,8 +17,8 @@ import numpy as np
 from math import tan, pi
 from enum import Enum
 
-from dpVision.Transform import Transform
-from dpVision.Globals import AP
+from .transform import Transform
+from .globals import AP
 
 class Camera:
 	positionChanged = pyqtSignal(list)

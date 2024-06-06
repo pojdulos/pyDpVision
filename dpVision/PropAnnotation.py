@@ -9,10 +9,10 @@ from abc import ABC, abstractmethod
 from PyQt5 import uic
 from PyQt5.QtWidgets import *
 
-from dpVision.PropWidget import PropWidget
-from dpVision.PropBaseObject import PropBaseObject
-from dpVision.Annotation import Annotation
-from dpVision.Globals import AP
+from .propWidget import PropWidget
+from .propBaseObject import PropBaseObject
+from .annotation import Annotation
+from .globals import AP
 
 class PropAnnotation(PropWidget):
 	def __init__(self, _obj, parent=None):

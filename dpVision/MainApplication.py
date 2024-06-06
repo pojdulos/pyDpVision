@@ -9,9 +9,8 @@ from PyQt5.QtWidgets import QApplication
 import os
 import importlib.util
 
-from dpVision.Globals import AP
-
-from .PluginInterface import PluginInterface
+from .globals import AP
+from .pluginInterface import PluginInterface
 
 class MainApplication(QApplication):
     def __init__(self, *args, **kwargs):
@@ -31,7 +30,7 @@ class MainApplication(QApplication):
         for folder_name in os.listdir(directory):
             folder_path = os.path.join(directory, folder_name)
             if os.path.isdir(folder_path):
-                main_file = os.path.join(folder_path, "PluginMain.py")
+                main_file = os.path.join(folder_path, "pluginMain.py")
                 if os.path.isfile(main_file):
                     self.load_plugin(main_file)
                     

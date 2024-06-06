@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from dpVision.ContextMenu import ContextMenu
+from .contextMenu import ContextMenu
 import dpVision.ui.dpVision_rc
 
 from PyQt5 import uic

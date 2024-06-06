@@ -5,8 +5,7 @@ Created on Sat Nov 25 13:15:53 2023
 @author: darek
 """
 
-from .Annotation import Annotation
-from .Sphere import Sphere
+from .annotation import Annotation
 from OpenGL.GL import *
 import math
 

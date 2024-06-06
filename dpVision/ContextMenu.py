@@ -8,9 +8,9 @@ Created on Fri Nov 24 10:50:11 2023
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
-from dpVision.Transform import Transform
 
-from dpVision.Globals import AP
+from .transform import Transform
+from .globals import AP
 
 class ContextMenu(QMenu):
 	def __init__(self, obj=None, parent=None):

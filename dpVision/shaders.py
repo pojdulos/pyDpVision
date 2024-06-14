@@ -147,10 +147,10 @@ void main()
     {
 		vec4 texColor = texture(texture1, TexCoord);  // Odczytanie koloru z tekstury
 		FragColor = vec4(result, 1.0) * texColor;  // Mieszanie koloru tekstury z oświetleniem
-	}
+	  }
     else
     {
-		FragColor = vec4(result, 1.0);
+		FragColor = vec4(result, vertexColor.a);
 	}
 }
 """

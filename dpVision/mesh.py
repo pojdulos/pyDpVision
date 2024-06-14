@@ -290,7 +290,7 @@ class Mesh(PointCloud):
 				if drawVN:
 					n = [ self.m_vnormals[f[0]], self.m_vnormals[f[1]], self.m_vnormals[f[2]] ]
 					_nBuf.append(n)
-				if drawFN:
+				elif drawFN:
 					n = [ self.m_fnormals[idx], self.m_fnormals[idx], self.m_fnormals[idx] ]
 					_nBuf.append(n)
 			self.vBuf = np.array(_vBuf, dtype=np.float32)
@@ -539,8 +539,48 @@ class Mesh(PointCloud):
 				glPolygonMode(GL_BACK, GL_LINE)
 			else:
 				glPolygonMode(GL_FRONT, GL_FILL)
-				glPolygonMode(GL_BACK, GL_LINE)
+				glPolygonMode(GL_BACK, GL_FILL)
 
 			self.renderWithShaders2()
 
 			glDisable(GL_COLOR_MATERIAL)
+
+
+
+	def invert_normals(self):
+		for i in range(self.m_faces.shape[0]):
+			tmp = self.m_faces[i][0]
+			self.m_faces[i][0] = self.m_faces[i][2]
+			self.m_faces[i][2] = tmp
+		self.calcVN()
+
+
+	def export_as_obj(self, obj_file_name='v:/fast_test.obj'):
+		objFile = open(obj_file_name, 'w')
+		objFile.write(f"# .obj file created with pyDpVision\n\n")
+		for pt in self.m_vertices:
+			txt = f"v {pt[0]:.6f} {pt[1]:.6f} {pt[2]:.6f}\n"
+			objFile.write(txt)
+		objFile.write(f"# {self.m_vertices.shape[0]} vertices, 0 vertices normals\n\n")
+
+		for tr in self.m_faces:
+			txt = f"f {tr[0]+1} {tr[1]+1} {tr[2]+1}\n"
+			objFile.write(txt)
+		objFile.write(f"# {self.m_faces.shape[0]} faces, 0 coords texture\n\n")
+
+		objFile.close()
+
+	@staticmethod
+	def create(vertices = [], faces = [], invert_normals = False):
+		mesh = Mesh()
+		mesh.m_vertices = np.array(vertices, dtype=np.float32)
+		mesh.m_faces =  np.array(faces, dtype=np.uint)
+		#mesh.m_vcolors = np.zeros((len(vertices), 4), dtype=np.ubyte)
+		#mesh.m_vcolors[:] = [255,255,0,255]
+
+		if invert_normals:
+			mesh.invert_normals()
+		else:
+			mesh.calcVN()
+		
+		return mesh

@@ -11,7 +11,9 @@ from OpenGL.GL import *
 import numpy as np
 
 
-def Vertex(x,y,z):
+def Vertex(pt=None, x=0., y=0., z=0.):
+	if pt and isinstance(pt, list) and len(pt)==3:
+		return np.array(pt, dtype=np.float32)
 	return np.array([x, y, z], dtype=np.float32)
 
 
@@ -27,6 +29,12 @@ class PointCloud(Object):
 		
 	def addVertex(self, x, y, z):
 		self.m_vertices = np.vstack([self.m_vertices, Vertex(x, y, z)])
+	
+	def invert_normals(self):
+		if self.m_vnormals.shape[0] == self.m_vertices.shape[0]:
+			self.m_vnormals = -self.m_vnormals
+			return True	
+		return False
 	
 	# def getCenterOfWeight(self):
 	# 	ctr = [0., 0., 0.]
@@ -142,3 +150,10 @@ class PointCloud(Object):
 		glPopAttrib();
 		glPopMatrix();
 
+	def export_as_obj(self, obj_file_name='v:/fast_test.obj'):
+		objFile = open(obj_file_name, 'w')
+		objFile.write(f"# .obj file created with pyDpVision\n\n")
+		for pt in self.m_vertices:
+			txt = f"v {pt[0]:.6f} {pt[1]:.6f} {pt[2]:.6f}\n"
+			objFile.write(txt)
+		objFile.close()

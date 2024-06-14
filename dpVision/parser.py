@@ -16,11 +16,14 @@ class Parser(QObject):
 
 	def __init__(self):
 		super( Parser, self ).__init__()
-		
-	@staticmethod
-	def regParser( t ):
-		if not t in Parser.parsers:
-			Parser.parsers.append(t)
+
+	@classmethod
+	def regParser(cls):
+		if not cls in Parser.parsers:
+			print(f"registering parser: {cls.__name__}")
+			Parser.parsers.append(cls)
+		else:
+			print(f"parser: {cls.__name__} already registered")
 
 	@staticmethod
 	def unregParser( t ):
@@ -84,4 +87,3 @@ class Parser(QObject):
 
 			ext = ext[:-1] + ')'
 		return ext
-

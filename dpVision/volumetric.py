@@ -1,12 +1,19 @@
+import itertools
 from math import *
 from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
 from OpenGL.GL import *
 import numpy as np
 import matplotlib.pyplot as plt
+import cv2
+import os
+import pydicom
 
 from .globals import AP
 from .object import Object
 from .shaders import Volumetric_vertex_shader_code, Volumetric_fragment_shader_code, compile_shader
+from .pointCloud import PointCloud
+from .mesh import Mesh
 
 vertex_shader_code = """
 #version 330 core
@@ -358,8 +365,9 @@ class SliceMetadata():
 	def __init__(self):
 		self.image_position_patient = [0.0,0.0,0.0]
 		self.slice_location = 0.0
-		self.pixel_spacing = 1.0
+		self.pixel_spacing = [1.0, 1.0]
 		self.slice_thickness = 1.0
+		self.slice_distance = 1.0
 		self.gantry_detector_tilt = 0.0
 	
 	def __str__(self):
@@ -570,3 +578,224 @@ class Volumetric(Object):
 		glBindBuffer(GL_ARRAY_BUFFER, 0)
 		glUseProgram(0) # Wyłączenie programu shaderów
 		glDisable(GL_PROGRAM_POINT_SIZE)
+
+
+	def calculate_sift(self):
+		vertices = []
+
+		for i in range(self.m_minSlice, self.m_maxSlice+1):
+			image = self.m_volume[i]
+
+			position = self.metadata[i].image_position_patient
+			print(f"slice {i}: position = {position}")
+			
+			pixel_spacing = self.metadata[i].pixel_spacing
+
+			# if gauss:
+			# 	image = gaussian_filter(image, sigma=gauss)
+
+			image = [ [min(max(self.m_minDisplWin,i),self.m_maxDisplWin) for i in row] for row in image]
+
+			# Normalizuj dane obrazu do zakresu 0-255
+			obraz = cv2.normalize(np.array(image), None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+			# Utwórz obiekt SIFT
+			sift = cv2.SIFT_create()
+
+			# Znajdź punkty kluczowe i deskryptory za pomocą SIFT
+			keypoints, descriptors = sift.detectAndCompute(obraz, None)
+
+			for key in keypoints:
+				point = [
+							float(position[0]) + pixel_spacing[0] * key.pt[0],
+							float(position[1]) + pixel_spacing[1] * key.pt[1],
+							float(position[2])
+				]
+				
+				vertices.append(np.array(point, dtype=np.float32))
+
+		cloud = PointCloud()
+		cloud.m_vertices = np.array(vertices, dtype=np.float32)
+		AP.addObject(cloud, self)
+
+	def marching_cube(self, factor = 1):
+		# AP.not_implemented()
+		import mcubes 	# pip install PyMCubes PyCollada
+
+		
+		image = self.m_volume[::factor,::factor,::factor] #[200:300, 200:300, 200:300]
+		image = [ [ [min(max(self.m_minDisplWin,i),self.m_maxDisplWin) for i in row] for row in slice] for slice in image]
+		
+		image = np.array(image)
+		
+		points, faces = mcubes.marching_cubes(image, self.m_minDisplWin)
+
+		#print(points, faces)
+		# Export the result to sphere.dae
+		#mcubes.export_mesh(vertices1, triangles1, "v:/test_pymcubes.dae", "MySphere")
+
+		origin = self.metadata[0].image_position_patient
+		slice_distance = self.metadata[1].image_position_patient[2] - self.metadata[0].image_position_patient[2]
+		gantra = self.metadata[0].gantry_detector_tilt
+		
+		scale = [ self.metadata[0].pixel_spacing[0], self.metadata[0].pixel_spacing[1],	slice_distance	]
+		scale = [ x * float(factor) for x in scale ]
+		
+		vertices = []
+		for point in points:
+			vx = [ point[2]*scale[0], point[1]*scale[1], point[0]*scale[2] ]
+			
+			if gantra != 0.0:
+				vx[1] = vx[1] + vx[2] * tan(gantra)
+
+			vx = [ vx[i]+origin[i] for i in range(3) ]
+			vertices.append(vx)
+
+		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
+		AP.addObject(mesh, self)
+
+	def adjustMinMax(self, winMin=None, winMax=None):
+		self.m_min = np.min(self.m_volume)
+		self.m_max = np.max(self.m_volume)
+		self.m_minDisplWin = winMin if winMin else self.m_min
+		self.m_maxDisplWin = winMax if winMax else self.m_max
+
+	@staticmethod
+	def create(layers=256, rows=256, columns=256):
+		volum = Volumetric()
+		volum.m_volume = np.empty((layers, rows, columns), dtype=np.float32)
+		for l in range(layers):
+			mdata = SliceMetadata()
+			mdata.image_position_patient[2] = float(l)
+			volum.metadata.append(mdata)
+
+		volum.adjustMinMax()
+
+		volum.m_minSlice = 0
+		volum.m_maxSlice = layers-1
+
+		for filter in volum.m_filters:
+			filter[1] = max(filter[1], volum.m_minDisplWin)
+			filter[2] = min(filter[2], volum.m_maxDisplWin)
+		return volum
+	
+	def drawBox(self, origin=[0,0,0], size=[10,10,10], color=1000.):
+		layers, rows, cols = self.m_volume.shape
+		for x, y, z in itertools.product(range(size[2]), range(size[1]), range(size[0])):
+			if (col := origin[2] + x) < cols and (row := origin[1] + y) < rows and (layer := origin[0] + z) < layers:
+				self.m_volume[layer, row, col] = color
+		self.adjustMinMax()
+
+	def drawSphere(self, origin=[0,0,0], radius=1, color=1000.):
+		origin_z, origin_y, origin_x = origin
+		for z in range(self.m_volume.shape[0]):
+			for y in range(self.m_volume.shape[1]):
+				for x in range(self.m_volume.shape[2]):
+					if (x - origin_x) ** 2 + (y - origin_y) ** 2 + (z - origin_z) ** 2 <= radius ** 2:
+						self.m_volume[z, y, x] = color
+		self.adjustMinMax()
+
+	def drawEllipsoid(self, origin=[0,0,0], radii=[1,1,1], color=1000.):
+		origin_z, origin_y, origin_x = origin
+		radius_z, radius_y, radius_x = radii
+		for z in range(self.m_volume.shape[0]):
+			for y in range(self.m_volume.shape[1]):
+				for x in range(self.m_volume.shape[2]):
+					if ((x - origin_x) / radius_x) ** 2 + ((y - origin_y) / radius_y) ** 2 + ((z - origin_z) / radius_z) ** 2 <= 1:
+						self.m_volume[z, y, x] = color
+		self.adjustMinMax()
+
+	def drawCylinder(self, origin=[0,0,0], radius=1, height=1, axis='z', color=1000.):
+		origin_z, origin_y, origin_x = origin
+		#radius = float(radius)
+		height = int(height)
+		
+		if axis == 'z':
+			for z in range(origin_z - height // 2, origin_z + height // 2 + 1):
+				for y in range(origin_y - radius, origin_y + radius + 1):
+					for x in range(origin_x - radius, origin_x + radius + 1):
+						if ((y - origin_y) ** 2 + (x - origin_x) ** 2 <= radius ** 2):
+							self.m_volume[z, y, x] = color
+		elif axis == 'y':
+			for z in range(origin_z - radius, origin_z + radius + 1):
+				for y in range(origin_y - height // 2, origin_y + height // 2 + 1):
+					for x in range(origin_x - radius, origin_x + radius + 1):
+						if ((z - origin_z) ** 2 + (x - origin_x) ** 2 <= radius ** 2):
+							self.m_volume[z, y, x] = color
+		elif axis == 'x':
+			for z in range(origin_z - radius, origin_z + radius + 1):
+				for y in range(origin_y - radius, origin_y + radius + 1):
+					for x in range(origin_x - height // 2, origin_x + height // 2 + 1):
+						if ((z - origin_z) ** 2 + (y - origin_y) ** 2 <= radius ** 2):
+							self.m_volume[z, y, x] = color
+		else:
+			raise ValueError("Axis must be one of 'x', 'y', or 'z'.")
+		self.adjustMinMax()
+
+	def set_pixel_size(self, image_x=1.0, image_y=1.0, slice_thickness=1.0):
+		for n,mdata in enumerate(self.metadata):
+			mdata.pixel_spacing = [image_x, image_y]
+			mdata.slice_thickness = slice_thickness
+			mdata.slice_distance = slice_thickness
+			mdata.slice_location = slice_thickness*n
+			mdata.image_position_patient[2] = slice_thickness*n
+
+	def set_position(self, x=0.0, y=0.0, z=0.0):
+		for n,mdata in enumerate(self.metadata):
+			mdata.image_position_patient[0] = x
+			mdata.image_position_patient[1] = y
+			mdata.image_position_patient[2] = z + mdata.slice_distance*n
+			mdata.slice_location = mdata.image_position_patient[2]
+
+	# def export(self, dir="v:/test/", file_base="image_", ext=".png"):
+	# 	from PIL import Image
+	# 	import os
+	# 	for i,layer in enumerate(self.m_volume):
+	# 		# stwórz obraz
+	# 		img = Image.fromarray(layer.astype(np.uint8))
+
+	# 		# Utwórz nazwę pliku zgodnie z formatem "file_base_numer.ext"
+	# 		filename = os.path.join(dir, f"{file_base}{i:03}{ext}")
+
+	# 		# Zapisz obraz na dysku
+	# 		img.save(filename)			
+
+	def export(self, dir="v:/test/", file_base="image_", ext=".dcm"):
+		if not os.path.exists(dir):
+			os.makedirs(dir)
+
+		for i, layer in enumerate(self.m_volume):
+			# Tworzenie obiektu DICOM
+			ds = pydicom.FileDataset(os.path.join(dir, f"{file_base}{i:03}{ext}"), {}, file_meta=None, preamble=b"\0" * 128)
+			
+			# Ustawienie podstawowych atrybutów DICOM
+			ds.PatientName = "Anonymous"
+			ds.PatientID = "123456"
+			ds.Modality = "MR"
+			ds.SeriesDescription = "generated with pyDpVision software"
+			ds.Rows, ds.Columns = layer.shape
+			ds.PixelSpacing = self.metadata[i].pixel_spacing
+			ds.BitsAllocated = 16  # Ustawiamy na 16 bitów
+			ds.BitsStored = 16
+			ds.HighBit = 15
+			ds.PixelRepresentation = 1  # Ustawiamy na wartość ze znakiem (signed)
+			
+			# Przykładowe dodatkowe atrybuty DICOM
+			ds.ImagePositionPatient = self.metadata[i].image_position_patient
+			ds.RescaleIntercept = -1000.0  # Jeśli potrzebne, ustawienie interceptu
+			ds.RescaleSlope = 1.0  # Jeśli potrzebne, ustawienie nachylenia
+			ds.SliceThickness = self.metadata[i].slice_thickness
+			ds.SliceLocation = self.metadata[i].slice_location
+
+			ds.SamplesPerPixel = 1
+			ds.PhotometricInterpretation = 'MONOCHROME2'
+			
+			ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian 
+			
+			# Konwersja warstwy na format DICOM
+			# Zakładając, że warstwa jest typu int lub float, możesz ją rzutować na int16
+			image = layer.astype(np.int16)
+			ds.PixelData = image.tobytes()
+
+			# Zapisanie pliku DICOM
+			ds.save_as(os.path.join(dir, f"{file_base}{i:03}{ext}"))

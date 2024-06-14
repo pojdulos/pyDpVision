@@ -1,3 +1,5 @@
+import sys, os
+
 class Globals:
 	_instance = None
 
@@ -22,6 +24,7 @@ class Globals:
 		else:
 			self.mainWin.workspace.m_data.append(child)
 		self.mainWin.dock["workspace"].addNewItem(child, parent)
+		self.updateAllViews()
 
 	def removeObject(self, child, parent=None):
 		if child is None:
@@ -39,6 +42,24 @@ class Globals:
 		for v in self.mainWin.allGLViewers():
 			v.update()
 
+	def not_implemented(self):
+		from PyQt5.QtWidgets import QMessageBox
+		msg = QMessageBox() 
+		msg.setIcon(QMessageBox.Information) 
+		msg.setText("Function not implemented yet") 
+		msg.setWindowTitle("Information") 
+		msg.setStandardButtons(QMessageBox.Ok) 
+		retval = msg.exec_()
+
+	def loadUi(self, fname, win):
+		from PyQt5 import uic
+		if hasattr(sys, '_MEIPASS'):
+			# PyInstaller uruchamia się z pliku spakowanego
+			ui_path = os.path.join(sys._MEIPASS, f"dpVision/gui/forms/{fname}")
+		else:
+			# Tryb developerski
+			ui_path = os.path.join(os.path.dirname(__file__), f"gui/forms/{fname}")
+		uic.loadUi(ui_path, win)
 
 AP = Globals()
 

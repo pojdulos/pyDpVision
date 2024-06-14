@@ -33,6 +33,8 @@ class PropVolumetric(PropWidget):
 	def blockAll(self, b):
 		for w in {self.spinWinMin, self.spinWinMax,
 			self.fastDrawCheckBox, self.renderBoxesCheckBox,
+			self.xBspin, self.xEspin,
+			self.yBspin, self.yEspin,
 			self.zBspin, self.zEspin,
 			self.f0CheckBox, self.f0SpinMin, self.f0SpinMax,
 			self.f1CheckBox, self.f1SpinMin, self.f1SpinMax,
@@ -51,6 +53,18 @@ class PropVolumetric(PropWidget):
 
 		self.spinWinMax.setValue(self.obj.m_maxDisplWin)
 		self.spinWinMax.setMaximum(self.obj.m_max)
+
+		self.xBspin.setValue(self.obj.m_minColumn)
+		self.xBspin.setMinimum(0)
+
+		self.xEspin.setValue(self.obj.m_maxColumn)
+		self.xEspin.setMaximum(self.obj.m_volume.shape[2]-1)
+
+		self.yBspin.setValue(self.obj.m_minRow)
+		self.yBspin.setMinimum(0)
+
+		self.yEspin.setValue(self.obj.m_maxRow)
+		self.yEspin.setMaximum(self.obj.m_volume.shape[1]-1)
 
 		self.zBspin.setValue(self.obj.m_minSlice)
 		self.zBspin.setMinimum(0)
@@ -261,12 +275,36 @@ class PropVolumetric(PropWidget):
 		pass
 
 	@pyqtSlot(int)
-	def xBchanged(int):
-		pass
+	def xBchanged(self, val):
+		val = np.round(val,0)
+		print(f"min column={val}")
+
+		if val > self.obj.m_maxColumn:
+			val = self.obj.m_maxColumn
+		elif val < 0:
+			val = 0
+
+		self.obj.m_minColumn = val
+		self.xEspin.blockSignals(True)
+		self.xEspin.setMinimum(val)
+		self.xEspin.blockSignals(False)
+		AP.updateAllViews()
 
 	@pyqtSlot(int)
-	def yBchanged(int):
-		pass
+	def yBchanged(self, val):
+		val = np.round(val,0)
+		print(f"min row={val}")
+
+		if val > self.obj.m_maxRow:
+			val = self.obj.m_maxRow
+		elif val < 0:
+			val = 0
+
+		self.obj.m_minRow = val
+		self.yEspin.blockSignals(True)
+		self.yEspin.setMinimum(val)
+		self.yEspin.blockSignals(False)
+		AP.updateAllViews()
 
 	@pyqtSlot(int)
 	def zBchanged(self, val):
@@ -285,12 +323,36 @@ class PropVolumetric(PropWidget):
 		AP.updateAllViews()
 
 	@pyqtSlot(int)
-	def xEchanged(int):
-		pass
+	def xEchanged(self, val):
+		val = np.round(val,0)
+		print(f"max column={val}")
+
+		if val < self.obj.m_minColumn:
+			val = self.obj.m_minColumn
+		elif val >= self.obj.m_volume.shape[2]:
+			val = self.obj.m_volume.shape[2] - 1
+
+		self.obj.m_maxColumn = val
+		self.xBspin.blockSignals(True)
+		self.xBspin.setMaximum(val)
+		self.xBspin.blockSignals(False)
+		AP.updateAllViews()
 
 	@pyqtSlot(int)
-	def yEchanged(int):
-		pass
+	def yEchanged(self, val):
+		val = np.round(val,0)
+		print(f"max row={val}")
+
+		if val < self.obj.m_minRow:
+			val = self.obj.m_minRow
+		elif val >= self.obj.m_volume.shape[1]:
+			val = self.obj.m_volume.shape[1] - 1
+
+		self.obj.m_maxRow = val
+		self.yBspin.blockSignals(True)
+		self.yBspin.setMaximum(val)
+		self.yBspin.blockSignals(False)
+		AP.updateAllViews()
 
 	@pyqtSlot(int)
 	def zEchanged(self, val):

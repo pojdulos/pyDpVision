@@ -41,9 +41,6 @@ class ParserNRRD(Parser):
 
 		volum.adjustMinMax()
 
-		volum.m_minSlice = 0
-		volum.m_maxSlice = size[2]-1
-
 		for filter in volum.m_filters:
 			filter[1] = max(filter[1], volum.m_minDisplWin)
 			filter[2] = min(filter[2], volum.m_maxDisplWin)

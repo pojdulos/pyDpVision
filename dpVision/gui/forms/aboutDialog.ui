@@ -58,7 +58,7 @@
   </layout>
  </widget>
  <resources>
-  <include location="dpVision.qrc"/>
+  <include location="../dpVision.qrc"/>
  </resources>
  <connections>
   <connection>

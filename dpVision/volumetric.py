@@ -397,6 +397,10 @@ class Volumetric(Object):
 		self.metadata = []
 		self.m_minSlice = 0
 		self.m_maxSlice = 0
+		self.m_minRow = 0
+		self.m_maxRow = 0
+		self.m_minColumn = 0
+		self.m_maxColumn = 0
 
 		self.m_filters = [
 			[0,  -100,   799],
@@ -551,21 +555,44 @@ class Volumetric(Object):
 		factor_loc = glGetUniformLocation(self.shader_program, "factor")
 		glUniform1i( factor_loc, factor )
 		
+		first_slice = factor*int(self.m_minSlice/factor)
+		first_row = factor*int(self.m_minRow/factor)
+		first_column = factor*int(self.m_minColumn/factor)
+
+		subvolume = self.m_volume[
+			first_slice:self.m_maxSlice+1:factor,
+			first_row:self.m_maxRow+1:factor,
+			first_column:self.m_maxColumn+1:factor
+			]
+		
+		subvolume = np.array(subvolume)
+
 		sizeX_loc = glGetUniformLocation(self.shader_program, "sizeX")
-		glUniform1i( sizeX_loc, int(self.m_volume.shape[2]/factor) )
+		glUniform1i( sizeX_loc, subvolume.shape[2] )
 
 		sizeY_loc = glGetUniformLocation(self.shader_program, "sizeY")
-		glUniform1i( sizeY_loc, int(self.m_volume.shape[1]/factor) )
+		glUniform1i( sizeY_loc, subvolume.shape[1] )
 
-		for z in range(factor*int(self.m_minSlice/factor), self.m_maxSlice+1, factor):
-			colors = np.array(self.m_volume[z,::factor,::factor].flatten(), dtype=np.float32)
-		
+		for idx_in_subvolume in range(subvolume.shape[0]):
+			true_index_of_slice = first_slice + idx_in_subvolume * factor
+			
+			colors = subvolume[idx_in_subvolume].flatten()
+
 			glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
 		
-			metadata = self.metadata[z]
+			metadata = self.metadata[true_index_of_slice]
 
-			imagePosition = [ metadata.image_position_patient[0], metadata.image_position_patient[1], metadata.image_position_patient[2] ]
-			voxel_size = [ metadata.pixel_spacing[0], metadata.pixel_spacing[1], metadata.slice_thickness ]
+			imagePosition = [
+				metadata.image_position_patient[0] + metadata.pixel_spacing[0] * float(first_column),
+				metadata.image_position_patient[1] + metadata.pixel_spacing[1] * float(first_row),
+				metadata.image_position_patient[2]
+			]
+			
+			voxel_size = [
+				metadata.pixel_spacing[0],
+				metadata.pixel_spacing[1],
+				metadata.slice_thickness
+			]
 
 			imagePosition_loc = glGetUniformLocation(self.shader_program, "imagePosition")
 			glUniform3fv( imagePosition_loc, 1, imagePosition )
@@ -618,27 +645,48 @@ class Volumetric(Object):
 		cloud.m_vertices = np.array(vertices, dtype=np.float32)
 		AP.addObject(cloud, self)
 
-	def marching_cube(self, factor = 1):
+	def marching_cube(self, factor = 1, close_boundary=True):
 		# AP.not_implemented()
 		import mcubes 	# pip install PyMCubes PyCollada
 
-		
-		image = self.m_volume[::factor,::factor,::factor] #[200:300, 200:300, 200:300]
+		first_slice = factor*int(self.m_minSlice/factor)
+		first_row = factor*int(self.m_minRow/factor)
+		first_column = factor*int(self.m_minColumn/factor)
+
+		image = self.m_volume[ first_slice:self.m_maxSlice+1:factor, first_row:self.m_maxRow+1:factor, first_column:self.m_maxColumn+1:factor ]
 		image = [ [ [min(max(self.m_minDisplWin,i),self.m_maxDisplWin) for i in row] for row in slice] for slice in image]
 		
 		image = np.array(image)
-		
-		points, faces = mcubes.marching_cubes(image, self.m_minDisplWin)
 
-		#print(points, faces)
-		# Export the result to sphere.dae
-		#mcubes.export_mesh(vertices1, triangles1, "v:/test_pymcubes.dae", "MySphere")
+		if close_boundary:
+			big_image = np.zeros((image.shape[0]+2, image.shape[1]+2, image.shape[2]+2), dtype=image.dtype)
+			big_image[1:-1, 1:-1, 1:-1] = image
+			points, faces = mcubes.marching_cubes(big_image, self.m_minDisplWin)
+		else:
+			points, faces = mcubes.marching_cubes(image, self.m_minDisplWin)
 
-		origin = self.metadata[0].image_position_patient
-		slice_distance = self.metadata[1].image_position_patient[2] - self.metadata[0].image_position_patient[2]
+
+		origin = [
+			self.metadata[first_slice].image_position_patient[0] + self.metadata[first_slice].pixel_spacing[0] * float(first_column),
+			self.metadata[first_slice].image_position_patient[1] + self.metadata[first_slice].pixel_spacing[1] * float(first_row),
+			self.metadata[first_slice].image_position_patient[2]
+		]
+
+		# origin = list(self.metadata[first_slice].image_position_patient).copy()
+
+		if first_slice > 0:
+			slice_distance = self.metadata[first_slice].image_position_patient[2] - self.metadata[first_slice-1].image_position_patient[2]
+		else:
+			slice_distance = self.metadata[first_slice+1].image_position_patient[2] - self.metadata[first_slice].image_position_patient[2]
+
 		gantra = self.metadata[0].gantry_detector_tilt
+
+		if close_boundary:
+			origin[0] = origin[0] - self.metadata[first_slice].pixel_spacing[0] * factor
+			origin[1] = origin[1] - self.metadata[first_slice].pixel_spacing[1] * factor
+			origin[2] = origin[2] - slice_distance * factor
 		
-		scale = [ self.metadata[0].pixel_spacing[0], self.metadata[0].pixel_spacing[1],	slice_distance	]
+		scale = [ self.metadata[first_slice].pixel_spacing[0], self.metadata[first_slice].pixel_spacing[1],	slice_distance	]
 		scale = [ x * float(factor) for x in scale ]
 		
 		vertices = []
@@ -654,11 +702,17 @@ class Volumetric(Object):
 		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
 		AP.addObject(mesh, self)
 
-	def adjustMinMax(self, winMin=None, winMax=None):
+	def adjustMinMax(self, winMin=None, winMax=None, min_slice=None, max_slice=None, min_row=None, max_row=None, min_column=None, max_column=None):
 		self.m_min = np.min(self.m_volume)
 		self.m_max = np.max(self.m_volume)
 		self.m_minDisplWin = winMin if winMin else self.m_min
 		self.m_maxDisplWin = winMax if winMax else self.m_max
+		self.m_minSlice = min_slice if min_slice else 0
+		self.m_maxSlice = max_slice if max_slice else self.m_volume.shape[0]-1
+		self.m_minRow = min_row if min_row else 0
+		self.m_maxRow = max_row if max_row else self.m_volume.shape[1]-1
+		self.m_minColumn = min_column if min_column else 0
+		self.m_maxColumn = max_column if max_column else self.m_volume.shape[2]-1
 
 	@staticmethod
 	def create(layers=256, rows=256, columns=256):
@@ -670,9 +724,6 @@ class Volumetric(Object):
 			volum.metadata.append(mdata)
 
 		volum.adjustMinMax()
-
-		volum.m_minSlice = 0
-		volum.m_maxSlice = layers-1
 
 		for filter in volum.m_filters:
 			filter[1] = max(filter[1], volum.m_minDisplWin)

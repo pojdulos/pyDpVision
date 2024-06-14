@@ -120,7 +120,15 @@ class ContextMenu(QMenu):
 
 	@pyqtSlot()
 	def volumetric_marching_cube(self):
-		self.m_obj.marching_cube(factor=1)
+		dlg = QDialog()
+		AP.loadUi('dlgMarchingCube.ui', dlg)
+
+		# pmUi.spinBox->setValue( ((CMesh*) AP::WORKSPACE::getCurrentModel()->getChild())->vertices().size() );
+
+		if dlg.exec():
+			factor = dlg.spinBox.value()
+			close_boundary = dlg.closeBoundaryBox.isChecked()
+			self.m_obj.marching_cube(factor=factor, close_boundary=close_boundary)
 
 	@pyqtSlot()
 	def refreshTree(self):

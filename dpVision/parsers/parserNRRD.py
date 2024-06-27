@@ -18,7 +18,8 @@ class ParserNRRD(Parser):
 		image = sitk.ReadImage(path)
 		# print(image)
 		volum.m_volume = sitk.GetArrayFromImage(image)
-		
+		volum.shape = volum.m_volume.shape
+
 		origin = image.GetOrigin()
 		size = image.GetSize()
 		spacing = image.GetSpacing()

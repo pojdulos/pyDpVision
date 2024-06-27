@@ -16,6 +16,7 @@ class ParserDICOM(Parser):
 	@staticmethod	
 	def convert_to_HU(dcm, b=None, m=None):
 		print(dcm.file_meta)
+		print(dcm)
 		# dcm.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian 
 		if b is None: b = float(getattr(dcm, 'RescaleIntercept', 0.0))
 		if m is None: m = float(getattr(dcm, 'RescaleSlope', 1.0))
@@ -52,6 +53,8 @@ class ParserDICOM(Parser):
 		# volum.m_dicom_files = dicom_files
 		volum.m_volume = np.stack([ParserDICOM.convert_to_HU(file) for file in dicom_files])
 		
+		volum.shape = volum.m_volume.shape
+
 		for idx, file in enumerate(dicom_files):
 			slice_metadata = SliceMetadata()
 			slice_metadata.image_position_patient = getattr(file, 'ImagePositionPatient', [0.0, 0.0, idx])

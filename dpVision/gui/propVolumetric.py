@@ -58,19 +58,19 @@ class PropVolumetric(PropWidget):
 		self.xBspin.setMinimum(0)
 
 		self.xEspin.setValue(self.obj.m_maxColumn)
-		self.xEspin.setMaximum(self.obj.m_volume.shape[2]-1)
+		self.xEspin.setMaximum(self.obj.shape[2]-1)
 
 		self.yBspin.setValue(self.obj.m_minRow)
 		self.yBspin.setMinimum(0)
 
 		self.yEspin.setValue(self.obj.m_maxRow)
-		self.yEspin.setMaximum(self.obj.m_volume.shape[1]-1)
+		self.yEspin.setMaximum(self.obj.shape[1]-1)
 
 		self.zBspin.setValue(self.obj.m_minSlice)
 		self.zBspin.setMinimum(0)
 
 		self.zEspin.setValue(self.obj.m_maxSlice)
-		self.zEspin.setMaximum(self.obj.m_volume.shape[0]-1)
+		self.zEspin.setMaximum(self.obj.shape[0]-1)
 
 		for idx in range(7):
 			self.f_check[idx].setChecked(self.obj.m_filters[idx][0] != 0)
@@ -329,8 +329,8 @@ class PropVolumetric(PropWidget):
 
 		if val < self.obj.m_minColumn:
 			val = self.obj.m_minColumn
-		elif val >= self.obj.m_volume.shape[2]:
-			val = self.obj.m_volume.shape[2] - 1
+		elif val >= self.obj.shape[2]:
+			val = self.obj.shape[2] - 1
 
 		self.obj.m_maxColumn = val
 		self.xBspin.blockSignals(True)
@@ -345,8 +345,8 @@ class PropVolumetric(PropWidget):
 
 		if val < self.obj.m_minRow:
 			val = self.obj.m_minRow
-		elif val >= self.obj.m_volume.shape[1]:
-			val = self.obj.m_volume.shape[1] - 1
+		elif val >= self.obj.shape[1]:
+			val = self.obj.shape[1] - 1
 
 		self.obj.m_maxRow = val
 		self.yBspin.blockSignals(True)
@@ -361,8 +361,8 @@ class PropVolumetric(PropWidget):
 
 		if val < self.obj.m_minSlice:
 			val = self.obj.m_minSlice
-		elif val >= self.obj.m_volume.shape[0]:
-			val = self.obj.m_volume.shape[0] - 1
+		elif val >= self.obj.shape[0]:
+			val = self.obj.shape[0] - 1
 
 		self.obj.m_maxSlice = val
 		self.zBspin.blockSignals(True)

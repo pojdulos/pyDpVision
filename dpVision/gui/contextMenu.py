@@ -9,6 +9,9 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
+from .dialogSiftParameters import DialogSiftParameters
+from .dialogVolumetricMetadata import DialogVolumetricMetadata
+
 from .. import AP, Transform
 
 class ContextMenu(QMenu):
@@ -54,6 +57,10 @@ class ContextMenu(QMenu):
 
 	def create_volumetric_menu(self):
 		menu = QMenu("volumetric...", self)
+		action = QAction("set metadata", self)
+		action.triggered.connect(self.volumetric_set_metadata)
+		menu.addAction(action)
+		menu.addSeparator()
 		action = QAction("create SIFT cloud", self)
 		action.triggered.connect(self.volumetric_sift)
 		menu.addAction(action)
@@ -114,9 +121,44 @@ class ContextMenu(QMenu):
 		self.m_obj.vBuf = None
 		AP.updateAllViews()
 
+		
+	@pyqtSlot()
+	def volumetric_set_metadata(self):
+		dlg = DialogVolumetricMetadata(self.m_obj)
+		if dlg.exec():
+			print("OK")
+			AP.updateAllViews()
+
 	@pyqtSlot()
 	def volumetric_sift(self):
-		self.m_obj.calculate_sift()
+		nfeatures=0
+		nOctaveLayers=3
+		contrastThreshold=0.04
+		edgeThreshold=10.0
+		sigma=1.6
+		factor=1
+
+		dlg = DialogSiftParameters(
+			nfeatures=nfeatures, 
+			nOctaveLayers=nOctaveLayers, 
+			contrastThreshold=contrastThreshold, 
+			edgeThreshold=edgeThreshold, 
+			sigma=sigma, 
+			factor=factor )
+
+		if dlg.exec():
+			nfeatures, nOctaveLayers, contrastThreshold, edgeThreshold, sigma, factor = dlg.get_fields()
+
+			cloud = self.m_obj.sift_cloud(
+				nfeatures=nfeatures, 
+				nOctaveLayers=nOctaveLayers, 
+				contrastThreshold=contrastThreshold, 
+				edgeThreshold=edgeThreshold, 
+				sigma=sigma, 
+				factor=factor )
+
+			AP.addObject(cloud, self.m_obj)
+			AP.updateAllViews()
 
 	@pyqtSlot()
 	def volumetric_marching_cube(self):
@@ -140,6 +182,26 @@ class ContextMenu(QMenu):
 
 	@pyqtSlot()
 	def move_to(self):
+		if self.m_obj is None: return
+		
+		action = self.sender()
+		newParent = action.data()
+		oldParent = self.m_obj.getParent()
+
+		_m0 = oldParent.getGlobalTransformation() if oldParent else QMatrix4x4()
+		_m1 = newParent.getGlobalTransformation() if newParent else QMatrix4x4()
+
+		newModel = Transform()
+		newModel.matrix = Transform.fromTo(m0 = _m0, m1 = _m1)
+
+		AP.addObject(child=newModel, parent=newParent)
+		AP.addObject(child=self.m_obj, parent=newModel)
+		AP.removeObject(child=self.m_obj, parent=oldParent)
+
+		AP.updateAllViews()
+
+	@pyqtSlot()
+	def copy_to(self):
 		if self.m_obj is None: return
 		
 		action = self.sender()

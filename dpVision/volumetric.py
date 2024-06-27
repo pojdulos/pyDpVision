@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import cv2
 import os
 import pydicom
+from tqdm import tqdm
 
 from .globals import AP
 from .object import Object
@@ -358,8 +359,8 @@ void main()
 # Pamiętajmy więc, że to prawdopodobnie jeszcze nie działa
 # albo działa źle
 
-def convert_to_np_array(key, list):
-    return key, np.array(list, dtype=np.float32)
+# def convert_to_np_array(key, list):
+#     return key, np.array(list, dtype=np.float32)
 
 class SliceMetadata():
 	def __init__(self):
@@ -401,7 +402,6 @@ class Volumetric(Object):
 		self.m_maxRow = 0
 		self.m_minColumn = 0
 		self.m_maxColumn = 0
-
 		self.m_filters = [
 			[0,  -100,   799],
 			[0, -9999, 99999],
@@ -419,7 +419,18 @@ class Volumetric(Object):
 			[0.0, 1.0, 1.0],
 			[1.0, 0.0, 1.0],
 			[1.0, 1.0, 1.0]]
+
+		self.m_shape = (0,0,0)
+	
+	@property
+	def shape(self):
+		return self.m_shape
+	
+	@shape.setter
+	def shape(self, _shape):
+		self.m_shape = _shape
 		
+
 	def test_gauss(self):
 		from scipy.ndimage import gaussian_filter
 		#volume = np.array(trójwymiarowa_lista)  # zamień 'trójwymiarowa_lista' na swoją listę
@@ -551,7 +562,13 @@ class Volumetric(Object):
 		fcolors_loc = glGetUniformLocation(self.shader_program, "fcolors")
 		glUniform3fv(fcolors_loc, 7, self.m_fcolors)
 
-		factor = 4 if self.m_fastDraw or AP.mouse_key_pressed else 1
+		if not self.m_fastDraw and not AP.mouse_key_pressed:
+			factor = 1
+		elif len(self.m_volume) < 1536:
+			factor = 4
+		else:
+			factor = 8
+
 		factor_loc = glGetUniformLocation(self.shader_program, "factor")
 		glUniform1i( factor_loc, factor )
 		
@@ -559,24 +576,28 @@ class Volumetric(Object):
 		first_row = factor*int(self.m_minRow/factor)
 		first_column = factor*int(self.m_minColumn/factor)
 
-		subvolume = self.m_volume[
-			first_slice:self.m_maxSlice+1:factor,
-			first_row:self.m_maxRow+1:factor,
-			first_column:self.m_maxColumn+1:factor
-			]
-		
-		subvolume = np.array(subvolume)
+		# subvolume = self.m_volume[
+		# 	first_slice:self.m_maxSlice+1:factor,
+		# 	first_row:self.m_maxRow+1:factor,
+		# 	first_column:self.m_maxColumn+1:factor
+		# 	]
 
+		subvolume = [slice[first_row:self.m_maxRow+1:factor,first_column:self.m_maxColumn+1:factor] for slice in self.m_volume[first_slice:self.m_maxSlice+1:factor]]
+#		subvolume = np.array(subvolume, dtype=np.float32)
+
+		# small_shape = subvolume.shape
+		small_shape = (len(subvolume), subvolume[0].shape[0], subvolume[0].shape[1])
+		
 		sizeX_loc = glGetUniformLocation(self.shader_program, "sizeX")
-		glUniform1i( sizeX_loc, subvolume.shape[2] )
+		glUniform1i( sizeX_loc, small_shape[2] )
 
 		sizeY_loc = glGetUniformLocation(self.shader_program, "sizeY")
-		glUniform1i( sizeY_loc, subvolume.shape[1] )
+		glUniform1i( sizeY_loc, small_shape[1] )
 
-		for idx_in_subvolume in range(subvolume.shape[0]):
+		for idx_in_subvolume in range(small_shape[0]):
 			true_index_of_slice = first_slice + idx_in_subvolume * factor
 			
-			colors = subvolume[idx_in_subvolume].flatten()
+			colors = np.array(subvolume[idx_in_subvolume], dtype=np.float32).flatten()
 
 			glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
 		
@@ -607,16 +628,30 @@ class Volumetric(Object):
 		glDisable(GL_PROGRAM_POINT_SIZE)
 
 
-	def calculate_sift(self):
+	# Domyślne ustawienie parametrów dla algorytmu SIFT
+	# nfeatures - Liczba kluczowych punktów do zachowania. Domyślnie 0, co oznacza, że nie ma limitu.
+	# nOctaveLayers - Liczba warstw w każdej oktawie. Domyślnie 3
+	# contrastThreshold - Próg eliminacji kluczowych punktów o niskim kontraście. Domyślnie 0.04
+	# edgeThreshold - Próg eliminacji kluczowych punktów na krawędziach. Domyślnie 10
+	# sigma - Początkowa sigma dla Gaussowskiego rozmycia. Domyślnie 1.6
+	def sift_cloud(self, nfeatures = 0, nOctaveLayers = 3, contrastThreshold = 0.04, edgeThreshold = 10, sigma = 1.6, factor=1):
 		vertices = []
 
-		for i in range(self.m_minSlice, self.m_maxSlice+1):
-			image = self.m_volume[i]
+		for idx_of_slice in range(self.m_minSlice, self.m_maxSlice+1):
+			image = self.m_volume[idx_of_slice][self.m_minRow:self.m_maxRow+1, self.m_minColumn:self.m_maxColumn+1]
 
-			position = self.metadata[i].image_position_patient
-			print(f"slice {i}: position = {position}")
+			pixel_spacing = list( self.metadata[idx_of_slice].pixel_spacing )
 			
-			pixel_spacing = self.metadata[i].pixel_spacing
+			position = [
+				self.metadata[idx_of_slice].image_position_patient[0] + pixel_spacing[0] * float(self.m_minColumn),
+				self.metadata[idx_of_slice].image_position_patient[1] + pixel_spacing[1] * float(self.m_minRow),
+				self.metadata[idx_of_slice].image_position_patient[2]
+			]
+
+			# position = self.metadata[idx_of_slice].image_position_patient
+
+			print(f"slice {idx_of_slice}: position = {position}")
+			
 
 			# if gauss:
 			# 	image = gaussian_filter(image, sigma=gauss)
@@ -626,11 +661,33 @@ class Volumetric(Object):
 			# Normalizuj dane obrazu do zakresu 0-255
 			obraz = cv2.normalize(np.array(image), None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
-			# Utwórz obiekt SIFT
-			sift = cv2.SIFT_create()
+
+			# Domyślne ustawienie parametrów dla algorytmu SIFT
+			
+			# Liczba kluczowych punktów do zachowania. Domyślnie 0, co oznacza, że nie ma limitu.
+			nfeatures = 0
+			
+			# Liczba warstw w każdej oktawie. Domyślnie 3
+			nOctaveLayers = 5
+			
+			# Próg eliminacji kluczowych punktów o niskim kontraście. Domyślnie 0.04
+			contrastThreshold = 0.05
+			
+			# Próg eliminacji kluczowych punktów na krawędziach. Domyślnie 10
+			edgeThreshold = 10
+			
+			# Początkowa sigma dla Gaussowskiego rozmycia. Domyślnie 1.6
+			sigma = 0.4
+
+			# Tworzenie obiektu SIFT z ustawionymi parametrami
+			sift = cv2.SIFT_create(	nfeatures=nfeatures, nOctaveLayers=nOctaveLayers, 
+			 						contrastThreshold=contrastThreshold, edgeThreshold=edgeThreshold, sigma=sigma)
 
 			# Znajdź punkty kluczowe i deskryptory za pomocą SIFT
 			keypoints, descriptors = sift.detectAndCompute(obraz, None)
+
+			# orb = cv2.ORB_create()
+			# keypoints, descriptors = orb.detectAndCompute(obraz, None)
 
 			for key in keypoints:
 				point = [
@@ -643,7 +700,7 @@ class Volumetric(Object):
 
 		cloud = PointCloud()
 		cloud.m_vertices = np.array(vertices, dtype=np.float32)
-		AP.addObject(cloud, self)
+		return cloud
 
 	def marching_cube(self, factor = 1, close_boundary=True):
 		# AP.not_implemented()
@@ -653,7 +710,8 @@ class Volumetric(Object):
 		first_row = factor*int(self.m_minRow/factor)
 		first_column = factor*int(self.m_minColumn/factor)
 
-		image = self.m_volume[ first_slice:self.m_maxSlice+1:factor, first_row:self.m_maxRow+1:factor, first_column:self.m_maxColumn+1:factor ]
+		image = [slice[first_row:self.m_maxRow+1:factor,first_column:self.m_maxColumn+1:factor] for slice in self.m_volume[first_slice:self.m_maxSlice+1:factor]]
+		#image = self.m_volume[ first_slice:self.m_maxSlice+1:factor ][ first_row:self.m_maxRow+1:factor, first_column:self.m_maxColumn+1:factor ]
 		image = [ [ [min(max(self.m_minDisplWin,i),self.m_maxDisplWin) for i in row] for row in slice] for slice in image]
 		
 		image = np.array(image)
@@ -702,28 +760,51 @@ class Volumetric(Object):
 		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
 		AP.addObject(mesh, self)
 
-	def adjustMinMax(self, winMin=None, winMax=None, min_slice=None, max_slice=None, min_row=None, max_row=None, min_column=None, max_column=None):
-		self.m_min = np.min(self.m_volume)
-		self.m_max = np.max(self.m_volume)
+	def adjustMinMax(self, calc_color=True, winMin=None, winMax=None, min_slice=None, max_slice=None, min_row=None, max_row=None, min_column=None, max_column=None):
+		if calc_color:
+			self.m_min = np.min(self.m_volume[0])
+			self.m_max = np.max(self.m_volume[0])
+			for i in tqdm(range(len(self.m_volume)), desc='Processing'):
+				self.m_min = min(self.m_min, np.min(self.m_volume[i]))
+				self.m_max = max(self.m_max, np.max(self.m_volume[i]))
 		self.m_minDisplWin = winMin if winMin else self.m_min
 		self.m_maxDisplWin = winMax if winMax else self.m_max
 		self.m_minSlice = min_slice if min_slice else 0
-		self.m_maxSlice = max_slice if max_slice else self.m_volume.shape[0]-1
+		self.m_maxSlice = max_slice if max_slice else self.shape[0]-1
 		self.m_minRow = min_row if min_row else 0
-		self.m_maxRow = max_row if max_row else self.m_volume.shape[1]-1
+		self.m_maxRow = max_row if max_row else self.shape[1]-1
 		self.m_minColumn = min_column if min_column else 0
-		self.m_maxColumn = max_column if max_column else self.m_volume.shape[2]-1
+		self.m_maxColumn = max_column if max_column else self.shape[2]-1
+
+	def adjustMinMaxColor(self, color):
+		self.m_min = min(self.m_min, color)
+		self.m_max = max(self.m_max, color)
+		self.m_minDisplWin = self.m_min
+		self.m_maxDisplWin = self.m_max
 
 	@staticmethod
 	def create(layers=256, rows=256, columns=256):
 		volum = Volumetric()
-		volum.m_volume = np.empty((layers, rows, columns), dtype=np.float32)
+		volum.m_volume = [] #np.zeros((layers, rows, columns), dtype=np.float32)
+
+		for i in tqdm(range(layers), desc=f"creating volume ({layers}, {rows}, {columns})..."):
+			try:
+				subarray = np.zeros((rows,columns), dtype='float32')
+			except MemoryError:
+				print("\nBRAK PAMIĘCI !!!")
+				return None
+			# subarray[:,:] = i
+			volum.m_volume.append(subarray)
+
+		volum.shape = (layers, rows, columns)
+
 		for l in range(layers):
 			mdata = SliceMetadata()
 			mdata.image_position_patient[2] = float(l)
 			volum.metadata.append(mdata)
 
-		volum.adjustMinMax()
+		volum.m_min, volum.m_max = 0., 0.
+		volum.adjustMinMax(calc_color=False)
 
 		for filter in volum.m_filters:
 			filter[1] = max(filter[1], volum.m_minDisplWin)
@@ -731,30 +812,56 @@ class Volumetric(Object):
 		return volum
 	
 	def drawBox(self, origin=[0,0,0], size=[10,10,10], color=1000.):
-		layers, rows, cols = self.m_volume.shape
-		for x, y, z in itertools.product(range(size[2]), range(size[1]), range(size[0])):
-			if (col := origin[2] + x) < cols and (row := origin[1] + y) < rows and (layer := origin[0] + z) < layers:
-				self.m_volume[layer, row, col] = color
-		self.adjustMinMax()
+		layers, rows, cols = self.shape
+		for z in tqdm(range(size[0]), desc=f"drawing volumetric box: origin = {origin}, size = {size}..."):
+			for y in range(size[1]):
+				for x in range(size[2]):
+					if (col := origin[2] + x) < cols and (row := origin[1] + y) < rows and (layer := origin[0] + z) < layers:
+						self.m_volume[layer][row, col] = color
+		self.adjustMinMaxColor(color)
 
 	def drawSphere(self, origin=[0,0,0], radius=1, color=1000.):
 		origin_z, origin_y, origin_x = origin
-		for z in range(self.m_volume.shape[0]):
-			for y in range(self.m_volume.shape[1]):
-				for x in range(self.m_volume.shape[2]):
-					if (x - origin_x) ** 2 + (y - origin_y) ** 2 + (z - origin_z) ** 2 <= radius ** 2:
-						self.m_volume[z, y, x] = color
-		self.adjustMinMax()
+		z_min = max(0, origin_z - radius)
+		z_max = min(self.shape[0], origin_z + radius + 1)
+		y_min = max(0, origin_y - radius)
+		y_max = min(self.shape[1], origin_y + radius + 1)
+		x_min = max(0, origin_x - radius)
+		x_max = min(self.shape[2], origin_x + radius + 1)
 
-	def drawEllipsoid(self, origin=[0,0,0], radii=[1,1,1], color=1000.):
-		origin_z, origin_y, origin_x = origin
-		radius_z, radius_y, radius_x = radii
-		for z in range(self.m_volume.shape[0]):
-			for y in range(self.m_volume.shape[1]):
-				for x in range(self.m_volume.shape[2]):
-					if ((x - origin_x) / radius_x) ** 2 + ((y - origin_y) / radius_y) ** 2 + ((z - origin_z) / radius_z) ** 2 <= 1:
-						self.m_volume[z, y, x] = color
-		self.adjustMinMax()
+		# Przygotowanie danych wejściowych
+		radius_squared = radius**2
+
+		# Tworzenie siatki współrzędnych
+		z = np.arange(z_min, z_max)
+		y = np.arange(y_min, y_max)
+		x = np.arange(x_min, x_max)
+		zv, yv, xv = np.meshgrid(z, y, x, indexing='ij')
+
+		# Obliczanie maski dla sfer
+		mask = (xv - origin_x)**2 + (yv - origin_y)**2 + (zv - origin_z)**2 <= radius_squared
+
+		# Rysowanie sfery
+		for z_idx in tqdm(range(z_min,z_max), desc=f"drawing volumetric sphere: origin = {origin}, radius = {radius}..."):
+			slice_mask = mask[z_idx - z_min,:,:]
+
+			shifted_mask = np.zeros_like(self.m_volume[z_idx], dtype=bool)
+			shifted_mask[y_min:y_min+slice_mask.shape[0], x_min:x_min+slice_mask.shape[1]] = slice_mask
+
+			self.m_volume[z_idx][shifted_mask] = color			
+		self.adjustMinMaxColor(color)
+
+
+	# def drawEllipsoid(self, origin=[0,0,0], radii=[1,1,1], color=1000.):
+	# 	origin_z, origin_y, origin_x = origin
+	# 	radius_z, radius_y, radius_x = radii
+	# 	for z in range(self.shape[0]):
+	# 		for y in range(self.shape[1]):
+	# 			for x in range(self.shape[2]):
+	# 				if ((x - origin_x) / radius_x) ** 2 + ((y - origin_y) / radius_y) ** 2 + ((z - origin_z) / radius_z) ** 2 <= 1:
+	# 					self.m_volume[z, y, x] = color
+	# 	# self.m_volume.flush()
+	# 	self.adjustMinMax()
 
 	def drawCylinder(self, origin=[0,0,0], radius=1, height=1, axis='z', color=1000.):
 		origin_z, origin_y, origin_x = origin
@@ -766,22 +873,23 @@ class Volumetric(Object):
 				for y in range(origin_y - radius, origin_y + radius + 1):
 					for x in range(origin_x - radius, origin_x + radius + 1):
 						if ((y - origin_y) ** 2 + (x - origin_x) ** 2 <= radius ** 2):
-							self.m_volume[z, y, x] = color
+							self.m_volume[z][y, x] = color
 		elif axis == 'y':
 			for z in range(origin_z - radius, origin_z + radius + 1):
 				for y in range(origin_y - height // 2, origin_y + height // 2 + 1):
 					for x in range(origin_x - radius, origin_x + radius + 1):
 						if ((z - origin_z) ** 2 + (x - origin_x) ** 2 <= radius ** 2):
-							self.m_volume[z, y, x] = color
+							self.m_volume[z][y, x] = color
 		elif axis == 'x':
 			for z in range(origin_z - radius, origin_z + radius + 1):
 				for y in range(origin_y - radius, origin_y + radius + 1):
 					for x in range(origin_x - height // 2, origin_x + height // 2 + 1):
 						if ((z - origin_z) ** 2 + (y - origin_y) ** 2 <= radius ** 2):
-							self.m_volume[z, y, x] = color
+							self.m_volume[z][y, x] = color
 		else:
 			raise ValueError("Axis must be one of 'x', 'y', or 'z'.")
-		self.adjustMinMax()
+		# self.m_volume.flush()
+		self.adjustMinMaxColor(color)
 
 	def set_pixel_size(self, image_x=1.0, image_y=1.0, slice_thickness=1.0):
 		for n,mdata in enumerate(self.metadata):

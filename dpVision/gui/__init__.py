@@ -1,6 +1,8 @@
 # __init__.py
 
 from .contextMenu import ContextMenu
+from .dialogSiftParameters import DialogSiftParameters
+from .dialogVolumetricMetadata import DialogVolumetricMetadata
 from .dockWidgetPluginList import DockWidgetPluginList
 from .dockWidgetPluginPanel import DockWidgetPluginPanel
 from .dockWidgetProperties import DockWidgetProperties
@@ -22,6 +24,7 @@ from .propWidget import PropWidget
 
 __all__ = [
 			"ContextMenu",
+			"DialogSiftParameters", "DialogVolumetricMetadata",
 			"DockWidgetPluginList", "DockWidgetPluginPanel", "DockWidgetProperties", "DockWidgetWorkspace",
 			"GLViewer",
 			"MainWindow",

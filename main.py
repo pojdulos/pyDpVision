@@ -4,7 +4,9 @@ from PyQt5.QtCore import QSettings
 from dpVision import AP, MainApplication
 from dpVision.gui import MainWindow
 from dpVision.parsers import *
-import pydicom
+import locale
+		
+locale.setlocale(locale.LC_NUMERIC, 'pl_PL.UTF-8')
 
 MainApplication.setOrganizationName('IITiS PAN')
 MainApplication.setOrganizationDomain("iitis.pl")
@@ -27,7 +29,7 @@ else:
 #######################################################################
 # dp_testy to mój roboczy moduł służący do testowania różnych rzeczy
 # import do usunięcia w wersji 'produkcyjnej'
-#from dp_testy import *
+from dp_testy import *
 #######################################################################
 
 sys.exit(AP.mainApp.exec_())

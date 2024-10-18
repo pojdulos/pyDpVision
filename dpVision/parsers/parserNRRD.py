@@ -9,7 +9,7 @@ from math import *
 
 class ParserNRRD(Parser):
 	descr = 'NRRD datasets'
-	load_exts = ['.nrrd'] #,'.dcm']
+	load_exts = ['.nrrd','.nii'] #,'.dcm']
 	#save_exts = ['.dcm']
  
 	@staticmethod	

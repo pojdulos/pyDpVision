@@ -21,12 +21,12 @@ class Plugin01(PluginInterface):
 		
 		# self.mainWindow.helpAbout()
 		self.add_menu()
-		self.create_panel(AP.mainWin)
-		AP.mainWin.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
+		# self.create_panel(AP.mainWin)
 
 	def create_panel(self, parent):
 		self.panel = QDockWidget(parent)
 		self.panel.setWindowTitle(self.plugin_name)
+		AP.mainWin.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
 
 	def on_unload(self):
 		self.remove_menu()

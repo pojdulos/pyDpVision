@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
 from OpenGL.GL import *
-from OpenGL.GLU import gluLookAt
+from OpenGL.GLU import *
 from OpenGL.GLUT import *
 
 import numpy as np
@@ -62,6 +62,8 @@ class GLViewer(QOpenGLWidget):
 		ORTHOGONAL = 128
 	
 	transformChanged = pyqtSignal(QObject)
+
+	mouseMovedSignal = pyqtSignal(tuple)
 	
 	def __init__( self, win, parent = None ):
 		super( GLViewer, self ).__init__( parent )
@@ -87,6 +89,7 @@ class GLViewer(QOpenGLWidget):
 		self._projection = GLViewer.Projection.PERSPECTIVE
 
 		self.transformChanged.connect(self.mainWindow.onCurrentObjectUpdated)
+		self.mouseMovedSignal.connect(AP.mainApp.onMouseMoveSlot)
 
 
 	# def resetGeometry(self):
@@ -277,6 +280,8 @@ class GLViewer(QOpenGLWidget):
 		
 		self.lastPos = event.pos()
 		#self.mainWindow.dock["properties"].m_widget.updateProperties()
+		self.mouseMovedSignal.emit((self,event))
+		
 
 	def mousePressEvent(self, event ):
 		AP.mouse_key_pressed = True
@@ -568,3 +573,75 @@ class GLViewer(QOpenGLWidget):
 		self.drawLine( 5, 48.5, 49)
 		self.drawLine( 3, 49, 49.5)
 		self.drawLine( 1, 49.5, 50)
+
+	def calculate_frustum_matrix(self, left, right, bottom, top, near, far):
+		# Inicjalizacja macierzy 4x4 zerami
+		frustum_matrix = np.zeros((4, 4), dtype=np.float32)
+		
+		# Wypełnianie wartościami zgodnie ze wzorem dla macierzy perspektywy
+		frustum_matrix[0, 0] = 2 * near / (right - left)
+		frustum_matrix[1, 1] = 2 * near / (top - bottom)
+		frustum_matrix[0, 2] = (right + left) / (right - left)
+		frustum_matrix[1, 2] = (top + bottom) / (top - bottom)
+		frustum_matrix[2, 2] = -(far + near) / (far - near)
+		frustum_matrix[3, 2] = -1
+		frustum_matrix[2, 3] = -(2 * far * near) / (far - near)
+		
+		return frustum_matrix
+
+	def look_at(self, eye, center, up):
+		f = np.array(center) - np.array(eye)
+		f = f / np.linalg.norm(f)
+
+		u = np.array(up)
+		u = u / np.linalg.norm(u)
+
+		s = np.cross(f, u)
+		u = np.cross(s, f)
+
+		m = np.identity(4, dtype=np.float32)
+		m[0, :3] = s
+		m[1, :3] = u
+		m[2, :3] = -f
+		m[3, 3] = 1.0
+
+		translation = np.identity(4, dtype=np.float32)
+		translation[:3, 3] = -np.array(eye)
+
+		return np.dot(m, translation)
+
+	def get_mouse_ray(self, x, y):
+			w = self.width()
+			h = self.height()
+
+			win_x = float(x) / w
+			win_y = float(h - y) / h  # Inwersja osi Y
+
+			# Get the normalized device coordinates (NDC)
+			near_ndc = np.array([win_x * 2 - 1, win_y * 2 - 1, -1.0, 1.0], dtype=np.float32)
+			far_ndc = np.array([win_x * 2 - 1, win_y * 2 - 1,  1.0, 1.0], dtype=np.float32)
+
+			# Obliczenie macierzy modelview dla kamery
+			center = [0, 0, 0]  # Punkt patrzenia
+			view_matrix = self.look_at(self._camera.pos, center, self._camera.up)
+
+			model_matrix = self.transform.toNumPy()
+
+			# Obliczenie macierzy projekcji
+			projection_matrix = self.calculate_frustum_matrix(self._left, self._right, self._bottom, self._top, self._near, self._far)
+
+
+			# Calculate the combined MVP matrix
+			mvp_matrix = np.dot( np.dot( projection_matrix, view_matrix ), model_matrix )
+
+			mvp_inv = np.linalg.inv(mvp_matrix)
+
+			# Convert NDC to world space coordinates
+			near_ray = np.dot(mvp_inv, near_ndc)
+			far_ray = np.dot(mvp_inv, far_ndc)
+
+			# Normalize the rays
+			near_ray = near_ray / near_ray[3]
+			far_ray = far_ray / far_ray[3]
+
+			return near_ray, far_ray

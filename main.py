@@ -32,4 +32,7 @@ else:
 from dp_testy import *
 #######################################################################
 
+#from OpenGL.GL import *
+#print(glGetString(GL_VERSION))
+
 sys.exit(AP.mainApp.exec_())

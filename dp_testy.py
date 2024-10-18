@@ -95,5 +95,4 @@ def fast_test_7():
 
 
 
-
-fast_test_5(256,256,256)
+#fast_test_5(512,512,512)

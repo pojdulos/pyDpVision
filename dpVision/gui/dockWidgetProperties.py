@@ -20,7 +20,7 @@ from .propAnnotation import PropAnnotation
 from .propAnnotationPoint import PropAnnotationPoint
 from .propAnnotationSphere import PropAnnotationSphere
 
-from .. import Object, Annotation, AP
+from .. import BaseObject, Object, Annotation, AP
 
 class DockWidgetProperties(QDockWidget):
 	def __init__(self, parent):
@@ -41,35 +41,46 @@ class DockWidgetProperties(QDockWidget):
 	
 		self.m_widget = PropWidget()
 
+		
+		self.properties_map = {
+			Object: {
+				'Transform': PropTransform,
+				'Mesh' : PropMesh,
+				'Motion': PropMotion,
+				'Volumetric': PropVolumetric,
+				'default': PropBaseObject,
+			},
+			Annotation: {
+				'AnnotationPoint': PropAnnotationPoint,
+				'AnnotationSphere': PropAnnotationSphere,
+				'default': PropAnnotation,
+			},
+			BaseObject: {
+				'default': PropBaseObject
+			},
+		}
+
 		self.addWidgetToScrollArea(self.m_widget)
 	
 	@pyqtSlot(QObject)	
 	def selectionChanged( self, obj ):
 		name = obj.__class__.__name__
 		print(name+" selected")
-		
+
 		if name == 'GLViewer':
 			self.m_widget = PropViewer.create(obj, self)
-		elif obj.hasCategory(Object):
-			if name == 'Transform':
-				self.m_widget = PropTransform.create(obj, self)
-			elif name == 'Mesh':
-				self.m_widget = PropMesh.create(obj, self)
-			elif name == 'Motion':
-				self.m_widget = PropMotion.create(obj, self)
-			elif name == 'Volumetric':
-				self.m_widget = PropVolumetric.create(obj, self)
-			else:
-				self.m_widget = PropBaseObject.create(obj, self)
-		elif obj.hasCategory(Annotation):
-			if name == 'AnnotationPoint':
-				self.m_widget = PropAnnotationPoint.create(obj, self)
-			elif name == 'AnnotationSphere':
-				self.m_widget = PropAnnotationSphere.create(obj, self)
-			else:
-				self.m_widget = PropAnnotation.create(obj, self)
 		else:
-			self.m_widget = PropWidget()
+			not_found = True
+			for category in self.properties_map.keys():
+				if obj.hasCategory(category):
+					if name in self.properties_map[category]:
+						self.m_widget = self.properties_map[category][name].create(obj, self)
+					else:
+						self.m_widget = self.properties_map[category]['default'].create(obj, self)
+					not_found = False
+					break
+			if not_found:
+				self.m_widget = PropWidget()
 
 		self.addWidgetToScrollArea(self.m_widget)
 		self.updateProperties()

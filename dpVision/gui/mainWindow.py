@@ -41,10 +41,9 @@ class MainWindow(QMainWindow):
 		self.addDockWidget(
 			Qt.DockWidgetArea.LeftDockWidgetArea, self.dock["properties"])
 
-
-		self.dock["panel"] = DockWidgetPluginPanel(self)
-		self.addDockWidget(
-			Qt.DockWidgetArea.RightDockWidgetArea, self.dock["panel"])
+		# self.dock["panel"] = DockWidgetPluginPanel(self)
+		# self.addDockWidget(
+		# 	Qt.DockWidgetArea.RightDockWidgetArea, self.dock["panel"])
 
 		leftDocks = [self.dock["workspace"], self.dock["properties"]]
 		#rightDocks = [self.dock["plugins"], self.dock["panel"]]

@@ -73,7 +73,7 @@ class DockWidgetProperties(QDockWidget):
 			not_found = True
 			for category in self.properties_map.keys():
 				if obj.hasCategory(category):
-					if name in self.properties_map[category]:
+					if name in self.properties_map[category].keys():
 						self.m_widget = self.properties_map[category][name].create(obj, self)
 					else:
 						self.m_widget = self.properties_map[category]['default'].create(obj, self)

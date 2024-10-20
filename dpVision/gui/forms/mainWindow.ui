@@ -14,7 +14,7 @@
    <string>Okno główne</string>
   </property>
   <property name="windowIcon">
-   <iconset resource="dpVision.qrc">
+   <iconset resource="../dpVision.qrc">
     <normaloff>:/icons/dpVision.ico</normaloff>:/icons/dpVision.ico</iconset>
   </property>
   <property name="animated">
@@ -1000,7 +1000,7 @@
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <resources>
-  <include location="dpVision.qrc"/>
+  <include location="../dpVision.qrc"/>
  </resources>
  <connections>
   <connection>
@@ -1152,6 +1152,38 @@
    <signal>triggered()</signal>
    <receiver>MainWindow</receiver>
    <slot>mesh_renderAsVertices()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>426</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>actionProjectionOrthogonal</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>projectionOrthogonal()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>426</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>actionProjectionPerpective</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>projectionPerspective()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>-1</x>

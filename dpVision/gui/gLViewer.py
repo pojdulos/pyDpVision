@@ -200,7 +200,10 @@ class GLViewer(QOpenGLWidget):
 		painter.end()
 
 
-	def applyProjection(self):
+	def applyProjection(self, projection=None):
+		if projection is not None:
+			self._projection = projection
+
 		if not ( self._projection == GLViewer.Projection.ORTHOGONAL ):
 			# //gluPerspective( _dViewingAngle, _fAspect, _near, _far );
 			glFrustum( self._left, self._right, self._bottom, self._top, self._near, self._far )
@@ -589,6 +592,23 @@ class GLViewer(QOpenGLWidget):
 		
 		return frustum_matrix
 
+	def calculate_ortho_matrix(self, left, right, bottom, top, near, far):
+		# Inicjalizacja macierzy 4x4 zerami
+		ortho_matrix = np.zeros((4, 4), dtype=np.float32)
+		
+		# Wypełnianie wartościami zgodnie ze wzorem dla macierzy ortogonalnej
+		ortho_matrix[0, 0] = 2.0 / (right - left)
+		ortho_matrix[1, 1] = 2.0 / (top - bottom)
+		ortho_matrix[2, 2] = -2.0 / (far - near)
+		
+		ortho_matrix[0, 3] = -(right + left) / (right - left)
+		ortho_matrix[1, 3] = -(top + bottom) / (top - bottom)
+		ortho_matrix[2, 3] = -(far + near) / (far - near)
+		
+		ortho_matrix[3, 3] = 1.0
+		
+		return ortho_matrix
+
 	def look_at(self, eye, center, up):
 		f = np.array(center) - np.array(eye)
 		f = f / np.linalg.norm(f)
@@ -628,7 +648,10 @@ class GLViewer(QOpenGLWidget):
 			model_matrix = self.transform.toNumPy()
 
 			# Obliczenie macierzy projekcji
-			projection_matrix = self.calculate_frustum_matrix(self._left, self._right, self._bottom, self._top, self._near, self._far)
+			if self._projection == GLViewer.Projection.PERSPECTIVE:
+				projection_matrix = self.calculate_frustum_matrix(self._left, self._right, self._bottom, self._top, self._near, self._far)
+			else:
+				projection_matrix = self.calculate_ortho_matrix(self._left, self._right, self._bottom, self._top, self._near, self._far)
 
 
 			# Calculate the combined MVP matrix

@@ -358,11 +358,19 @@ class MainWindow(QMainWindow):
 	def cameraResetPosition(self):
 		pass
 
+	@pyqtSlot()
 	def projectionOrthogonal(self):
-		pass
+		print("orth")
+		self.currentGLViewer().applyProjection(GLViewer.Projection.ORTHOGONAL)
+		self.currentGLViewer().recalcView()
+		self.currentGLViewer().update()
 
+	@pyqtSlot()
 	def projectionPerspective(self):
-		pass
+		print("prsp")
+		self.currentGLViewer().applyProjection(GLViewer.Projection.PERSPECTIVE)
+		self.currentGLViewer().recalcView()
+		self.currentGLViewer().update()
 
 	def bbShowHide(self):
 		pass

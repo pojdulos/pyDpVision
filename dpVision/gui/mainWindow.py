@@ -64,6 +64,10 @@ class MainWindow(QMainWindow):
 
 		self.create_recent_files_menu()
 
+		self.dock["workspace"].object_updated.connect(self.onCurrentObjectUpdated)
+		self.dock["workspace"].object_changed.connect(self.onCurrentObjectChanged)
+		self.dock["properties"].object_updated.connect(self.onCurrentObjectUpdated)
+
 		self.mdiArea.subWindowActivated.connect(self.onSubWindowActivated)
 		MdiChild.create(self, self.mdiArea, MdiChild.Show.Maximized)
 
@@ -187,8 +191,17 @@ class MainWindow(QMainWindow):
 
 	@pyqtSlot(QObject)	
 	def onCurrentObjectUpdated( self, obj ):
-		self.dock["properties"].updateProperties()
-		self.dock["workspace"].refreshAll()
+		sender = self.sender()
+		#print('MainWindow.onCurrentObjectUpdated(obj)', sender)
+
+		# if type(sender) is not DockWidgetWorkspace:
+		if not sender == self.dock["workspace"]:
+			self.dock["workspace"].refreshAll()
+
+		if type(sender) is not DockWidgetProperties:
+			# self.dock["properties"].updateProperties()
+			self.dock["properties"].selectionChanged(obj)
+
 		AP.updateAllViews()
 
 	@pyqtSlot(QObject)	
@@ -196,8 +209,13 @@ class MainWindow(QMainWindow):
 		self.workspace.m_currentObject = obj
 		if obj is None:
 			obj = self.currentGLViewer()
-		self.dock["properties"].selectionChanged(obj)
-		self.dock["workspace"].refreshAll()
+		
+		sender = self.sender()
+		if type(sender) is not DockWidgetWorkspace:
+			self.dock["workspace"].refreshAll()
+
+		if type(sender) is not DockWidgetProperties:
+			self.dock["properties"].selectionChanged(obj)
 		AP.updateAllViews()
 
 	def viewerSelected(self):
@@ -360,20 +378,20 @@ class MainWindow(QMainWindow):
 
 	@pyqtSlot()
 	def projectionOrthogonal(self):
-		print("orth")
 		self.currentGLViewer().applyProjection(GLViewer.Projection.ORTHOGONAL)
 		self.currentGLViewer().recalcView()
 		self.currentGLViewer().update()
 
 	@pyqtSlot()
 	def projectionPerspective(self):
-		print("prsp")
 		self.currentGLViewer().applyProjection(GLViewer.Projection.PERSPECTIVE)
 		self.currentGLViewer().recalcView()
 		self.currentGLViewer().update()
 
+	@pyqtSlot()
 	def bbShowHide(self):
-		pass
+		self.currentGLViewer().switchBB()
+		self.currentGLViewer().update()
 
 	def openWorkspace(self):
 		pass
@@ -383,14 +401,18 @@ class MainWindow(QMainWindow):
 		sel = self.dock["workspace"].getSelectedObjects()
 		if len(sel):
 			for obj in sel:
-				if obj.getParent() is None:
+				if obj.parent is None:
 					self.workspace.m_data.remove(obj)
 				else:
-					obj.getParent().removeChild(obj)
+					obj.parent.removeChild(obj)
 				self.dock["workspace"].removeItem(obj)
 			# self.update()
+
 			for v in self.allGLViewers():
 				v.update()
+		self.workspace.m_currentObject = None
+
+
 
 	def removeAllModels(self):
 		pass

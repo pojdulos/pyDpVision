@@ -8,10 +8,10 @@ from PyQt5.QtGui import *
 from OpenGL.GL import *
 import numpy as np
 import math
-
+import os
 
 from .pointCloud import PointCloud
-from .shaders import Mesh_vertex_shader_code, Mesh_fragment_shader_code, compile_shader
+from .shaders import load_and_compile_shader
 
 def Face(a,b,c):
 	return np.array([a, b, c], dtype=np.uint)
@@ -242,8 +242,13 @@ class Mesh(PointCloud):
 	def renderWithShaders2(self):
 		if self.shader_program is None:
 			# Inicjalizacja i konfiguracja shaderów
-			vertex_shader = compile_shader(Mesh_vertex_shader_code, GL_VERTEX_SHADER)
-			fragment_shader = compile_shader(Mesh_fragment_shader_code, GL_FRAGMENT_SHADER)
+			
+			try:
+				vertex_shader = load_and_compile_shader('mesh.vert', GL_VERTEX_SHADER)
+				fragment_shader = load_and_compile_shader('mesh.frag', GL_FRAGMENT_SHADER)
+			except Exception as e:
+				print( e )
+				return
 			
 			# Tworzenie programu shaderów
 			self.shader_program = glCreateProgram()

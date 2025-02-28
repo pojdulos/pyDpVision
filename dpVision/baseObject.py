@@ -11,47 +11,72 @@ from PyQt5.QtCore import *
 #from OpenGL.GL import *
 import OpenGL.GL as gl
 
+import weakref
 
 class BaseObject(QObject):
 	def __init__(self, parent=None):
 		super( BaseObject, self ).__init__( parent )
-		print(self.__class__.__name__+" constructor")
-		self.m_parent = parent
-
-		self.m_label = self.__class__.__name__
-		self.m_descr = ""
+		# print(self.__class__.__name__+" constructor")
+		
+		self.parent = parent
+		self.label = self.__class__.__name__
+		self.description = ""
+		self.checked = False
+		self.modified = True
+		
 		self.m_showSelf = True
 		self.m_showKids = True
-		self.m_modified = True
-		self.m_checked = False
 
 	def __del__(self):
-		print(self.__class__.__name__+" destructor")
+		self.__parent = None
+		# print(self.__class__.__name__+" destructor")
 
-	def setLabel(self, _lbl):
-		self.m_label = _lbl
+	@property
+	def parent(self):
+		return self.__parent() if self.__parent is not None else None
+	
+	@parent.setter
+	def parent(self, parent):
+		if parent is None:
+			self.__parent = None
+		elif issubclass(type(parent), BaseObject) and type(parent) is not BaseObject: # BaseObject can not have children
+			self.__parent = weakref.ref(parent)
+		else:
+			raise TypeError("Parent must be a derived class of BaseObject")
 
-	def getLabel(self):
-		return self.m_label
+	@property
+	def label(self):
+		return self.__label
+	
+	@label.setter
+	def label(self, _lbl):
+		self.__label = _lbl
 
-	def setDescription(self, _dsc):
-		self.m_descr = _dsc
+	@property
+	def description(self):
+		return self.__descr
+	
+	@description.setter
+	def description(self, _dsc):
+		self.__descr = _dsc
 
-	def getDescription(self):
-		return self.m_descr
+	@property
+	def checked(self):
+		return self.__checked
+	
+	@checked.setter
+	def checked(self, b):
+		# print('BaseObject: checked' if b else 'BaseObject: unchecked')
+		self.__checked = b
 
-	def setParent(self, obj):
-		self.m_parent = obj
-
-	def getParent(self):
-		return self.m_parent
-
-	def setChecked(self, b):
-		self.m_checked = b
-
-	def isChecked(self):
-		return self.m_checked
-		
+	@property
+	def modified(self):
+		return self.__modified
+	
+	@modified.setter
+	def modified(self, b):
+		self.__modified = b
+	
 	def setSelfVisibility(self, b):
 		self.m_showSelf = b
 
@@ -81,10 +106,9 @@ class BaseObject(QObject):
 		elif isinstance(object_type, type):
 			return type(self) is object_type
 		else:
-			raise TypeError("Argument 'object_type' must be a class type")
+			raise TypeError("Argument 'object_type' must be a class type or string")
 	
 	def on_mouse_move(self, x, y):
-		#
 		pass
 
 	def children(self):
@@ -105,5 +129,5 @@ class BaseObject(QObject):
 		gl.glPopMatrix()
 
 	def getGlobalTransformation(self):
-		return self.m_parent.getGlobalTransformation() if self.m_parent else QMatrix4x4()
+		return self.__parent.getGlobalTransformation() if self.__parent else QMatrix4x4()
 

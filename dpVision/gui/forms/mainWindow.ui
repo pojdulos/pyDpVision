@@ -310,6 +310,7 @@
     <addaction name="separator"/>
     <addaction name="menuProjection"/>
     <addaction name="menuLook_direction"/>
+    <addaction name="actionSwitch_BB"/>
    </widget>
    <widget class="QMenu" name="menuSelect">
     <property name="title">
@@ -959,6 +960,11 @@
     <string>ee</string>
    </property>
   </action>
+  <action name="actionSwitch_BB">
+   <property name="text">
+    <string>Switch BB</string>
+   </property>
+  </action>
   <actiongroup name="GroupRender">
    <action name="action_Model_RenderAsFaces">
     <property name="checkable">
@@ -1195,6 +1201,22 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>actionSwitch_BB</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>bbShowHide()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>426</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <designerdata>
   <property name="gridDeltaX">
@@ -1225,7 +1247,7 @@
   <slot>mesh_renderSmooth(bool)</slot>
   <slot>createNewCopy()</slot>
   <slot>cameraResetPosition()</slot>
-  <slot>bbShowHide(bool)</slot>
+  <slot>bbShowHide()</slot>
   <slot>openWorkspace()</slot>
   <slot>modelClose()</slot>
   <slot>saveWorkspace()</slot>

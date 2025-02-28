@@ -15,13 +15,14 @@ from .. import AP
 
 from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
+import weakref
 
 class PropMotion(PropWidget):
 	def __init__(self, _obj, parent=None):
 		super( PropMotion, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propMotion.ui', self)
 		AP.loadUi('propMotion.ui', self)
-		self.obj = _obj
+		self.obj_ref = weakref.ref(_obj)
 		self.setTreeView()
 
 	@staticmethod
@@ -29,6 +30,7 @@ class PropMotion(PropWidget):
 		return PropWidget.build( [ PropBaseObject(m), PropMotion(m) ], parent )
 
 	def setTreeView(self):
+		obj = self.obj_ref()
 		self.treeView.setSelectionBehavior(QAbstractItemView.SelectRows)
 		model = QStandardItemModel()
 		model.setHorizontalHeaderLabels({ "order", "time", })
@@ -38,11 +40,11 @@ class PropMotion(PropWidget):
 		#self.treeView.setItemDelegate(CSpinBoxDelegate())
 		self.treeView.setItemDelegate(QStyledItemDelegate())
 
-		for key in range(self.obj.size()):
-			self.addFrame(model.invisibleRootItem(), key, self.obj.frame(key))
+		for key in range(obj.size()):
+			self.addFrame(model.invisibleRootItem(), key, obj.frame(key))
 
 		self.currentFrameSlider.setMinimum(0)
-		self.currentFrameSlider.setMaximum(self.obj.size()-1)
+		self.currentFrameSlider.setMaximum(obj.size()-1)
 
 		self.treeView.selectionModel().currentChanged.connect(self.onCurrentChanged)
 		model.itemChanged.connect(self.dataChanged) #(QStandardItem)
@@ -68,23 +70,27 @@ class PropMotion(PropWidget):
 		return None
 
 	def updateProperties(self):
+		obj = self.obj_ref()
 		self.currentFrameSlider.blockSignals(True)
-		self.currentFrameSlider.setValue(self.obj.currentKey())
+		self.currentFrameSlider.setValue(obj.currentKey())
 		self.currentFrameSlider.blockSignals(False)
 
 		self.updateGroupFrame()
 		self.updatePropertiesTree()
 
 	def clearMatrix(self):
-		self.obj.currentFrame().transform.reset()
+		obj = self.obj_ref()
+		obj.currentFrame().transform.reset()
 		AP.mainWin.dock['properties'].updateProperties()
 		AP.updateAllViews()
 	
 	def copyToClipboard(self):
-		self.obj.currentFrame().transform.copyToClipboard()
+		obj = self.obj_ref()
+		obj.currentFrame().transform.copyToClipboard()
 
 	def pasteFromClipboard(self):
-		self.obj.currentFrame().transform.pasteFromClipboard()
+		obj = self.obj_ref()
+		obj.currentFrame().transform.pasteFromClipboard()
 		AP.mainWin.dock['properties'].updateProperties()
 		AP.updateAllViews()
 
@@ -94,6 +100,7 @@ class PropMotion(PropWidget):
 	
 	# QModelIndex&, QModelIndex&
 	def onCurrentChanged(self, current, previous):
+		obj = self.obj_ref()
 		if current.isValid():
 			model = self.treeView.model()
 			clickedItem = model.itemFromIndex(current)
@@ -107,7 +114,7 @@ class PropMotion(PropWidget):
 			#//qInfo() << "Sequence item clicked. Key=" << key << Qt::endl;
 			#//emit(currentObjectChanged(clickedObject->id()));
 
-			self.obj.setKey(key)
+			obj.setKey(key)
 
 			self.updateGroupFrame()
 			AP.updateAllViews()
@@ -120,15 +127,17 @@ class PropMotion(PropWidget):
 		pass
 
 	def onSliderValueChanged(self, val):
-		self.obj.setKey(val)
+		obj = self.obj_ref()
+		obj.setKey(val)
 		self.updateProperties()
 		AP.updateAllViews()
 
 	def onPlayButtonClicked(self):
-		if self.obj.isPlaying():
-			self.obj.stopPlaying()
+		obj = self.obj_ref()
+		if obj.isPlaying():
+			obj.stopPlaying()
 		else:
-			self.obj.startPlaying()
+			obj.startPlaying()
 
 	# QModelIndex
 	def onTreeViewItemClicked(self, index):
@@ -138,7 +147,8 @@ class PropMotion(PropWidget):
 		self.updateMatrix()
 
 	def updateMatrix(self):
-		t = self.obj.currentFrame().transform
+		obj = self.obj_ref()
+		t = obj.currentFrame().transform
 		self.matrixTable.blockSignals(True)
 		for row in range(4):
 			for col in range(4):
@@ -148,8 +158,9 @@ class PropMotion(PropWidget):
 		self.matrixTable.blockSignals(False)
 
 	def updatePropertiesTree(self):
+		obj = self.obj_ref()
 		model = self.treeView.model()
-		index = model.index(self.obj.currentKey(), 0) # 0 oznacza pierwszą kolumnę
+		index = model.index(obj.currentKey(), 0) # 0 oznacza pierwszą kolumnę
 
 		selectionModel = self.treeView.selectionModel()
 		# ui.treeView->blockSignals(true);

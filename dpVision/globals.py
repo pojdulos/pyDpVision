@@ -31,6 +31,8 @@ class Globals:
 			return
 		if parent:
 			parent.removeChild(child)
+		elif child.parent is not None:
+			child.parent.removeChild(child)
 		else:
 			self.mainWin.workspace.m_data.remove(child)
 		self.mainWin.dock["workspace"].removeItem(child)

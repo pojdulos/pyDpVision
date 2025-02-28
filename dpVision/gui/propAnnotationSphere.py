@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import *
 from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
 from .propAnnotation import PropAnnotation
-
+import weakref
 from .. import AP
 
 class PropAnnotationSphere(PropWidget):
@@ -21,51 +21,56 @@ class PropAnnotationSphere(PropWidget):
 		super( PropAnnotationSphere, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propAnnotationSphere.ui', self)
 		AP.loadUi('propAnnotationSphere.ui', self)
-		self.obj = _obj
+		self.obj_ref = weakref.ref(_obj)
 
 	@staticmethod
 	def create(m, parent = 0):
 		return PropWidget.build( [ PropBaseObject(m), PropAnnotation(m), PropAnnotationSphere(m) ], parent )
 
 	def updateProperties(self):
-		if self.obj is None:
+		obj = self.obj_ref()
+		if obj is None:
 			return
 
 		w = [ self.ctrX, self.ctrY, self.ctrZ, self.radius ]
 		for i in w:
 			i.blockSignals(True)
 
-		ctr = self.obj.getCenter()
+		ctr = obj.getCenter()
 		self.ctrX.setValue(ctr[0])
 		self.ctrY.setValue(ctr[1])
 		self.ctrZ.setValue(ctr[2])
-		self.radius.setValue(self.obj.getRadius())
+		self.radius.setValue(obj.getRadius())
 
 		for i in w:
 			i.blockSignals(False)
 
 	@pyqtSlot(float)
 	def changedCtrX(self, x):
-		ctr = self.obj.getCenter()
+		obj = self.obj_ref()
+		ctr = obj.getCenter()
 		ctr[0] = x
-		self.obj.setCenter(ctr)
+		obj.setCenter(ctr)
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def changedCtrY(self, y):
-		ctr = self.obj.getCenter()
+		obj = self.obj_ref()
+		ctr = obj.getCenter()
 		ctr[1] = y
-		self.obj.setCenter(ctr)
+		obj.setCenter(ctr)
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def changedCtrZ(self, z):
-		ctr = self.obj.getCenter()
+		obj = self.obj_ref()
+		ctr = obj.getCenter()
 		ctr[2] = z
-		self.obj.setCenter(ctr)
+		obj.setCenter(ctr)
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def changedRadius(self, r):
-		self.obj.setRadius(r)
+		obj = self.obj_ref()
+		obj.setRadius(r)
 		AP.updateAllViews()

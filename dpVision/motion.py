@@ -99,6 +99,6 @@ class Motion(Object):
 		glPopMatrix()
 
 	def getGlobalTransformation(self):
-		return self.currentFrame().transform.matrix if self.m_parent is None \
-			else self.currentFrame().transform.matrix * self.m_parent.getGlobalTransformation()
+		return self.currentFrame().transform.matrix if self.__parent is None \
+			else self.currentFrame().transform.matrix * self.__parent.getGlobalTransformation()
 

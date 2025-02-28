@@ -269,9 +269,9 @@ class ParserATMDL(Parser):
 			obj = Object()
 
 		if 'label' in opis:
-			obj.setLabel(opis["label"])
+			obj.label = opis["label"]
 		if 'descr' in opis:
-			obj.setDescription(opis["descr"])
+			obj.description = opis["descr"]
 
 		for kid in kids:
 			self.add_kid(obj, kid)
@@ -332,10 +332,10 @@ class ParserATMDL(Parser):
 		obj = Transform()
 		if obj is not None:
 			if 'label' in opis:
-				obj.setLabel(opis["label"])
+				obj.label = opis["label"]
 			
 			if 'descr' in opis:
-				obj.setDescription(opis["descr"])
+				obj.description = opis["descr"]
 
 			if 'matrix' in opis:
 				frameTransformation.fromRowMatrixStr(opis["matrix"], ",")
@@ -409,7 +409,7 @@ class ParserATMDL(Parser):
 				obj.setColor(name=opis["color"])
 			
 			if 'label' in opis:
-				obj.setLabel(opis["label"])
+				obj.label = opis["label"]
 
 			if 'descr' in opis:
 				obj.setDescr(opis["descr"])
@@ -484,7 +484,7 @@ class ParserATMDL(Parser):
 				obj.setColor(name=opis["color"])
 			
 			if 'label' in opis:
-				obj.setLabel(opis["label"])
+				obj.label = opis["label"]
 
 			if 'descr' in opis:
 				obj.setDescr(opis["descr"])
@@ -546,7 +546,7 @@ class ParserATMDL(Parser):
 			if 'color' in opis:
 				obj.setColor(name=opis["color"])
 			if 'label' in opis:
-				obj.setLabel(opis["label"])
+				obj.label = opis["label"]
 			if 'descr' in opis:
 				obj.setDescr(opis["descr"])
 			return obj
@@ -688,9 +688,9 @@ class ParserATMDL(Parser):
 		obj = Motion(seq)
 		if obj:
 			if 'label' in opis:
-				obj.setLabel(opis["label"])
+				obj.label = opis["label"]
 			if 'descr' in opis:
-				obj.setDescription(opis["descr"])
+				obj.description = opis["descr"]
 			for kid in kids:
 				self.add_kid(obj, kid)
 		return obj

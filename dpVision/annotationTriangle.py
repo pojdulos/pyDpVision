@@ -27,7 +27,7 @@ class AnnotationTriangle(Annotation):
 
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 
-		if self.m_checked:
+		if self.checked:
 			glColor4ub(self.m_selcolor.red(),self.m_selcolor.green(),self.m_selcolor.blue(),self.m_selcolor.alpha())
 		else:
 			glColor4ub(self.m_color.red(),self.m_color.green(),self.m_color.blue(),self.m_color.alpha())
@@ -41,7 +41,7 @@ class AnnotationTriangle(Annotation):
 
 		glPointSize(5)
 
-		if self.m_checked:
+		if self.__checked:
 			glColor4ub(self.m_selcolor.red(),self.m_selcolor.green(),self.m_selcolor.blue(),self.m_selcolor.alpha())
 		else:
 			glColor4ub(self.m_color.red(),self.m_color.green(),self.m_color.blue(),self.m_color.alpha())

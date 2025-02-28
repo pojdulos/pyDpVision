@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import *
 
 from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
-
+import weakref
 from .. import AP
 
 class PropAnnotation(PropWidget):
@@ -19,7 +19,7 @@ class PropAnnotation(PropWidget):
 		super( PropAnnotation, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propAnnotation.ui', self)
 		AP.loadUi('propAnnotation.ui', self)
-		self.obj = _obj
+		self.obj_ref = weakref.ref(_obj)
 
 	@staticmethod
 	def create(m, parent = 0):
@@ -27,8 +27,9 @@ class PropAnnotation(PropWidget):
 
 
 	def updateProperties(self):
-		self.updateColorButton(self.obj.getColor())
-		self.updateSelColorButton(self.obj.getSelColor())
+		obj = self.obj_ref()
+		self.updateColorButton(obj.getColor())
+		self.updateSelColorButton(obj.getSelColor())
 
 	def updateColorButton(self, col):
 		s = "background-color: rgb(" + str(col.red()) + ", " + str(col.green()) + ", " + str(col.blue()) + ");"
@@ -39,16 +40,18 @@ class PropAnnotation(PropWidget):
 		self.selcolorButton.setStyleSheet(s)
 
 	def	colorButtonPressed(self):
-		color = QColorDialog.getColor( self.obj.getColor(), self, "Select color", QColorDialog.ShowAlphaChannel | QColorDialog.DontUseNativeDialog)
+		obj = self.obj_ref()
+		color = QColorDialog.getColor( obj.getColor(), self, "Select color", QColorDialog.ShowAlphaChannel | QColorDialog.DontUseNativeDialog)
 		if color.isValid():
-			self.obj.m_color = color
+			obj.m_color = color
 			self.updateColorButton( color )
 			AP.mainWin.update()
 
 	def selcolorButtonPressed(self):
-		color = QColorDialog.getColor( self.obj.getSelColor(), self, "Select color", QColorDialog.ShowAlphaChannel | QColorDialog.DontUseNativeDialog)
+		obj = self.obj_ref()
+		color = QColorDialog.getColor( obj.getSelColor(), self, "Select color", QColorDialog.ShowAlphaChannel | QColorDialog.DontUseNativeDialog)
 		if color.isValid():
-			self.obj.m_selcolor = color
+			obj.m_selcolor = color
 			self.updateSelColorButton( color )
 			AP.mainWin.update()
 

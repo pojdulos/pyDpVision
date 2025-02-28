@@ -16,12 +16,16 @@ from .. import AP
 from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
 
+import weakref
+
 class PropVolumetric(PropWidget):
 	def __init__(self, _obj, parent=None):
 		super( PropVolumetric, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propVolumetric.ui', self)
 		AP.loadUi('propVolumetric.ui', self)
-		self.obj = _obj
+
+		self.obj_ref = weakref.ref(_obj)
+
 		self.f_check = [self.f0CheckBox, self.f1CheckBox, self.f2CheckBox, self.f3CheckBox, self.f4CheckBox, self.f5CheckBox, self.f6CheckBox]
 		self.spin_min = [self.f0SpinMin, self.f1SpinMin, self.f2SpinMin, self.f3SpinMin, self.f4SpinMin, self.f5SpinMin, self.f6SpinMin]
 		self.spin_max = [self.f0SpinMax, self.f1SpinMax, self.f2SpinMax, self.f3SpinMax, self.f4SpinMax, self.f5SpinMax, self.f6SpinMax]
@@ -46,46 +50,47 @@ class PropVolumetric(PropWidget):
 			w.blockSignals(b)
 
 	def updateProperties(self):
+		obj = self.obj_ref()
 		self.blockAll(True)
 
-		self.spinWinMin.setValue(self.obj.m_minDisplWin)
-		self.spinWinMin.setMinimum(self.obj.m_min)
+		self.spinWinMin.setValue(obj.m_minDisplWin)
+		self.spinWinMin.setMinimum(obj.m_min)
 
-		self.spinWinMax.setValue(self.obj.m_maxDisplWin)
-		self.spinWinMax.setMaximum(self.obj.m_max)
+		self.spinWinMax.setValue(obj.m_maxDisplWin)
+		self.spinWinMax.setMaximum(obj.m_max)
 
-		self.xBspin.setValue(self.obj.m_minColumn)
+		self.xBspin.setValue(obj.m_minColumn)
 		self.xBspin.setMinimum(0)
 
-		self.xEspin.setValue(self.obj.m_maxColumn)
-		self.xEspin.setMaximum(self.obj.shape[2]-1)
+		self.xEspin.setValue(obj.m_maxColumn)
+		self.xEspin.setMaximum(obj.shape[2]-1)
 
-		self.yBspin.setValue(self.obj.m_minRow)
+		self.yBspin.setValue(obj.m_minRow)
 		self.yBspin.setMinimum(0)
 
-		self.yEspin.setValue(self.obj.m_maxRow)
-		self.yEspin.setMaximum(self.obj.shape[1]-1)
+		self.yEspin.setValue(obj.m_maxRow)
+		self.yEspin.setMaximum(obj.shape[1]-1)
 
-		self.zBspin.setValue(self.obj.m_minSlice)
+		self.zBspin.setValue(obj.m_minSlice)
 		self.zBspin.setMinimum(0)
 
-		self.zEspin.setValue(self.obj.m_maxSlice)
-		self.zEspin.setMaximum(self.obj.shape[0]-1)
+		self.zEspin.setValue(obj.m_maxSlice)
+		self.zEspin.setMaximum(obj.shape[0]-1)
 
 		for idx in range(7):
-			self.f_check[idx].setChecked(self.obj.m_filters[idx][0] != 0)
+			self.f_check[idx].setChecked(obj.m_filters[idx][0] != 0)
 
-			self.spin_min[idx].setMinimum(self.obj.m_min)
-			self.spin_min[idx].setValue(self.obj.m_filters[idx][1])
+			self.spin_min[idx].setMinimum(obj.m_min)
+			self.spin_min[idx].setValue(obj.m_filters[idx][1])
 
-			self.spin_max[idx].setMaximum(self.obj.m_max)
-			self.spin_max[idx].setValue(self.obj.m_filters[idx][2])
+			self.spin_max[idx].setMaximum(obj.m_max)
+			self.spin_max[idx].setValue(obj.m_filters[idx][2])
 
-			self.spin_max[idx].setMinimum(max(self.obj.m_min,self.spin_min[idx].value()))
-			self.spin_min[idx].setMaximum(min(self.obj.m_max,self.spin_max[idx].value()))
+			self.spin_max[idx].setMinimum(max(obj.m_min,self.spin_min[idx].value()))
+			self.spin_min[idx].setMaximum(min(obj.m_max,self.spin_max[idx].value()))
 
-		self.fastDrawCheckBox.setChecked(self.obj.m_fastDraw)
-		self.renderBoxesCheckBox.setChecked(self.obj.m_renderBoxes)
+		self.fastDrawCheckBox.setChecked(obj.m_fastDraw)
+		self.renderBoxesCheckBox.setChecked(obj.m_renderBoxes)
 
 		self.blockAll(False)
 
@@ -96,15 +101,16 @@ class PropVolumetric(PropWidget):
 	
 	@pyqtSlot(float)
 	def winMinValueChanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,4)
 		print(f"win min={val}")
 
-		if val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
-		elif val < self.obj.m_min:
-			val = self.obj.m_min
+		if val > obj.m_maxDisplWin:
+			val = obj.m_maxDisplWin
+		elif val < obj.m_min:
+			val = obj.m_min
 
-		self.obj.m_minDisplWin = val
+		obj.m_minDisplWin = val
 		self.spinWinMax.blockSignals(True)
 		self.spinWinMax.setMinimum(val)
 		self.spinWinMax.blockSignals(False)
@@ -112,15 +118,16 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(float)
 	def winMaxValueChanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,4)
 		print(f"win max={val}")
 
-		if val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
-		elif val > self.obj.m_max:
-			val = self.obj.m_max
+		if val < obj.m_minDisplWin:
+			val = obj.m_minDisplWin
+		elif val > obj.m_max:
+			val = obj.m_max
 
-		self.obj.m_maxDisplWin = val
+		obj.m_maxDisplWin = val
 		self.spinWinMin.blockSignals(True)
 		self.spinWinMin.setMaximum(val)
 		self.spinWinMin.blockSignals(False)
@@ -128,58 +135,67 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(bool)
 	def on_render_boxes_checkbox(self, b):
-		self.obj.m_renderBoxes = b
+		obj = self.obj_ref()
+		obj.m_renderBoxes = b
 		print(f"render boxes: {b}")
-		self.obj.remove_shader_program()
+		obj.remove_shader_program()
 		AP.updateAllViews()
 
 
 	@pyqtSlot(bool)
 	def on_f0_checkbox(self, b):
-		self.obj.m_filters[0][0] = 1 if b else 0
+		obj = self.obj_ref()
+		obj.m_filters[0][0] = 1 if b else 0
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def on_f1_checkbox(self, b):
-		self.obj.m_filters[1][0] = 1 if b else 0
+		obj = self.obj_ref()
+		obj.m_filters[1][0] = 1 if b else 0
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def on_f2_checkbox(self, b):
-		self.obj.m_filters[2][0] = 1 if b else 0
+		obj = self.obj_ref()
+		obj.m_filters[2][0] = 1 if b else 0
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def on_f3_checkbox(self, b):
-		self.obj.m_filters[3][0] = 1 if b else 0
+		obj = self.obj_ref()
+		obj.m_filters[3][0] = 1 if b else 0
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def on_f4_checkbox(self, b):
-		self.obj.m_filters[4][0] = 1 if b else 0
+		obj = self.obj_ref()
+		obj.m_filters[4][0] = 1 if b else 0
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def on_f5_checkbox(self, b):
-		self.obj.m_filters[5][0] = 1 if b else 0
+		obj = self.obj_ref()
+		obj.m_filters[5][0] = 1 if b else 0
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def on_f6_checkbox(self, b):
-		self.obj.m_filters[6][0] = 1 if b else 0
+		obj = self.obj_ref()
+		obj.m_filters[6][0] = 1 if b else 0
 		AP.updateAllViews()
 
 
 	def change_filter_min(self, idx, val):
+		obj = self.obj_ref()
 		val = np.round(val,4)
 		print(f"f{idx} min={val}")
 
-		if val > self.obj.m_filters[idx][2]:
-			val = self.obj.m_filters[idx][2]
-		elif val < self.obj.m_minDisplWin:
-			val = self.obj.m_minDisplWin
+		if val > obj.m_filters[idx][2]:
+			val = obj.m_filters[idx][2]
+		elif val < obj.m_minDisplWin:
+			val = obj.m_minDisplWin
 
-		self.obj.m_filters[idx][1] = val
+		obj.m_filters[idx][1] = val
 		self.spin_max[idx].blockSignals(True)
 		self.spin_max[idx].setMinimum(val)
 		self.spin_max[idx].blockSignals(False)
@@ -215,15 +231,16 @@ class PropVolumetric(PropWidget):
 		self.change_filter_min(6, val)
 
 	def change_filter_max(self, idx, val):
+		obj = self.obj_ref()
 		val = np.round(val,4)
 		print(f"f{idx} max={val}")
 
-		if val < self.obj.m_filters[idx][1]:
-			val = self.obj.m_filters[idx][1]
-		elif val > self.obj.m_maxDisplWin:
-			val = self.obj.m_maxDisplWin
+		if val < obj.m_filters[idx][1]:
+			val = obj.m_filters[idx][1]
+		elif val > obj.m_maxDisplWin:
+			val = obj.m_maxDisplWin
 
-		self.obj.m_filters[idx][2] = val
+		obj.m_filters[idx][2] = val
 		self.spin_min[idx].blockSignals(True)
 		self.spin_min[idx].setMaximum(val)
 		self.spin_min[idx].blockSignals(False)
@@ -259,7 +276,8 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(bool)
 	def on_fast_draw_checkbox(self, b):
-		self.obj.m_fastDraw = b
+		obj = self.obj_ref()
+		obj.m_fastDraw = b
 		AP.updateAllViews()
 
 	@pyqtSlot()
@@ -276,15 +294,16 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(int)
 	def xBchanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,0)
 		print(f"min column={val}")
 
-		if val > self.obj.m_maxColumn:
-			val = self.obj.m_maxColumn
+		if val > obj.m_maxColumn:
+			val = obj.m_maxColumn
 		elif val < 0:
 			val = 0
 
-		self.obj.m_minColumn = val
+		obj.m_minColumn = val
 		self.xEspin.blockSignals(True)
 		self.xEspin.setMinimum(val)
 		self.xEspin.blockSignals(False)
@@ -292,15 +311,16 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(int)
 	def yBchanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,0)
 		print(f"min row={val}")
 
-		if val > self.obj.m_maxRow:
-			val = self.obj.m_maxRow
+		if val > obj.m_maxRow:
+			val = obj.m_maxRow
 		elif val < 0:
 			val = 0
 
-		self.obj.m_minRow = val
+		obj.m_minRow = val
 		self.yEspin.blockSignals(True)
 		self.yEspin.setMinimum(val)
 		self.yEspin.blockSignals(False)
@@ -308,15 +328,16 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(int)
 	def zBchanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,0)
 		print(f"min slice={val}")
 
-		if val > self.obj.m_maxSlice:
-			val = self.obj.m_maxSlice
+		if val > obj.m_maxSlice:
+			val = obj.m_maxSlice
 		elif val < 0:
 			val = 0
 
-		self.obj.m_minSlice = val
+		obj.m_minSlice = val
 		self.zEspin.blockSignals(True)
 		self.zEspin.setMinimum(val)
 		self.zEspin.blockSignals(False)
@@ -324,15 +345,16 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(int)
 	def xEchanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,0)
 		print(f"max column={val}")
 
-		if val < self.obj.m_minColumn:
-			val = self.obj.m_minColumn
-		elif val >= self.obj.shape[2]:
-			val = self.obj.shape[2] - 1
+		if val < obj.m_minColumn:
+			val = obj.m_minColumn
+		elif val >= obj.shape[2]:
+			val = obj.shape[2] - 1
 
-		self.obj.m_maxColumn = val
+		obj.m_maxColumn = val
 		self.xBspin.blockSignals(True)
 		self.xBspin.setMaximum(val)
 		self.xBspin.blockSignals(False)
@@ -340,15 +362,16 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(int)
 	def yEchanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,0)
 		print(f"max row={val}")
 
-		if val < self.obj.m_minRow:
-			val = self.obj.m_minRow
-		elif val >= self.obj.shape[1]:
-			val = self.obj.shape[1] - 1
+		if val < obj.m_minRow:
+			val = obj.m_minRow
+		elif val >= obj.shape[1]:
+			val = obj.shape[1] - 1
 
-		self.obj.m_maxRow = val
+		obj.m_maxRow = val
 		self.yBspin.blockSignals(True)
 		self.yBspin.setMaximum(val)
 		self.yBspin.blockSignals(False)
@@ -356,15 +379,16 @@ class PropVolumetric(PropWidget):
 
 	@pyqtSlot(int)
 	def zEchanged(self, val):
+		obj = self.obj_ref()
 		val = np.round(val,0)
 		print(f"max slice={val}")
 
-		if val < self.obj.m_minSlice:
-			val = self.obj.m_minSlice
-		elif val >= self.obj.shape[0]:
-			val = self.obj.shape[0] - 1
+		if val < obj.m_minSlice:
+			val = obj.m_minSlice
+		elif val >= obj.shape[0]:
+			val = obj.shape[0] - 1
 
-		self.obj.m_maxSlice = val
+		obj.m_maxSlice = val
 		self.zBspin.blockSignals(True)
 		self.zBspin.setMaximum(val)
 		self.zBspin.blockSignals(False)

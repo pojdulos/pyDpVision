@@ -84,12 +84,12 @@ class ParserSTL(Parser):
 			if header:
 				if len(header)>2:
 					descr = ' '.join(header[1:])
-					mesh.setDescription(descr)
-					mesh.setLabel(os.path.basename(self.path))
+					mesh.description = descr
+					mesh.label = os.path.basename(self.path)
 				elif len(header)>1:
-					mesh.setLabel(header[1])
+					mesh.label = header[1]
 				else:
-					mesh.setLabel(os.path.basename(self.path))
+					mesh.label = os.path.basename(self.path)
 
 			mesh.m_vertices = np.array(vertices, dtype=np.float32)
 			mesh.m_faces = np.array(faces, dtype=np.uint)
@@ -221,12 +221,12 @@ class ParserSTL(Parser):
 					header = header.decode('ascii', errors='ignore').strip().split()
 					if len(header)>2:
 						descr = ' '.join(header[1:])
-						mesh.setDescription(descr)
-						mesh.setLabel(os.path.basename(path))
+						mesh.description = descr
+						mesh.label = os.path.basename(path)
 					elif len(header)>1:
-						mesh.setLabel(header[1])
+						mesh.label = header[1]
 					else:
-						mesh.setLabel(os.path.basename(path))
+						mesh.label = os.path.basename(path)
 
 				mesh.m_vertices = np.array(vertices, dtype=np.float32)
 				mesh.m_faces = np.array(faces, dtype=np.uint)

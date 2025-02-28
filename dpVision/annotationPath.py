@@ -12,6 +12,7 @@ import math
 class AnnotationPath(Annotation):
 	def __init__(self, points=[], parent=None):
 		Annotation.__init__(self, parent)
+		self.m_width = 1.0
 		self.m_points = points
 
 	def addPoint(self, point):
@@ -24,14 +25,16 @@ class AnnotationPath(Annotation):
 		gl.glDisable(gl.GL_TEXTURE_2D)
 		gl.glPolygonMode(gl.GL_FRONT, gl.GL_LINE)
 		gl.glPolygonMode(gl.GL_BACK, gl.GL_LINE)
-		gl.glLineWidth(1.0)
+
 		gl.glEnable(gl.GL_COLOR_MATERIAL)
 		gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
 	
-		if self.m_checked:
+		if self.checked:
 			gl.glColor4ub(self.m_selcolor.red(),self.m_selcolor.green(),self.m_selcolor.blue(),self.m_selcolor.alpha())
 		else:
 			gl.glColor4ub(self.m_color.red(),self.m_color.green(),self.m_color.blue(),self.m_color.alpha())
+
+		gl.glLineWidth(self.m_width)
 
 		gl.glBegin(gl.GL_LINE_STRIP)
 

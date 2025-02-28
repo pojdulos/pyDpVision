@@ -122,11 +122,20 @@ class Transform(Object):
 	def getTranslation(self):
 		return [self.matrix[0, 3], self.matrix[1, 3], self.matrix[2, 3]]
 
+	# def getScale(self):
+	# 	scaleX = math.sqrt(self.matrix[0, 0]**2 + self.matrix[0, 1]**2 + self.matrix[0, 2]**2)
+	# 	scaleY = math.sqrt(self.matrix[1, 0]**2 + self.matrix[1, 1]**2 + self.matrix[1, 2]**2)
+	# 	scaleZ = math.sqrt(self.matrix[2, 0]**2 + self.matrix[2, 1]**2 + self.matrix[2, 2]**2)
+	# 	return [scaleX, scaleY, scaleZ]
+
+	# def getScale(self):
+	# 	scale_x = (self.matrix.row(0).toVector3D()).length()
+	# 	scale_y = (self.matrix.row(1).toVector3D()).length()
+	# 	scale_z = (self.matrix.row(2).toVector3D()).length()
+	# 	return [scale_x, scale_y, scale_z]
+
 	def getScale(self):
-		scaleX = math.sqrt(self.matrix[0, 0]**2 + self.matrix[0, 1]**2 + self.matrix[0, 2]**2)
-		scaleY = math.sqrt(self.matrix[1, 0]**2 + self.matrix[1, 1]**2 + self.matrix[1, 2]**2)
-		scaleZ = math.sqrt(self.matrix[2, 0]**2 + self.matrix[2, 1]**2 + self.matrix[2, 2]**2)
-		return [scaleX, scaleY, scaleZ]
+		return [self.matrix.row(i).toVector3D().length() for i in range(3)]
 
 	def fromEulerAngles(self, roll, pitch, yaw):
 		m = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=True).as_matrix()
@@ -235,7 +244,7 @@ class Transform(Object):
 
 
 	def getGlobalTransformation(self):
-		return self.matrix if self.m_parent is None else self.matrix * self.m_parent.getGlobalTransformation()
+		return self.matrix if self.__parent is None else self.matrix * self.__parent.getGlobalTransformation()
 
 	@staticmethod
 	def fromTo(m0 = QMatrix4x4(), m1 = QMatrix4x4()):

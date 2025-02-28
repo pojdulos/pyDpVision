@@ -5,7 +5,7 @@ Created on Thu Nov 23 13:51:54 2023
 
 @author: pojdulos
 """
-from PyQt5.QtCore import QObject, pyqtSlot
+from PyQt5.QtCore import *
 from PyQt5.QtWidgets import QDockWidget, QSizePolicy, QScrollArea,QVBoxLayout
 from PyQt5 import uic
 
@@ -23,6 +23,8 @@ from .propAnnotationSphere import PropAnnotationSphere
 from .. import BaseObject, Object, Annotation, AP
 
 class DockWidgetProperties(QDockWidget):
+	object_updated = pyqtSignal(QObject)
+
 	def __init__(self, parent):
 		super().__init__(parent)
 		#uic.loadUi('dpVision/gui/forms/dockWidgetProperties.ui', self)
@@ -65,7 +67,7 @@ class DockWidgetProperties(QDockWidget):
 	@pyqtSlot(QObject)	
 	def selectionChanged( self, obj ):
 		name = obj.__class__.__name__
-		print(name+" selected")
+		#print(name+" selected")
 
 		if name == 'GLViewer':
 			self.m_widget = PropViewer.create(obj, self)
@@ -82,8 +84,14 @@ class DockWidgetProperties(QDockWidget):
 			if not_found:
 				self.m_widget = PropWidget()
 
+		self.m_widget.object_updated.connect(self.on_object_updated_by_widget)
 		self.addWidgetToScrollArea(self.m_widget)
 		self.updateProperties()
+
+	@pyqtSlot(QObject)
+	def on_object_updated_by_widget(self, obj):
+		print('DockWidgetProperties.on_object_updated_by_widget()')
+		self.object_updated.emit(obj)
 
 	def updateProperties(self):
 		if not self.m_widget is None:

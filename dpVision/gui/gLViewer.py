@@ -64,6 +64,7 @@ class GLViewer(QOpenGLWidget):
 	transformChanged = pyqtSignal(QObject)
 
 	mouseMovedSignal = pyqtSignal(tuple)
+	mousePressedSignal = pyqtSignal(tuple)
 	
 	def __init__( self, win, parent = None ):
 		super( GLViewer, self ).__init__( parent )
@@ -76,6 +77,8 @@ class GLViewer(QOpenGLWidget):
 		
 		self.lastPos = None
 		
+		self.m_drawAxes = True
+
 		self._camera = Camera()
 
 		self._fBgColor = QColor(78, 78, 78)
@@ -90,7 +93,8 @@ class GLViewer(QOpenGLWidget):
 
 		self.transformChanged.connect(self.mainWindow.onCurrentObjectUpdated)
 		self.mouseMovedSignal.connect(AP.mainApp.onMouseMoveSlot)
-
+		self.mousePressedSignal.connect(AP.mainApp.onMousePressSlot)
+		
 
 	# def resetGeometry(self):
 	# 	m_transform.translation() = CVector3d(0.0, 0.0, 0.0);
@@ -199,6 +203,9 @@ class GLViewer(QOpenGLWidget):
 	
 		painter.end()
 
+	def switchBB(self):
+		self.m_drawAxes = not self.m_drawAxes
+	
 
 	def applyProjection(self, projection=None):
 		if projection is not None:
@@ -289,6 +296,7 @@ class GLViewer(QOpenGLWidget):
 	def mousePressEvent(self, event ):
 		AP.mouse_key_pressed = True
 		self.lastPos = event.pos()
+		self.mousePressedSignal.emit((self,event))
 
 	def mouseReleaseEvent(self, event ):
 		AP.mouse_key_pressed = False
@@ -390,8 +398,8 @@ class GLViewer(QOpenGLWidget):
 		# cameraTransformations();
 
 
-		# if (m_drawAxes) rysujOsie();
-		self.rysujOsie()
+		if self.m_drawAxes:
+			self.rysujOsie()
 		
 		# AP::getWorkspace()->render();
 		self.mainWindow.workspace.render()

@@ -19,7 +19,7 @@ class Object(BaseObject):
 		if d is None or not issubclass(type(d), BaseObject):
 			return False
 
-		d.setParent( self )
+		d.parent = self
 		self.m_data.append( d )
 
 		return True

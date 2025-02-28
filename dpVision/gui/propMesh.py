@@ -14,14 +14,14 @@ from PyQt5.QtGui import *
 from .. import AP
 from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
-
+import weakref
 
 class PropMesh(PropWidget):
 	def __init__(self, _obj, parent=None):
 		super( PropMesh, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propMesh.ui', self)
 		AP.loadUi('propMesh.ui', self)
-		self.obj = _obj
+		self.obj_ref = weakref.ref(_obj)
 
 	@staticmethod
 	def create(m, parent = 0):
@@ -29,7 +29,7 @@ class PropMesh(PropWidget):
 
 
 	def updateProperties(self):
-		obj = self.obj
+		obj = self.obj_ref()
 		col = obj.materials[obj.currentMaterial].diffuse + [obj.materials[obj.currentMaterial].alpha]
 		qc = QColor()
 		qc.setRgbF(col[0],col[1],col[2],col[3])
@@ -41,13 +41,14 @@ class PropMesh(PropWidget):
 
 	@pyqtSlot()
 	def on_default_color_button(self):
-		col = self.obj.materials[self.obj.currentMaterial].diffuse + [self.obj.materials[self.obj.currentMaterial].alpha]
+		obj = self.obj_ref()
+		col = obj.materials[obj.currentMaterial].diffuse + [obj.materials[obj.currentMaterial].alpha]
 		qc = QColor()
 		qc.setRgbF(col[0],col[1],col[2],col[3])
 		color = QColorDialog.getColor( qc, self, "Select color", options=QColorDialog.ShowAlphaChannel | QColorDialog.DontUseNativeDialog)
 		if color.isValid():
-			self.obj.materials[self.obj.currentMaterial].diffuse = [ color.redF(), color.greenF(), color.blueF() ]
-			self.obj.materials[self.obj.currentMaterial].alpha = color.alphaF()
+			obj.materials[obj.currentMaterial].diffuse = [ color.redF(), color.greenF(), color.blueF() ]
+			obj.materials[obj.currentMaterial].alpha = color.alphaF()
 			self.updateDefaultColorButton( color )
 			AP.updateAllViews()
 

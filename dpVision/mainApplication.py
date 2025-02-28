@@ -17,6 +17,7 @@ from PyQt5.QtGui import QMouseEvent
 
 class MainApplication(QApplication):
     mouseMovedSignal = pyqtSignal(tuple)
+    mousePressedSignal = pyqtSignal(tuple)
 
     def __init__(self, *args, **kwargs):
         super(MainApplication, self).__init__(*args, **kwargs)
@@ -67,3 +68,7 @@ class MainApplication(QApplication):
     @pyqtSlot(tuple)
     def onMouseMoveSlot(self, event):
         self.mouseMovedSignal.emit(event)
+
+    @pyqtSlot(tuple)
+    def onMousePressSlot(self, event):
+        self.mousePressedSignal.emit(event)

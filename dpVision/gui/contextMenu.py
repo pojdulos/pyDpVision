@@ -80,14 +80,14 @@ class ContextMenu(QMenu):
 		menu.addSeparator()
 
 		for m in AP.mainWin.workspace.m_data:
-			if m != self.m_obj and m != self.m_obj.getParent(): 
+			if m != self.m_obj and m != self.m_obj.parent: 
 				if not len(m.children()):
-					action = QAction(m.getLabel(), self)
+					action = QAction(m.label, self)
 					action.setData(m)
 					action.triggered.connect(self.move_to)
 					menu.addAction(action)
 				else:
-					menu.addMenu(self.create_move_submenu(m.getLabel(), m))
+					menu.addMenu(self.create_move_submenu(m.label, m))
 		return menu
 
 	def create_move_submenu(self, label, obj):
@@ -98,14 +98,14 @@ class ContextMenu(QMenu):
 		menu2.addSeparator()
 
 		for m in obj.children():
-			if m != self.m_obj and m != self.m_obj.getParent(): 
+			if m != self.m_obj and m != self.m_obj.parent: 
 				if not len(m.children()):
-					action = QAction(m.getLabel(), self)
+					action = QAction(m.label, self)
 					action.setData(m)
 					action.triggered.connect(self.move_to)
 					menu2.addAction(action)
 				else:
-					menu2.addMenu( self.create_move_submenu(m.getLabel(), m) )
+					menu2.addMenu( self.create_move_submenu(m.label, m) )
 		return menu2
 
 	@pyqtSlot()
@@ -186,7 +186,7 @@ class ContextMenu(QMenu):
 		
 		action = self.sender()
 		newParent = action.data()
-		oldParent = self.m_obj.getParent()
+		oldParent = self.m_obj.parent
 
 		_m0 = oldParent.getGlobalTransformation() if oldParent else QMatrix4x4()
 		_m1 = newParent.getGlobalTransformation() if newParent else QMatrix4x4()
@@ -206,7 +206,7 @@ class ContextMenu(QMenu):
 		
 		action = self.sender()
 		newParent = action.data()
-		oldParent = self.m_obj.getParent()
+		oldParent = self.m_obj.parent
 
 		_m0 = oldParent.getGlobalTransformation() if oldParent else QMatrix4x4()
 		_m1 = newParent.getGlobalTransformation() if newParent else QMatrix4x4()

@@ -14,6 +14,7 @@ from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
 from .propAnnotation import PropAnnotation
 
+import weakref
 from .. import AP
 
 class PropAnnotationPoint(PropWidget):
@@ -21,7 +22,7 @@ class PropAnnotationPoint(PropWidget):
 		super( PropAnnotationPoint, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propAnnotationPoint.ui', self)
 		AP.loadUi('propAnnotationPoint.ui', self)
-		self.obj = _obj
+		self.obj_ref = weakref.ref(_obj)
 
 	@staticmethod
 	def create(m, parent = 0):
@@ -29,59 +30,67 @@ class PropAnnotationPoint(PropWidget):
 
 
 	def updateProperties(self):
-		if self.obj is None:
+		obj = self.obj_ref()
+		if obj is None:
 			return
 
 		w = [ self.pointX, self.pointY, self.pointZ, self.vecX, self.vecY, self.vecZ, self.showVec ]
 		for i in w:
 			i.blockSignals(True)
 
-		ctr = self.obj.m_point
+		ctr = obj.m_point
 		self.pointX.setValue(ctr[0])
 		self.pointY.setValue(ctr[1])
 		self.pointZ.setValue(ctr[2])
 		
-		vec = self.obj.m_vector
+		vec = obj.m_vector
 		self.vecX.setValue(vec[0])
 		self.vecY.setValue(vec[1])
 		self.vecZ.setValue(vec[2])
 		
-		self.showVec.setChecked(self.obj.m_showVector)
+		self.showVec.setChecked(obj.m_showVector)
 
 		for i in w:
 			i.blockSignals(False)
 
 	@pyqtSlot(float)
 	def onPointX(self, x):
-		self.obj.m_point[0] = x
+		obj = self.obj_ref()
+		obj.m_point[0] = x
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def onPointY(self, y):
-		self.obj.m_point[1] = y
+		obj = self.obj_ref()
+		obj.m_point[1] = y
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def onPointZ(self, z):
-		self.obj.m_point[2] = z
+		obj = self.obj_ref()
+		obj.m_point[2] = z
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def onVecX(self, x):
-		self.obj.m_vector[0] = x
+		obj = self.obj_ref()
+		obj.m_vector[0] = x
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def onVecY(self, y):
-		self.obj.m_vector[1] = y
+		obj = self.obj_ref()
+		obj.m_vector[1] = y
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def onVecZ(self, z):
-		self.obj.m_vector[2] = z
+		obj = self.obj_ref()
+		obj.m_vector[2] = z
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def onShowVec(self, b):
-		self.obj.m_showVector = b
+		obj = self.obj_ref()
+		obj.m_showVector = b
 		AP.updateAllViews()

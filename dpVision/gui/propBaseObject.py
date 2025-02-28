@@ -11,7 +11,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 from .propWidget import PropWidget
-
+import weakref
 from .. import AP
 
 class PropBaseObject(PropWidget):
@@ -19,46 +19,55 @@ class PropBaseObject(PropWidget):
 		super( PropBaseObject, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propBaseObject.ui', self)
 		AP.loadUi('propBaseObject.ui', self)
-		self.obj = _obj
+		self.obj_ref = weakref.ref(_obj)
 
 	@staticmethod
 	def create(m, parent = 0):
 		return PropWidget.build( [ PropBaseObject(m) ], parent )
 
 	def updateProperties(self):
-		w = { self.selfVisibleCheck, self.kidsVisibleCheck, self.labelEdit, self.descrEdit }
+		obj = self.obj_ref()
+		w = self.get_subwidgets()
 		for i in w:	i.blockSignals(True)
-		self.selfVisibleCheck.setChecked(self.obj.getSelfVisibility())
-		self.kidsVisibleCheck.setChecked(self.obj.getKidsVisibility())
-		self.labelEdit.setText(self.obj.getLabel())
-		self.descrEdit.setText(self.obj.getDescription())
-		self.selectedCheck.setChecked(self.obj.isChecked())
+		self.selfVisibleCheck.setChecked(obj.getSelfVisibility())
+		self.kidsVisibleCheck.setChecked(obj.getKidsVisibility())
+		self.labelEdit.setText(obj.label)
+		self.descrEdit.setText(obj.description)
+		self.selectedCheck.setChecked(obj.checked)
 		for i in w:	i.blockSignals(False)
 
 	@pyqtSlot(bool)
 	def onChangedKidsVisibility(self, b):
-		self.obj.setKidsVisibility(b)
+		obj = self.obj_ref()
+		obj.setKidsVisibility(b)
 		AP.mainWin.dock["workspace"].refreshAll()
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def onChangedSelfVisibility(self, b):
-		self.obj.setSelfVisibility(b)
+		obj = self.obj_ref()
+		obj.setSelfVisibility(b)
 		AP.mainWin.dock["workspace"].refreshAll()
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def onChangedSelection(self, b):
-		pass
+		print('PropBaseObject: checked' if b else 'PropBaseObject: unchecked')
+		obj = self.obj_ref()
+		if obj is not None:
+			obj.checked = b
+			self.object_updated.emit(obj)
 
 	@pyqtSlot(str)
 	def onChangedLabel(self, s):
-		self.obj.setLabel(s)
+		obj = self.obj_ref()
+		obj.label = s
 		AP.mainWin.dock["workspace"].refreshAll()
 		AP.updateAllViews()
 
 	@pyqtSlot()
 	def onDescrChanged(self):
-		self.obj.setDescription(self.descrEdit.toPlainText())
+		obj = self.obj_ref()
+		obj.description = self.descrEdit.toPlainText()
 
 

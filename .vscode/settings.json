@@ -1,6 +1,7 @@
 {
+	"python.defaultInterpreterPath": "v:/Python312/python.exe",
 	"editor.insertSpaces": false,
-	"editor.fontSize": 18
+	"editor.fontSize": 18,
 	"terminal.integrated.env.linux": {
 		"GTK_PATH": ""
 	}

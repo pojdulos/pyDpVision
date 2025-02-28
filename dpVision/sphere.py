@@ -7,8 +7,8 @@ Created on Sun Nov 26 19:51:28 2023
 
 class Sphere:
 	def __init__(self):
-		self.m_c = [2.0,4.0,2.0]
-		self.m_r = 3.0
+		self.m_c = [0.0,0.0,0.0]
+		self.m_r = 1.0
 	
 	def setRadius(self, r):
 		self.m_r = r

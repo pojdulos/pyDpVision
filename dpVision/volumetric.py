@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from .globals import AP
 from .object import Object
-from .shaders import load_and_compile_shader, load_shader, compile_shader
+from .shaders import load_and_compile_shader, compile_shader
 from .pointCloud import PointCloud
 from .mesh import Mesh
 

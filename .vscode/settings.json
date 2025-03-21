@@ -1,5 +1,5 @@
 {
-	"python.defaultInterpreterPath": "v:/Python312/python.exe",
+	"python.defaultInterpreterPath": ".venv/Scripts/python.exe",
 	"editor.insertSpaces": false,
 	"editor.fontSize": 18,
 	"terminal.integrated.env.linux": {

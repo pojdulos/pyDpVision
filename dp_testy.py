@@ -93,6 +93,109 @@ def fast_test_7():
 	# volum.drawSphere(origin=[256,216,256], radius=120, color=2000.)
 	AP.addObject(volum)
 
+from dpVision import NDimCloud
+import numpy as np
 
+# Macierz obrotu wokół płaszczyzny xw
+def rotation_matrix_xw(theta):
+    return np.array([
+        [np.cos(theta), 0, 0, -np.sin(theta)],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [np.sin(theta), 0, 0, np.cos(theta)]
+    ])
+
+def rotation_matrix_yw(theta):
+    return np.array([
+        [1, 0, 0, 0],
+        [0, np.cos(theta), 0, -np.sin(theta)],
+        [0, 0, 1, 0],
+        [0, np.sin(theta), 0, np.cos(theta)]
+    ])
+
+def rotation_matrix_zw(theta):
+    return np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, np.cos(theta), -np.sin(theta)],
+        [0, 0, np.sin(theta), np.cos(theta)]
+    ])
+
+def rotation_matrix_xy(theta):
+    return np.array([
+        [np.cos(theta), -np.sin(theta), 0, 0],
+        [np.sin(theta),  np.cos(theta), 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ])
+
+def combined_rotation_matrix(theta):
+    return (
+        rotation_matrix_xw(theta) @
+        rotation_matrix_yw(theta * 0.7) @
+        rotation_matrix_zw(theta * 1.3) @
+        rotation_matrix_xy(theta * 0.5)
+    )
+
+
+def test_rot(cld, i, total):
+    theta = 2 * np.pi * i / total
+    R = rotation_matrix_xw(theta)
+    # R = combined_rotation_matrix(theta)
+    cld.update_projection(R)
+
+def fastTest8():
+	total = 360
+
+	def onTimeout():
+		if not hasattr(onTimeout, "cnt"):
+			onTimeout.cnt = 1
+		
+		print(f"step: {onTimeout.cnt} of {total}")
+
+		test_rot(cld, onTimeout.cnt, total)
+
+		AP.updateAllViews()
+
+		onTimeout.cnt += 1
+		if onTimeout.cnt > total:
+			onTimeout.cnt = 0
+		# timer.start(1000)
+
+	cld = NDimCloud(4)
+	cld.addVertex([-10, -10, -10, -10])
+	cld.addVertex([-10, -10, -10, 10])
+	cld.addVertex([-10, -10, 10, 10])
+	cld.addVertex([-10, -10, 10, -10])
+	cld.addVertex([-10, 10, 10, -10])
+	cld.addVertex([-10, 10, 10, 10])
+	cld.addVertex([-10, 10, -10, 10])
+	cld.addVertex([-10, 10, -10, -10])
+
+	cld.addVertex([10, 10, -10, -10])
+	cld.addVertex([10, 10, -10, 10])
+	cld.addVertex([10, 10, 10, 10])
+	cld.addVertex([10, 10, 10, -10])
+	cld.addVertex([10, -10, 10, -10])
+	cld.addVertex([10, -10, 10, 10])
+	cld.addVertex([10, -10, -10, 10])
+	cld.addVertex([10, -10, -10, -10])
+
+	cld.projectTo3D()
+	cld.compute_edges()
+
+	AP.addObject(cld)
+
+	global timer
+	timer = QTimer()
+	# timer.setSingleShot(False)
+	timer.timeout.connect(onTimeout)
+	timer.start(100)
+	# onTimeout()
+
+
+
+fastTest8()
 
 #fast_test_5(512,512,512)
+

@@ -9,6 +9,7 @@ from .annotationTriangle import AnnotationTriangle
 from .baseObject import BaseObject
 from .globals import Globals, AP
 from .image import Image
+from .nDimCloud import NDimCloud
 from .mainApplication import MainApplication
 from .mesh import Face, Mesh
 from .motion import Motion
@@ -32,7 +33,7 @@ __all__ = [
 			"Image",
 			"MainApplication",
 			"Face", "Mesh",
-			"Motion", "Object",
+			"Motion", "NDimCloud", "Object",
 			"Parser",
 			"PluginInterface",
 			"Vertex", "PointCloud",

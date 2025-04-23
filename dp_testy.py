@@ -129,6 +129,7 @@ def rotation_matrix_xy(theta):
         [0, 0, 0, 1]
     ])
 
+
 def combined_rotation_matrix(theta):
     return (
         rotation_matrix_xw(theta) @
@@ -138,13 +139,66 @@ def combined_rotation_matrix(theta):
     )
 
 
+import numpy as np
+
+def rotation_matrix_nd(dim, i, j, theta):
+    """
+    Zwraca macierz obrotu w wymiarze `dim`,
+    obracającą o kąt `theta` w płaszczyźnie (i, j).
+    """
+    assert 0 <= i < j < dim, "Nieprawidłowe indeksy osi"
+
+    R = np.identity(dim, dtype=np.float32)
+
+    cos_t = np.cos(theta)
+    sin_t = np.sin(theta)
+
+    R[i, i] = cos_t
+    R[j, j] = cos_t
+    R[i, j] = -sin_t
+    R[j, i] = sin_t
+
+    return R
+
+
+def combined_rotation(dim, thetas, axes):
+    R = np.identity(dim, dtype=np.float32)
+    for (i, j), theta in zip(axes, thetas):
+        R = rotation_matrix_nd(dim, i, j, theta) @ R
+    return R
+
+
 def test_rot(cld, i, total):
     theta = 2 * np.pi * i / total
-    R = rotation_matrix_xw(theta)
-    # R = combined_rotation_matrix(theta)
-    cld.update_projection(R)
+    R = rotation_matrix_nd(cld.m_dimensions, 1, 3, theta)
+    # thetas = [ 2 * np.pi * i / total,  2 * np.pi * (1.0 - i / total) ]
+    # axes = [(2,5), (0,5)]
+    # R = combined_rotation(cld.m_dimensions, thetas, axes)
+    cld.update_projection(R, d=50)
 
-def fastTest8():
+import itertools
+import random
+
+def random_color():
+	return [random.randrange(255), random.randrange(255), random.randrange(255), 255]
+
+def compute_edges(vertices):
+	edges = []
+	for i in range(len(vertices)):
+		for j in range(i + 1, len(vertices)):
+			diff = np.abs(vertices[i] - vertices[j])
+			num_different = np.sum(diff > 1e-3)
+			if num_different == 1 and np.any(np.isclose(diff, 20.0)):
+				edges.append((i, j))
+	return edges
+
+def hypercubeNd(dim, size=1.0):
+    coords = list(itertools.product([-1, 1], repeat=dim))
+    verts = np.array(coords, dtype=np.float32) * size
+    edges = compute_edges(verts)
+    return verts, edges
+
+def animationNd(cld):
 	total = 360
 
 	def onTimeout():
@@ -162,40 +216,25 @@ def fastTest8():
 			onTimeout.cnt = 0
 		# timer.start(1000)
 
-	cld = NDimCloud(4)
-	cld.addVertex([-10, -10, -10, -10])
-	cld.addVertex([-10, -10, -10, 10])
-	cld.addVertex([-10, -10, 10, 10])
-	cld.addVertex([-10, -10, 10, -10])
-	cld.addVertex([-10, 10, 10, -10])
-	cld.addVertex([-10, 10, 10, 10])
-	cld.addVertex([-10, 10, -10, 10])
-	cld.addVertex([-10, 10, -10, -10])
+	global timer
+	timer = QTimer()
+	timer.timeout.connect(onTimeout)
+	timer.start(100)
 
-	cld.addVertex([10, 10, -10, -10])
-	cld.addVertex([10, 10, -10, 10])
-	cld.addVertex([10, 10, 10, 10])
-	cld.addVertex([10, 10, 10, -10])
-	cld.addVertex([10, -10, 10, -10])
-	cld.addVertex([10, -10, 10, 10])
-	cld.addVertex([10, -10, -10, 10])
-	cld.addVertex([10, -10, -10, -10])
+
+def testNd():
+	cld = NDimCloud.hypercube(dim = 4, size = 10.0)
+	cld.m_vcolors = np.array([random_color() for i in range(len(cld.m_vertices))])
 
 	cld.projectTo3D()
-	cld.compute_edges()
 
 	AP.addObject(cld)
 
-	global timer
-	timer = QTimer()
-	# timer.setSingleShot(False)
-	timer.timeout.connect(onTimeout)
-	timer.start(100)
-	# onTimeout()
+	# animationNd(cld)
 
 
 
-fastTest8()
+testNd()
 
 #fast_test_5(512,512,512)
 

@@ -15,16 +15,26 @@ import itertools
 
 
 class NDimCloud(Object):
-	def __init__(self, dim=3, parent=None):
+	def __init__(self, headers=None, dims=None, parent=None):
 		super( NDimCloud, self ).__init__( parent )
-		self.m_dimensions = dim
+		
+		if headers is None:
+			self.m_dimensions = 3 if dims is None else dims
+			self.m_headers = [f"unnamed_{i}" for i in range(self.m_dimensions)]
+		else:
+			self.m_dimensions = len(headers)
+			self.m_headers = headers
+		
 		self.m_vertices = np.empty((0, self.m_dimensions), dtype=np.float32)
 		self.m_projected_vertices = np.empty((0, 3), dtype=np.float32)
 		self.m_vcolors = np.empty((0, 4), dtype=np.ubyte)
 		# self.m_vnormals = np.empty((0, self.m_dimensions), dtype=np.float32)
 		# self.m_edges = generate_edges(self.m_vertices)
+		self.m_edges = None
 		self.m_current_ix = 30
 		self.m_current_iy = 30
+		self.m_real_dims = [0, 1, 2, 3]
+		self.m_gains = [1.0, 1.0, 1.0, 1.0]
 		self.v_vbo = None
 		self.c_vbo = None
 		self.n_vbo = None
@@ -85,10 +95,10 @@ class NDimCloud(Object):
 		return [(min(d) + max(d)) / 2 for d in dims]
 
 
-	def project_nd_to_3d(self, vertex_nd, x_dim, y_dim, z_dim, w_dim=None, d=50, blend=0.5):
-		x, y, z = vertex_nd[x_dim], vertex_nd[y_dim], vertex_nd[z_dim]
-		if w_dim is not None:
-			w = vertex_nd[w_dim]
+	def project_nd_to_3d(self, vertex_nd, d=50, blend=0.5):
+		x, y, z = vertex_nd[ self.m_real_dims[0]]*self.m_gains[0], vertex_nd[self.m_real_dims[1]]*self.m_gains[1], vertex_nd[self.m_real_dims[2]]*self.m_gains[2]
+		if self.m_real_dims[3] is not None:
+			w = vertex_nd[self.m_real_dims[3]]*self.m_gains[3]
 			factor = d / max(d - w, 1e-3)
 			px, py, pz = x * factor, y * factor, z * factor
 			return np.array([
@@ -102,7 +112,7 @@ class NDimCloud(Object):
 
 	def update_projection(self, rotation_matrix, d=50.0, blend=0.5):
 		self.m_projected_vertices = [
-			self.project_nd_to_3d(np.dot(rotation_matrix, np.array(v)), 0, 1, 2, 3, d, blend)
+			self.project_nd_to_3d(np.dot(rotation_matrix, np.array(v)), d, blend)
 			for v in self.m_vertices
 		]
 
@@ -145,11 +155,12 @@ class NDimCloud(Object):
 		# glColor3f(1.0, 0.0, 0.0)
 		glBegin(GL_POINTS)
 		for i,v in enumerate(self.m_projected_vertices):
-			glColor3ub(self.m_vcolors[i][0], self.m_vcolors[i][1], self.m_vcolors[i][2])
+			if len(self.m_vcolors) > i:
+				glColor3ub(self.m_vcolors[i][0], self.m_vcolors[i][1], self.m_vcolors[i][2])
 			glVertex3f(v[0], v[1], v[2])
 		glEnd()
 
-		if len(self.m_edges):
+		if self.m_edges and len(self.m_edges):
 			# --- KRAWĘDZIE ---
 			# glColor3f(0.6, 0.6, 0.6)  # szary kolor linii
 			glLineWidth(2.0)
@@ -158,10 +169,12 @@ class NDimCloud(Object):
 				vi = self.m_projected_vertices[i]
 				vj = self.m_projected_vertices[j]
 				
-				glColor3ub(self.m_vcolors[i][0], self.m_vcolors[i][1], self.m_vcolors[i][2])
+				if len(self.m_vcolors) > i:
+					glColor3ub(self.m_vcolors[i][0], self.m_vcolors[i][1], self.m_vcolors[i][2])
 				glVertex3f(vi[0], vi[1], vi[2])
 				
-				glColor3ub(self.m_vcolors[j][0], self.m_vcolors[j][1], self.m_vcolors[j][2])
+				if len(self.m_vcolors) > j:
+					glColor3ub(self.m_vcolors[j][0], self.m_vcolors[j][1], self.m_vcolors[j][2])
 				glVertex3f(vj[0], vj[1], vj[2])
 			glEnd()
 
@@ -191,7 +204,7 @@ class NDimCloud(Object):
 
 		coords = list(itertools.product([-1, 1], repeat=dim))
 
-		cld = NDimCloud(dim)
+		cld = NDimCloud(dims=dim)
 		cld.m_vertices = np.array(coords, dtype=np.float32) * size
 		cld.m_edges = compute_edges(cld.m_vertices)
 		return cld
@@ -237,11 +250,13 @@ class NDimCloud(Object):
 		total = 360
 
 		if dx:
-			self.m_current_ix = ( (self.m_current_ix - 1) if dx>0 else (self.m_current_ix + 1) ) % total
+			self.m_current_ix += ( 3 if dx<0 else -3 ) % total
+		
 		if dy:
-			self.m_current_iy = ( (self.m_current_iy - 1) if dy<0 else (self.m_current_iy + 1) ) % total
+			self.m_current_iy += ( 3 if dy>0 else -3 ) % total
 		
 		self.projectTo3D(total)
 
 		AP.updateProperties()
 		AP.updateAllViews()
+

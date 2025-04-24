@@ -6,6 +6,7 @@ from .parserIMAGE2D import ParserIMAGE2D
 from .parserNRRD import ParserNRRD
 from .parserOBJ import ParserOBJ
 from .parserSTL import ParserSTL
+from .parserCSV import ParserCSV
 
 __all__ = [
 	"ParserATMDL",
@@ -13,5 +14,6 @@ __all__ = [
 	"ParserIMAGE2D",
 	"ParserNRRD",
 	"ParserOBJ",
-	"ParserSTL"
+	"ParserSTL",
+	"ParserCSV"
 	]

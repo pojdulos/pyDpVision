@@ -223,7 +223,7 @@ def animationNd(cld):
 
 
 def testNd():
-	cld = NDimCloud.hypercube(dim = 4, size = 10.0)
+	cld = NDimCloud.hypercube(dim = 6, size = 10.0)
 	cld.m_vcolors = np.array([random_color() for i in range(len(cld.m_vertices))])
 
 	cld.projectTo3D()

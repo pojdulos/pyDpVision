@@ -12,6 +12,39 @@ from OpenGL.GL import *
 import numpy as np
 import itertools
 from .shaders import load_and_compile_shader, compile_shader
+from numba import njit, prange
+import cupy as cp
+
+
+
+
+@njit(parallel=True)
+def update_projection_numba(vertices, rotation_matrix, real_dims, gains, d, blend):
+	N = vertices.shape[0]
+	rotated = vertices @ rotation_matrix.T
+
+	x = rotated[:, real_dims[0]] * gains[0]
+	y = rotated[:, real_dims[1]] * gains[1]
+	z = rotated[:, real_dims[2]] * gains[2]
+
+	if real_dims[3] >= 0:
+		w = rotated[:, real_dims[3]] * gains[3]
+	else:
+		w = np.zeros(N, dtype=np.float32)
+
+	result = np.empty((N, 3), dtype=np.float32)
+
+	for i in prange(N):
+		factor = d / max(d - w[i], 1e-3)
+		px = x[i] * factor
+		py = y[i] * factor
+		pz = z[i] * factor
+
+		result[i, 0] = x[i] * (1 - blend) + px * blend
+		result[i, 1] = y[i] * (1 - blend) + py * blend
+		result[i, 2] = z[i] * (1 - blend) + pz * blend
+
+	return result
 
 
 
@@ -42,7 +75,7 @@ class NDimCloud(Object):
 		self.v_vbo = None
 		self.c_vbo = None
 		self.n_vbo = None
-		
+		self.buf_changed = False
 
 	def compute_edges(self):
 		self.m_edges = []
@@ -98,94 +131,25 @@ class NDimCloud(Object):
 		dims = list(zip(*self.m_vertices))
 		return [(min(d) + max(d)) / 2 for d in dims]
 
+	# def update_vertex_buffer(self):
+	# 	if hasattr(self, "vertex_vbo") and self.vertex_vbo:
+	# 		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
+	# 		glBufferSubData(GL_ARRAY_BUFFER, 0, self.m_projected_vertices.nbytes, self.m_projected_vertices)
+	# 		glBindBuffer(GL_ARRAY_BUFFER, 0)
+	def update_vertex_buffer(self):
+		if hasattr(self, "vertex_vbo") and self.vertex_vbo:
+			glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
 
-	def project_nd_to_3d(self, vertex_nd, d=50, blend=0.5):
-		x, y, z = vertex_nd[ self.m_real_dims[0]]*self.m_gains[0], vertex_nd[self.m_real_dims[1]]*self.m_gains[1], vertex_nd[self.m_real_dims[2]]*self.m_gains[2]
-		
-		if self.m_real_dims[3] is not None:
-			w = vertex_nd[self.m_real_dims[3]]*self.m_gains[3]
-			factor = d / max(d - w, 1e-3)
-			px, py, pz = x * factor, y * factor, z * factor
-			return np.array([
-				x * (1 - blend) + px * blend,
-				y * (1 - blend) + py * blend,
-				z * (1 - blend) + pz * blend
-			], dtype=np.float32)
-		else:
-			return np.array([x, y, z], dtype=np.float32)
+			# ptr = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY)
+			ptr = glMapBufferRange(GL_ARRAY_BUFFER, 0, self.m_projected_vertices.nbytes,
+                       GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT)
 
+			if ptr:
+				from ctypes import memmove, c_void_p
+				memmove(c_void_p(ptr), self.m_projected_vertices.ctypes.data, self.m_projected_vertices.nbytes)
+				glUnmapBuffer(GL_ARRAY_BUFFER)
 
-	def update_projection(self, rotation_matrix, d=50.0, blend=0.5):
-		self.m_projected_vertices = [
-			self.project_nd_to_3d(np.dot(rotation_matrix, np.array(v)), d, blend)
-			for v in self.m_vertices
-		]
-
-
-	# def renderSelf(self):
-	# 	glPushMatrix()
-	# 	glPushAttrib(GL_ALL_ATTRIB_BITS)
-	
-	# 	glEnable(GL_COLOR_MATERIAL)
-	
-	# 	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
-	
-	# 	glEnable(GL_POINT_SMOOTH)
-	# 	glPointSize( 3 )
-		
-	# 	glBegin(GL_POINTS)
-	# 	for i in range(len(self.m_vertices)):
-	# 		v = self.m_projected_vertices[i]
-	# 		#c = self.m_vcolors[i]
-	# 		#glColor4ub(c[0], c[1], c[2], c[3])
-	# 		glVertex3f(v[0], v[1], v[2])
-	# 	glEnd()
-	
-	# 	glDisable(GL_COLOR_MATERIAL)
-	
-	# 	glPopAttrib()
-	# 	glPopMatrix()
-
-	def renderSelf1(self):
-		glPushMatrix()
-		glPushAttrib(GL_ALL_ATTRIB_BITS)
-
-		glEnable(GL_COLOR_MATERIAL)
-		glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
-
-		glEnable(GL_POINT_SMOOTH)
-		glPointSize(7)
-
-		# --- PUNKTY ---
-		# glColor3f(1.0, 0.0, 0.0)
-		glBegin(GL_POINTS)
-		for i,v in enumerate(self.m_projected_vertices):
-			if len(self.m_vcolors) > i:
-				glColor3ub(self.m_vcolors[i][0], self.m_vcolors[i][1], self.m_vcolors[i][2])
-			glVertex3f(v[0], v[1], v[2])
-		glEnd()
-
-		if self.m_edges and len(self.m_edges):
-			# --- KRAWĘDZIE ---
-			# glColor3f(0.6, 0.6, 0.6)  # szary kolor linii
-			glLineWidth(2.0)
-			glBegin(GL_LINES)
-			for i, j in self.m_edges:
-				vi = self.m_projected_vertices[i]
-				vj = self.m_projected_vertices[j]
-				
-				if len(self.m_vcolors) > i:
-					glColor3ub(self.m_vcolors[i][0], self.m_vcolors[i][1], self.m_vcolors[i][2])
-				glVertex3f(vi[0], vi[1], vi[2])
-				
-				if len(self.m_vcolors) > j:
-					glColor3ub(self.m_vcolors[j][0], self.m_vcolors[j][1], self.m_vcolors[j][2])
-				glVertex3f(vj[0], vj[1], vj[2])
-			glEnd()
-
-		glDisable(GL_COLOR_MATERIAL)
-		glPopAttrib()
-		glPopMatrix()
+			glBindBuffer(GL_ARRAY_BUFFER, 0)
 
 	def create_program(self):
 		# Inicjalizacja i konfiguracja shaderów
@@ -220,16 +184,14 @@ class NDimCloud(Object):
 
 		self.create_program()
 
-		vertices = np.array(self.m_projected_vertices, dtype=np.float32)
-		colors = np.array(self.m_vcolors, dtype=np.uint8)
-
-
+		# vertices = np.array(self.m_projected_vertices, dtype=np.float32)
 		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
-		glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
+		glBufferData(GL_ARRAY_BUFFER, self.m_projected_vertices.nbytes, self.m_projected_vertices, GL_DYNAMIC_DRAW)
 
+		colors = np.array(self.m_vcolors, dtype=np.uint8)
 		glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
 		glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
-
+			
 		glBindBuffer(GL_ARRAY_BUFFER, 0)
 
 		if self.m_edges:
@@ -237,7 +199,7 @@ class NDimCloud(Object):
 			edge_indices = np.array(self.m_edges, dtype=np.uint32).flatten()
 
 			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.edge_vbo)
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, edge_indices.nbytes, edge_indices, GL_STATIC_DRAW)
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, edge_indices.nbytes, edge_indices, GL_DYNAMIC_DRAW)
 
 			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
 
@@ -245,10 +207,17 @@ class NDimCloud(Object):
 		if self.shader_program is None:
 			self.initializeGL()
 		
+		# if self.buf_changed:
+		# 	self.update_vertex_buffer()
+		# 	self.buf_changed = False
+
+		use_uniform_color = len(self.m_vcolors) < len(self.m_projected_vertices)
+
 		# Używaj własnego shader program (przypuśćmy self.shaderProgram)
 		glUseProgram(self.shader_program)
 
 		# --- Punkty ---
+		glEnable(GL_POINT_SMOOTH)
 		glEnable(GL_PROGRAM_POINT_SIZE)
 		glPointSize(7)
 
@@ -256,9 +225,13 @@ class NDimCloud(Object):
 		glEnableVertexAttribArray(0)  # a_position
 		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
 
-		glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
-		glEnableVertexAttribArray(1)  # a_color
-		glVertexAttribPointer(1, 3, GL_UNSIGNED_BYTE, True, 0, None)
+		if not use_uniform_color:
+			glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
+			glEnableVertexAttribArray(1)
+			glVertexAttribPointer(1, 3, GL_UNSIGNED_BYTE, True, 0, None)
+		else:
+			# wyłączam a_color!
+			glDisableVertexAttribArray(1)
 
 		modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32)
 		projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32)
@@ -266,7 +239,13 @@ class NDimCloud(Object):
 		mvp_loc = glGetUniformLocation(self.shader_program, "u_mvp")
 		glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, modelview @ projection)
 
-		print("Drawing", len(self.m_projected_vertices), "points")
+		u_use_u_color_loc = glGetUniformLocation(self.shader_program, "u_use_u_color")
+		glUniform1i(u_use_u_color_loc, int(use_uniform_color))			
+
+		u_color_loc = glGetUniformLocation(self.shader_program, "u_color")
+		glUniform3f(u_color_loc, 0.5, 0.5, 0.5)			
+
+		# print("Drawing", len(self.m_projected_vertices), "points")
 		glDrawArrays(GL_POINTS, 0, len(self.m_projected_vertices))
 
 		# --- Krawędzie ---
@@ -311,6 +290,58 @@ class NDimCloud(Object):
 		cld.m_edges = compute_edges(cld.m_vertices)
 		return cld
 
+
+	def project_nd_to_3d(self, vertex_nd, d=50, blend=0.5):
+		x, y, z = vertex_nd[ self.m_real_dims[0]]*self.m_gains[0], vertex_nd[self.m_real_dims[1]]*self.m_gains[1], vertex_nd[self.m_real_dims[2]]*self.m_gains[2]
+		
+		if self.m_real_dims[3] is not None:
+			w = vertex_nd[self.m_real_dims[3]]*self.m_gains[3]
+			factor = d / max(d - w, 1e-3)
+			px, py, pz = x * factor, y * factor, z * factor
+			return np.array([
+				x * (1 - blend) + px * blend,
+				y * (1 - blend) + py * blend,
+				z * (1 - blend) + pz * blend
+			], dtype=np.float32)
+		else:
+			return np.array([x, y, z], dtype=np.float32)
+
+
+	# def update_projection(self, rotation_matrix, d=50.0, blend=0.5):
+		
+	# 	self.m_projected_vertices = np.array([
+	# 		self.project_nd_to_3d(np.dot(rotation_matrix, np.array(v)), d, blend)
+	# 		for v in self.m_vertices
+	# 	], dtype=np.float32)
+
+	# 	self.update_vertex_buffer()
+
+	def update_projection_fast(self, rotation_matrix, d=50.0, blend=0.5):
+		# Obrót całej chmury punktów naraz
+		rotated = self.m_vertices @ rotation_matrix.T  # shape: (N, D)
+
+		# Wydzielenie x, y, z (i opcjonalnie w)
+		x = rotated[:, self.m_real_dims[0]] * self.m_gains[0]
+		y = rotated[:, self.m_real_dims[1]] * self.m_gains[1]
+		z = rotated[:, self.m_real_dims[2]] * self.m_gains[2]
+
+		if self.m_real_dims[3] is not None:
+			w = rotated[:, self.m_real_dims[3]] * self.m_gains[3]
+			factor = d / np.maximum(d - w, 1e-3)
+
+			px = x * factor
+			py = y * factor
+			pz = z * factor
+
+			x = x * (1 - blend) + px * blend
+			y = y * (1 - blend) + py * blend
+			z = z * (1 - blend) + pz * blend
+
+		self.m_projected_vertices = np.stack((x, y, z), axis=-1).astype(np.float32)
+
+		self.update_vertex_buffer()
+
+
 	def rotation_matrix_nd(self, plane, theta):
 		"""
 		Zwraca macierz obrotu w wymiarze `dim`,
@@ -331,10 +362,68 @@ class NDimCloud(Object):
 
 		return R
 
-	# def set_rotation(self, i, axes, total):
-	# 	theta = 2 * np.pi * i / total
-	# 	R = self.rotation_matrix_nd(axes[0], axes[1], theta)
-	# 	self.update_projection(R, d=50)
+
+
+
+
+	def update_projection(self, rotation_matrix, d=50.0, blend=0.5):
+		real_dims = np.array([
+			self.m_real_dims[0],
+			self.m_real_dims[1],
+			self.m_real_dims[2],
+			self.m_real_dims[3] if self.m_real_dims[3] is not None else -1
+		], dtype=np.int32)
+		gains = np.array(self.m_gains, dtype=np.float32)
+
+		self.m_projected_vertices = update_projection_numba(
+			self.m_vertices,
+			rotation_matrix,
+			real_dims,
+			gains,
+			d,
+			blend
+		)
+
+		self.update_vertex_buffer()
+
+
+
+
+
+	def update_projection_cupy(self, rotation_matrix, d=50.0, blend=0.5):
+		# Konwertujemy dane do tablicy CuPy
+		vertices_gpu = cp.asarray(self.m_vertices)  # automatyczne przerzucenie na GPU
+		rotation_gpu = cp.asarray(rotation_matrix)
+
+		# Obrót
+		rotated = vertices_gpu @ rotation_gpu.T
+
+		# Wydzielenie potrzebnych osi
+		x = rotated[:, self.m_real_dims[0]] * self.m_gains[0]
+		y = rotated[:, self.m_real_dims[1]] * self.m_gains[1]
+		z = rotated[:, self.m_real_dims[2]] * self.m_gains[2]
+
+		if self.m_real_dims[3] is not None:
+			w = rotated[:, self.m_real_dims[3]] * self.m_gains[3]
+		else:
+			w = cp.zeros_like(x)
+
+		factor = d / cp.maximum(d - w, 1e-3)
+		px = x * factor
+		py = y * factor
+		pz = z * factor
+
+		x_out = x * (1 - blend) + px * blend
+		y_out = y * (1 - blend) + py * blend
+		z_out = z * (1 - blend) + pz * blend
+
+		result_gpu = cp.stack((x_out, y_out, z_out), axis=-1)
+
+		# Ściągamy dane z powrotem z GPU do CPU
+		self.m_projected_vertices = cp.asnumpy(result_gpu).astype(np.float32)
+
+		self.update_vertex_buffer()
+		# self.buf_changed = True
 
 
 	def projectTo3D(self, total = 360):
@@ -346,7 +435,8 @@ class NDimCloud(Object):
 		
 		R = Ry @ Rx
 
-		self.update_projection(R, d=50)
+		# self.update_projection_fast(R, d=50)
+		self.update_projection_cupy(R, d=50)
 
 
 	def on_mouse_move(self, dx, dy):

@@ -118,14 +118,23 @@ class PropNDimCloud(PropWidget):
 		for i in w:	i.blockSignals(True)
 
 		for i in range(4):
-			self.dim_selector[i].setCurrentIndex(obj.m_real_dims[i])
-			self.gains[i].setValue(obj.m_gains[i])
+			self.dim_selector[i].blockSignals(True)
+			val = obj.m_real_dims[i]
+			print(f"dim {i} : {val}")
+			if val is None:
+				self.dim_selector[i].setEnabled(False)
+			else:		
+				self.dim_selector[i].setEnabled(True)
+				self.dim_selector[i].setCurrentIndex(val)
+				self.gains[i].setValue(obj.m_gains[i])
+			self.dim_selector[i].blockSignals(False)
 
 		for i in (0,1):
 			for j in (0,1):
 				self.nav[i][j].setCurrentIndex( obj.m_rplanes[i][j] )
 
 		for i in w:	i.blockSignals(False)
+		self.update()
 
 	def on_plane_changed(self, plane, idx, val):
 		obj = self.obj_ref()

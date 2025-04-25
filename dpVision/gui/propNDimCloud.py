@@ -72,11 +72,34 @@ class PropNDimCloud(PropWidget):
 		self.label02 = QLabel("Mouse navigation:")
 		formLayout.addRow(self.label02)
 
-		self.horNav = QComboBox(self)
-		formLayout.addRow("horizontal:", self.horNav)
+		self.nav = [
+			[QComboBox(self), QComboBox(self)],
+			[QComboBox(self), QComboBox(self)]
+		]
 
-		self.verNav = QComboBox(self)
-		formLayout.addRow("vertical:", self.verNav)
+		formLayout.addWidget(QLabel("horizontal plane (mouse X):"))
+		self.nav[0][0].addItems(real_dims)
+		self.nav[0][0].currentIndexChanged.connect(lambda x, n=0, i=0: self.on_plane_changed(n, i, x))
+		self.nav[0][1].addItems(real_dims)
+		self.nav[0][1].currentIndexChanged.connect(lambda x, n=0, i=1: self.on_plane_changed(n, i, x))
+		l = QHBoxLayout()
+		l.addWidget(self.nav[0][0])
+		l.addWidget(self.nav[0][1])
+		w = QWidget(self)
+		w.setLayout(l)
+		formLayout.addRow(w)
+
+		formLayout.addWidget(QLabel("vertical plane (mouse Y):"))
+		self.nav[1][0].addItems(real_dims)
+		self.nav[1][0].currentIndexChanged.connect(lambda x, n=1, i=0: self.on_plane_changed(n, i, x))
+		self.nav[1][1].addItems(real_dims)
+		self.nav[1][1].currentIndexChanged.connect(lambda x, n=1, i=1: self.on_plane_changed(n, i, x))
+		l = QHBoxLayout()
+		l.addWidget(self.nav[1][0])
+		l.addWidget(self.nav[1][1])
+		w = QWidget(self)
+		w.setLayout(l)
+		formLayout.addRow(w)
 
 		layout.addLayout(formLayout)
 		
@@ -98,7 +121,26 @@ class PropNDimCloud(PropWidget):
 			self.dim_selector[i].setCurrentIndex(obj.m_real_dims[i])
 			self.gains[i].setValue(obj.m_gains[i])
 
+		for i in (0,1):
+			for j in (0,1):
+				self.nav[i][j].setCurrentIndex( obj.m_rplanes[i][j] )
+
 		for i in w:	i.blockSignals(False)
+
+	def on_plane_changed(self, plane, idx, val):
+		obj = self.obj_ref()
+
+		val2 = obj.m_rplanes[plane][(idx+1)%2]
+
+		if (idx==1 and val <= val2) or (idx==0 and val >= val2):
+			return
+
+		obj.m_rplanes[plane][idx] = val
+
+		obj.projectTo3D()
+		
+		AP.mainWin.dock["workspace"].refreshAll()
+		AP.updateAllViews()
 
 	def on_gain_changed(self, cur_idx, cur_val):
 		obj = self.obj_ref()
@@ -125,33 +167,5 @@ class PropNDimCloud(PropWidget):
 
 		AP.mainWin.dock["workspace"].refreshAll()
 		AP.updateAllViews()
-
-
-	@pyqtSlot(bool)
-	def onChangedSelfVisibility(self, b):
-		obj = self.obj_ref()
-		obj.setSelfVisibility(b)
-		AP.mainWin.dock["workspace"].refreshAll()
-		AP.updateAllViews()
-
-	@pyqtSlot(bool)
-	def onChangedSelection(self, b):
-		print('PropBaseObject: checked' if b else 'PropBaseObject: unchecked')
-		obj = self.obj_ref()
-		if obj is not None:
-			obj.checked = b
-			self.object_updated.emit(obj)
-
-	@pyqtSlot(str)
-	def onChangedLabel(self, s):
-		obj = self.obj_ref()
-		obj.label = s
-		AP.mainWin.dock["workspace"].refreshAll()
-		AP.updateAllViews()
-
-	@pyqtSlot()
-	def onDescrChanged(self):
-		obj = self.obj_ref()
-		obj.description = self.descrEdit.toPlainText()
 
 

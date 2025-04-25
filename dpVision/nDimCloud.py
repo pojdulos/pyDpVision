@@ -11,6 +11,7 @@ from PyQt5.QtGui import *
 from OpenGL.GL import *
 import numpy as np
 import itertools
+from .shaders import load_and_compile_shader, compile_shader
 
 
 
@@ -31,10 +32,13 @@ class NDimCloud(Object):
 		# self.m_vnormals = np.empty((0, self.m_dimensions), dtype=np.float32)
 		# self.m_edges = generate_edges(self.m_vertices)
 		self.m_edges = None
+		self.shader_program = None
 		self.m_current_ix = 30
 		self.m_current_iy = 30
-		self.m_real_dims = [0, 1, 2, 3]
+		# self.m_real_dims = [0, 1, 2, 3]
+		self.m_real_dims = [i if i<self.m_dimensions else None for i in range(4)]
 		self.m_gains = [1.0, 1.0, 1.0, 1.0]
+		self.m_rplanes = [[0, self.m_dimensions-1],[1, self.m_dimensions-1]]
 		self.v_vbo = None
 		self.c_vbo = None
 		self.n_vbo = None
@@ -97,6 +101,7 @@ class NDimCloud(Object):
 
 	def project_nd_to_3d(self, vertex_nd, d=50, blend=0.5):
 		x, y, z = vertex_nd[ self.m_real_dims[0]]*self.m_gains[0], vertex_nd[self.m_real_dims[1]]*self.m_gains[1], vertex_nd[self.m_real_dims[2]]*self.m_gains[2]
+		
 		if self.m_real_dims[3] is not None:
 			w = vertex_nd[self.m_real_dims[3]]*self.m_gains[3]
 			factor = d / max(d - w, 1e-3)
@@ -141,7 +146,7 @@ class NDimCloud(Object):
 	# 	glPopAttrib()
 	# 	glPopMatrix()
 
-	def renderSelf(self):
+	def renderSelf1(self):
 		glPushMatrix()
 		glPushAttrib(GL_ALL_ATTRIB_BITS)
 
@@ -182,6 +187,103 @@ class NDimCloud(Object):
 		glPopAttrib()
 		glPopMatrix()
 
+	def create_program(self):
+		# Inicjalizacja i konfiguracja shaderów
+		try:
+			vertex_shader = load_and_compile_shader('nDimCloud.vert', GL_VERTEX_SHADER)
+			fragment_shader = load_and_compile_shader('nDimCloud.frag', GL_FRAGMENT_SHADER)
+		except Exception as e:
+			print( e )
+			return
+		
+		# Tworzenie programu shaderów
+		self.shader_program = glCreateProgram()
+		
+		glAttachShader(self.shader_program, vertex_shader)
+		glAttachShader(self.shader_program, fragment_shader)
+		
+		glLinkProgram(self.shader_program)
+		
+		# Sprawdzanie, czy program został powiązany poprawnie
+		if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
+			print(glGetProgramInfoLog(self.shader_program))
+			raise Exception("Error linking shaders")
+		
+		# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
+		glDeleteShader(vertex_shader)
+		glDeleteShader(fragment_shader)
+
+	def initializeGL(self):
+		# --- przygotuj VBO na punkty (wierzchołki + kolory) ---
+		self.vertex_vbo = glGenBuffers(1)
+		self.color_vbo = glGenBuffers(1)
+
+		self.create_program()
+
+		vertices = np.array(self.m_projected_vertices, dtype=np.float32)
+		colors = np.array(self.m_vcolors, dtype=np.uint8)
+
+
+		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
+		glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
+
+		glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
+		glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
+
+		glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+		if self.m_edges:
+			self.edge_vbo = glGenBuffers(1)
+			edge_indices = np.array(self.m_edges, dtype=np.uint32).flatten()
+
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.edge_vbo)
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, edge_indices.nbytes, edge_indices, GL_STATIC_DRAW)
+
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+
+	def renderSelf(self):
+		if self.shader_program is None:
+			self.initializeGL()
+		
+		# Używaj własnego shader program (przypuśćmy self.shaderProgram)
+		glUseProgram(self.shader_program)
+
+		# --- Punkty ---
+		glEnable(GL_PROGRAM_POINT_SIZE)
+		glPointSize(7)
+
+		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
+		glEnableVertexAttribArray(0)  # a_position
+		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
+
+		glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
+		glEnableVertexAttribArray(1)  # a_color
+		glVertexAttribPointer(1, 3, GL_UNSIGNED_BYTE, True, 0, None)
+
+		modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32)
+		projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32)
+
+		mvp_loc = glGetUniformLocation(self.shader_program, "u_mvp")
+		glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, modelview @ projection)
+
+		print("Drawing", len(self.m_projected_vertices), "points")
+		glDrawArrays(GL_POINTS, 0, len(self.m_projected_vertices))
+
+		# --- Krawędzie ---
+		if self.m_edges and len(self.m_edges):
+			glLineWidth(2.0)
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.edge_vbo)
+			glDrawElements(GL_LINES, len(self.m_edges)*2, GL_UNSIGNED_INT, None)
+
+		# Clean up
+		glBindBuffer(GL_ARRAY_BUFFER, 0)
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+		glDisableVertexAttribArray(0)
+		glDisableVertexAttribArray(1)
+
+		glUseProgram(0)
+
+
 	# def export_as_obj(self, obj_file_name='v:/fast_test.obj'):
 	# 	objFile = open(obj_file_name, 'w')
 	# 	objFile.write(f"# .obj file created with pyDpVision\n\n")
@@ -209,11 +311,12 @@ class NDimCloud(Object):
 		cld.m_edges = compute_edges(cld.m_vertices)
 		return cld
 
-	def rotation_matrix_nd(self, i, j, theta):
+	def rotation_matrix_nd(self, plane, theta):
 		"""
 		Zwraca macierz obrotu w wymiarze `dim`,
 		obracającą o kąt `theta` w płaszczyźnie (i, j).
 		"""
+		i, j = plane
 		assert 0 <= i < j < self.m_dimensions, "Nieprawidłowe indeksy osi"
 
 		R = np.identity(self.m_dimensions, dtype=np.float32)
@@ -236,10 +339,10 @@ class NDimCloud(Object):
 
 	def projectTo3D(self, total = 360):
 		thetaX = 2 * np.pi * self.m_current_ix / total
-		Rx = self.rotation_matrix_nd(0, 3, thetaX)
+		Rx = self.rotation_matrix_nd(self.m_rplanes[0], thetaX)
 		
 		thetaY = 2 * np.pi * self.m_current_iy / total
-		Ry = self.rotation_matrix_nd(1, 3, thetaY)
+		Ry = self.rotation_matrix_nd(self.m_rplanes[1], thetaY)
 		
 		R = Ry @ Rx
 

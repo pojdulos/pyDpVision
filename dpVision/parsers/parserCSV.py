@@ -79,13 +79,17 @@ class ParserCSV(Parser):
 	def load( path ):
 		headers, rows = read_csv_with_optional_header(path)
         
-		if len(headers):
+		print("wczytane")
+
+		if headers is not None and len(headers):
 			cld = NDimCloud(headers=headers)
 		else:
 			cld = NDimCloud(dims=len(rows[0]))
 		cld.m_vertices = np.array(rows, dtype=np.float32)
 
 		cld.projectTo3D()
+		
+		print("po projekcji")
 		
 		return cld
 

@@ -1,6 +1,8 @@
 from OpenGL.GL import *
 import os
 
+
+
 def compile_shader(source, shader_type):
     shader = glCreateShader(shader_type)
     glShaderSource(shader, source)
@@ -32,4 +34,39 @@ def load_and_compile_shader(filename, shader_type):
     # Kompilacja shadera
     return compile_shader(shader_source, shader_type)
 
-	
+def create_program(vertex_shader_name=None, geometry_shader_name=None, fragment_shader_name=None):
+    shader_program = glCreateProgram()
+    shaders = []
+
+    try:
+        if vertex_shader_name:
+            vertex_shader = load_and_compile_shader(vertex_shader_name, GL_VERTEX_SHADER)
+            shaders.append(vertex_shader)
+
+        if geometry_shader_name:
+            geometry_shader = load_and_compile_shader(geometry_shader_name, GL_GEOMETRY_SHADER)
+            shaders.append(geometry_shader)
+
+        if fragment_shader_name:
+            fragment_shader = load_and_compile_shader(fragment_shader_name, GL_FRAGMENT_SHADER)
+            shaders.append(fragment_shader)
+
+        for shader in shaders:
+            glAttachShader(shader_program, shader)
+
+        glLinkProgram(shader_program)
+
+        if not glGetProgramiv(shader_program, GL_LINK_STATUS):
+            info_log = glGetProgramInfoLog(shader_program)
+            raise Exception(f"Error linking shaders:\n{info_log.decode()}")
+
+    except Exception as e:
+        # Jeśli cokolwiek pójdzie nie tak - czyścimy program
+        glDeleteProgram(shader_program)
+        raise e
+
+    finally:
+        for shader in shaders:
+            glDeleteShader(shader)
+
+    return shader_program

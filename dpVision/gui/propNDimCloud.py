@@ -120,7 +120,7 @@ class PropNDimCloud(PropWidget):
 		for i in range(4):
 			self.dim_selector[i].blockSignals(True)
 			val = obj.m_real_dims[i]
-			print(f"dim {i} : {val}")
+			# print(f"dim {i} : {val}")
 			if val is None:
 				self.dim_selector[i].setEnabled(False)
 			else:		

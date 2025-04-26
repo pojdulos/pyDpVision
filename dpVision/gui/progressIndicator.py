@@ -4,6 +4,8 @@ from PyQt5.QtCore import *
 from .. import AP
 
 class ProgressIndicator(QWidget):
+	cancel_button_pressed = pyqtSignal()
+
 	def __init__(self, _obj, parent=None):
 		super( ProgressIndicator, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/progressIndicator.ui', self)
@@ -21,8 +23,10 @@ class ProgressIndicator(QWidget):
 		self.show()
 
 	def onCancelButton(self):
-		self.workInfo.setText("Cancelled ! Please wait...")
+		self.workInfo.setText("Cancelling ! Please wait...")
 		self.actionCancelled = True
+		self.cancel_button_pressed.emit()
+		self.hide()
 
 	@pyqtSlot(int)
 	def setValue(self, value):

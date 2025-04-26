@@ -9,7 +9,7 @@ from .object import Object
 from PyQt5.QtGui import *
 from OpenGL.GL import *
 import numpy as np
-
+from .shaders import create_program
 
 def Vertex(pt=None, x=0., y=0., z=0.):
 	if pt and isinstance(pt, list) and len(pt)==3:
@@ -94,61 +94,94 @@ class PointCloud(Object):
 		
 		return self
 		
-	def renderSelf2(self):
-		glPushMatrix();
-		glPushAttrib(GL_ALL_ATTRIB_BITS);
-	
-		glEnable(GL_COLOR_MATERIAL);
-	
-		glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-	
-		glEnable(GL_POINT_SMOOTH)
-		glPointSize( 1 )
-		
-		glBegin(GL_POINTS)
-		for i in range(len(self.m_vertices)):
-			v = self.m_vertices[i]
-			#c = self.m_vcolors[i]
-			#glColor4ub(c[0], c[1], c[2], c[3])
-			glVertex3f(v[0], v[1], v[2]);
-		glEnd()
-	
-		glDisable(GL_COLOR_MATERIAL);
-	
-		glPopAttrib();
-		glPopMatrix();
-	
-	def renderSelf(self):
-		glPushMatrix();
-		glPushAttrib(GL_ALL_ATTRIB_BITS);
-	
-		glEnable(GL_COLOR_MATERIAL);
-		glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-	
-		glEnable(GL_POINT_SMOOTH)
-		glPointSize( 1 )
-		
-		# Tworzenie VBO
-		if self.v_vbo is None:
-			self.v_vbo = glGenBuffers(1)
+	def initializeGL(self):
+		# --- przygotuj VBO na punkty (wierzchołki + kolory) ---
+		self.vertex_vbo = glGenBuffers(1)
+		self.color_vbo = glGenBuffers(1)
+
+		self.shader_program = create_program(vertex_shader_name='pointCloud.vert', fragment_shader_name='pointCloud.frag')
+
+		# vertices = np.array(self.m_projected_vertices, dtype=np.float32)
+		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
+		glBufferData(GL_ARRAY_BUFFER, self.m_vertices.nbytes, self.m_vertices, GL_DYNAMIC_DRAW)
+
+		colors = np.array(self.m_vcolors, dtype=np.uint8)
+		glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
+		glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
 			
-		glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
-		glBufferData(GL_ARRAY_BUFFER, self.m_vertices, GL_STATIC_DRAW)
+		glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+		# if self.m_edges:
+		# 	self.edge_vbo = glGenBuffers(1)
+		# 	edge_indices = np.array(self.m_edges, dtype=np.uint32).flatten()
+
+		# 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.edge_vbo)
+		# 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, edge_indices.nbytes, edge_indices, GL_DYNAMIC_DRAW)
+
+		# 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+
+	def renderSelf(self):
+		if not hasattr(self, "shader_program") or self.shader_program is None:
+			self.initializeGL()
 		
-		# Konfiguracja atrybutów wierzchołka
-		glEnableVertexAttribArray(0)  # np. dla pozycji wierzchołka
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
-		
-		# Renderowanie
+		# if self.buf_changed:
+		# 	self.update_vertex_buffer()
+		# 	self.buf_changed = False
+
+		use_uniform_color = len(self.m_vcolors) < len(self.m_vertices)
+
+		# Używaj własnego shader program (przypuśćmy self.shaderProgram)
+		glUseProgram(self.shader_program)
+
+		# --- Punkty ---
+		glEnable(GL_POINT_SMOOTH)
+		glEnable(GL_PROGRAM_POINT_SIZE)
+		glPointSize(1)
+
+		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
+		glEnableVertexAttribArray(0)  # a_position
+		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
+
+		if not use_uniform_color:
+			glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
+			glEnableVertexAttribArray(1)
+			glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, True, 0, None)
+		else:
+			# wyłączam a_color!
+			glDisableVertexAttribArray(1)
+
+		modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32)
+		projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32)
+
+		mvp_loc = glGetUniformLocation(self.shader_program, "u_mvp")
+		glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, modelview @ projection)
+
+		u_use_u_color_loc = glGetUniformLocation(self.shader_program, "u_use_u_color")
+		glUniform1i(u_use_u_color_loc, int(use_uniform_color))			
+
+		u_color_loc = glGetUniformLocation(self.shader_program, "u_color")
+		glUniform4f(u_color_loc, 0.6, 0.6, 0.6, 1.0)			
+
+		# print("Drawing", len(self.m_projected_vertices), "points")
 		glDrawArrays(GL_POINTS, 0, len(self.m_vertices))
 
+		# --- Krawędzie ---
+		# if self.m_edges and len(self.m_edges):
+		# 	glLineWidth(2.0)
+		# 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.edge_vbo)
+		# 	glDrawElements(GL_LINES, len(self.m_edges)*2, GL_UNSIGNED_INT, None)
+
+		# Clean up
 		glBindBuffer(GL_ARRAY_BUFFER, 0)
-	
-		glDisable(GL_POINT_SMOOTH)
-		glDisable(GL_COLOR_MATERIAL);
-	
-		glPopAttrib();
-		glPopMatrix();
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+		glDisableVertexAttribArray(0)
+		glDisableVertexAttribArray(1)
+
+		glUseProgram(0)
+
+
+
+
 
 	def export_as_obj(self, obj_file_name='v:/fast_test.obj'):
 		objFile = open(obj_file_name, 'w')

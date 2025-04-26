@@ -11,11 +11,15 @@ from PyQt5.QtGui import *
 from OpenGL.GL import *
 import numpy as np
 import itertools
-from .shaders import load_and_compile_shader, compile_shader
+from .shaders import create_program
 from numba import njit, prange
 import cupy as cp
+import time
 
-
+import ctypes
+#import cupy.cuda.runtime as cuda_runtime
+#import pycuda.gl as cudagl
+#import pycuda.driver as cuda
 
 
 @njit(parallel=True)
@@ -62,8 +66,6 @@ class NDimCloud(Object):
 		self.m_vertices = np.empty((0, self.m_dimensions), dtype=np.float32)
 		self.m_projected_vertices = np.empty((0, 3), dtype=np.float32)
 		self.m_vcolors = np.empty((0, 4), dtype=np.ubyte)
-		# self.m_vnormals = np.empty((0, self.m_dimensions), dtype=np.float32)
-		# self.m_edges = generate_edges(self.m_vertices)
 		self.m_edges = None
 		self.shader_program = None
 		self.m_current_ix = 30
@@ -96,12 +98,6 @@ class NDimCloud(Object):
 		if pts and isinstance(pts, list) and len(pts) and len(pts[0])==self.m_dimensions:
 			self.m_vertices = np.vstack([self.m_vertices, np.array(pts, dtype=np.float32)])
 
-
-	# def invert_normals(self):
-	# 	if self.m_vnormals.shape[0] == self.m_vertices.shape[0]:
-	# 		self.m_vnormals = -self.m_vnormals
-	# 		return True	
-	# 	return False
 	
 	def getCenterOfWeight(self):
 		if not self.m_vertices:
@@ -151,38 +147,14 @@ class NDimCloud(Object):
 
 			glBindBuffer(GL_ARRAY_BUFFER, 0)
 
-	def create_program(self):
-		# Inicjalizacja i konfiguracja shaderów
-		try:
-			vertex_shader = load_and_compile_shader('nDimCloud.vert', GL_VERTEX_SHADER)
-			fragment_shader = load_and_compile_shader('nDimCloud.frag', GL_FRAGMENT_SHADER)
-		except Exception as e:
-			print( e )
-			return
-		
-		# Tworzenie programu shaderów
-		self.shader_program = glCreateProgram()
-		
-		glAttachShader(self.shader_program, vertex_shader)
-		glAttachShader(self.shader_program, fragment_shader)
-		
-		glLinkProgram(self.shader_program)
-		
-		# Sprawdzanie, czy program został powiązany poprawnie
-		if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
-			print(glGetProgramInfoLog(self.shader_program))
-			raise Exception("Error linking shaders")
-		
-		# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
-		glDeleteShader(vertex_shader)
-		glDeleteShader(fragment_shader)
-
 	def initializeGL(self):
 		# --- przygotuj VBO na punkty (wierzchołki + kolory) ---
 		self.vertex_vbo = glGenBuffers(1)
 		self.color_vbo = glGenBuffers(1)
 
-		self.create_program()
+		#  self.register_vbo_with_cuda()
+
+		self.shader_program = create_program(vertex_shader_name='nDimCloud.vert', fragment_shader_name='nDimCloud.frag')
 
 		# vertices = np.array(self.m_projected_vertices, dtype=np.float32)
 		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
@@ -228,7 +200,7 @@ class NDimCloud(Object):
 		if not use_uniform_color:
 			glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
 			glEnableVertexAttribArray(1)
-			glVertexAttribPointer(1, 3, GL_UNSIGNED_BYTE, True, 0, None)
+			glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, True, 0, None)
 		else:
 			# wyłączam a_color!
 			glDisableVertexAttribArray(1)
@@ -243,7 +215,7 @@ class NDimCloud(Object):
 		glUniform1i(u_use_u_color_loc, int(use_uniform_color))			
 
 		u_color_loc = glGetUniformLocation(self.shader_program, "u_color")
-		glUniform3f(u_color_loc, 0.5, 0.5, 0.5)			
+		glUniform4f(u_color_loc, 0.5, 0.5, 0.5, 1.0)			
 
 		# print("Drawing", len(self.m_projected_vertices), "points")
 		glDrawArrays(GL_POINTS, 0, len(self.m_projected_vertices))
@@ -387,16 +359,73 @@ class NDimCloud(Object):
 		self.update_vertex_buffer()
 
 
+	# def register_vbo_with_cuda(self):
+	# 	if not hasattr(self, 'cuda_vbo_resource') or self.cuda_vbo_resource is None:
+	# 		self.cuda_vbo_resource = cudagl.RegisteredBuffer(int(self.vertex_vbo), cuda.graphics_map_flags.WRITE_DISCARD)
+
+	# def update_vertex_buffer_gpu(self, result_gpu):
+	# 	if not hasattr(self, 'cuda_vbo_resource') or self.cuda_vbo_resource is None:
+	# 		raise RuntimeError("CUDA resource not registered!")
+
+	# 	size_in_bytes = result_gpu.nbytes
+
+	# 	# Mapowanie zasobu
+	# 	mapped_buf = self.cuda_vbo_resource.map()
+
+	# 	try:
+	# 		vbo_ptr, vbo_size = mapped_buf.device_ptr_and_size()
+	# 		src_ptr = result_gpu.data.ptr
+
+	# 		cuda.memcpy_dtod(vbo_ptr, src_ptr, size_in_bytes)
+
+	# 	finally:
+	# 		mapped_buf.unmap()
+
+	def update_vertex_buffer_gpu(self, result_gpu):
+		if hasattr(self, "vertex_vbo") and self.vertex_vbo:
+			glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
+
+			size_in_bytes = result_gpu.nbytes
+
+			# Mapujemy bufor OpenGL do wskaźnika w pamięci GPU
+			ptr = glMapBufferRange(GL_ARRAY_BUFFER, 0, size_in_bytes,
+								GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT)
+
+			if not ptr:
+				raise RuntimeError("Failed to map OpenGL buffer")
+
+			# Wskaźnik do mapped OpenGL buffer
+			dst_ptr = ctypes.c_void_p(ptr)
+
+			# Pobieramy wskaźnik źródłowy do CuPy array
+			src_ptr = result_gpu.data.ptr
+
+			# Kopiujemy pamięć GPU → GPU (cudaMemcpyDeviceToDevice)
+			# cp.cuda.runtime.memcpy(dst_ptr.value, src_ptr, size_in_bytes, cp.cuda.runtime.memcpyDeviceToDevice)
+			cp.cuda.runtime.memcpy(dst_ptr.value, src_ptr, size_in_bytes, cp.cuda.runtime.memcpyDeviceToHost)
+
+			# Odmapuj bufor
+			glUnmapBuffer(GL_ARRAY_BUFFER)
+
+			glBindBuffer(GL_ARRAY_BUFFER, 0)
 
 
 
 	def update_projection_cupy(self, rotation_matrix, d=50.0, blend=0.5):
+		# start = time.perf_counter()
+
 		# Konwertujemy dane do tablicy CuPy
 		vertices_gpu = cp.asarray(self.m_vertices)  # automatyczne przerzucenie na GPU
 		rotation_gpu = cp.asarray(rotation_matrix)
 
+		# print("convertion time", time.perf_counter() - start)
+		# start = time.perf_counter()
+
 		# Obrót
 		rotated = vertices_gpu @ rotation_gpu.T
+
+		# print("rotation time", time.perf_counter() - start)
+		# start = time.perf_counter()
 
 		# Wydzielenie potrzebnych osi
 		x = rotated[:, self.m_real_dims[0]] * self.m_gains[0]
@@ -419,11 +448,27 @@ class NDimCloud(Object):
 
 		result_gpu = cp.stack((x_out, y_out, z_out), axis=-1)
 
+		# print("another operations time", time.perf_counter() - start)
+		# start = time.perf_counter()
+
+
 		# Ściągamy dane z powrotem z GPU do CPU
-		self.m_projected_vertices = cp.asnumpy(result_gpu).astype(np.float32)
+		self.m_projected_vertices = cp.asnumpy(result_gpu) # .astype(np.float32)
+		# self.update_vertex_buffer_gpu(result_gpu)
+
+		# print("copy to buffer time", time.perf_counter() - start)
+		# start = time.perf_counter()
 
 		self.update_vertex_buffer()
 		# self.buf_changed = True
+	
+		# print("update buffer time", time.perf_counter() - start)
+
+# wyniki:
+# convertion time 0.06809849999990547
+# rotation time 0.14803959999699146
+# another operations time 0.040373099996941164
+# copy to buffer time 3.089999518124387e-05
 
 
 	def projectTo3D(self, total = 360):

@@ -13,6 +13,7 @@ from .dockWidgetPluginPanel import DockWidgetPluginPanel
 from .mdiChild import MdiChild
 from .gLViewer import GLViewer
 from .progressIndicator import ProgressIndicator
+import os
 
 
 MAX_NUMBER_OF_RECENT_FILES = 10
@@ -247,30 +248,57 @@ class MainWindow(QMainWindow):
 	def viewChildFS(self):
 		pass
 
+
 	def load_file(self, fileName):
-		import os
+		def display_data(obj):
+			if obj:
+				if isinstance(obj, list) and len(obj)>0:
+					tra = Transform()
+					for kid in obj:
+						tra.addChild(kid)
+				elif isinstance(obj, dpVision.BaseObject):
+					if obj.hasType('Transform'):
+						tra = obj
+					else:
+						tra = Transform()
+						tra.addChild(obj)
+				else:
+					return False
+				
+				self.workspace.m_data.append(tra)
+				self.dock["workspace"].addNewItem(tra)
+				AP.updateAllViews()
+
+				self.update_recent_files(fileName)
+				return True
+			return False
+
+		def on_loading_finished(obj):
+			self.progressIndicator.hide()
+			parser.deleteLater()
+			return display_data(obj)
+
+		def on_loading_error(parser):
+			self.progressIndicator.hide()
+			parser.deleteLater()
+		
 		if not os.path.exists(fileName):
 			print(f"File not exists: {fileName}")
 			return False
-		obj = Parser.load(fileName)
-		if obj:
-			if isinstance(obj, list) and len(obj)>0:
-				tra = Transform()
-				for kid in obj:
-					tra.addChild(kid)
-			elif isinstance(obj, dpVision.BaseObject):
-				if obj.hasType('Transform'):
-					tra = obj
-				else:
-					tra = Transform()
-					tra.addChild(obj)
-			else:
-				return False
+		
+		global parser
+		parser = Parser.get_instance(fileName)
+		if parser is not None:
+			parser.loadingFinished.connect(on_loading_finished)
+			parser.errorOccurred.connect(lambda parser=parser: on_loading_error(parser))
 			
-			self.workspace.m_data.append(tra)
-			self.dock["workspace"].addNewItem(tra)
-			AP.updateAllViews()
-			return True
+			self.progressIndicator.init()
+			self.progressIndicator.cancel_button_pressed.connect(parser.on_stop_loading)
+			
+			parser.load_async(self.progressIndicator.progressBar)
+		else:
+			obj = Parser.load(fileName)
+			return display_data(obj)
 		return False
 
 	@pyqtSlot()

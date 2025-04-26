@@ -42,6 +42,19 @@ class Parser(QObject):
 		return False
 
 	@staticmethod	
+	def get_instance(path):
+		for p in tuple(Parser.parsers):
+			if p.canLoadExt(path=path):
+				if p.is_not_static():
+					return p(path)
+			elif p.check_by_content(path=path):
+				if p.is_not_static():
+					return p(path)
+
+		print(f"File format is not supported yet: {path}")
+		return None
+
+	@staticmethod	
 	def load(path):
 		for p in tuple(Parser.parsers):
 			if p.canLoadExt(path=path):
@@ -65,6 +78,9 @@ class Parser(QObject):
 		return False
 	
 	###### CLASS METHODS #####
+	@classmethod
+	def	is_not_static(cls):
+		return False
 
 	@classmethod
 	def canLoadExt(cls, path=None):

@@ -12,8 +12,8 @@ from OpenGL.GL import *
 import numpy as np
 import itertools
 from .shaders import create_program
-from numba import njit, prange
-import cupy as cp
+#from numba import njit, prange
+#import cupy as cp
 import time
 
 import ctypes
@@ -22,33 +22,33 @@ import ctypes
 #import pycuda.driver as cuda
 
 
-@njit(parallel=True)
-def update_projection_numba(vertices, rotation_matrix, real_dims, gains, d, blend):
-	N = vertices.shape[0]
-	rotated = vertices @ rotation_matrix.T
+# @njit(parallel=True)
+# def update_projection_numba(vertices, rotation_matrix, real_dims, gains, d, blend):
+# 	N = vertices.shape[0]
+# 	rotated = vertices @ rotation_matrix.T
 
-	x = rotated[:, real_dims[0]] * gains[0]
-	y = rotated[:, real_dims[1]] * gains[1]
-	z = rotated[:, real_dims[2]] * gains[2]
+# 	x = rotated[:, real_dims[0]] * gains[0]
+# 	y = rotated[:, real_dims[1]] * gains[1]
+# 	z = rotated[:, real_dims[2]] * gains[2]
 
-	if real_dims[3] >= 0:
-		w = rotated[:, real_dims[3]] * gains[3]
-	else:
-		w = np.zeros(N, dtype=np.float32)
+# 	if real_dims[3] >= 0:
+# 		w = rotated[:, real_dims[3]] * gains[3]
+# 	else:
+# 		w = np.zeros(N, dtype=np.float32)
 
-	result = np.empty((N, 3), dtype=np.float32)
+# 	result = np.empty((N, 3), dtype=np.float32)
 
-	for i in prange(N):
-		factor = d / max(d - w[i], 1e-3)
-		px = x[i] * factor
-		py = y[i] * factor
-		pz = z[i] * factor
+# 	for i in prange(N):
+# 		factor = d / max(d - w[i], 1e-3)
+# 		px = x[i] * factor
+# 		py = y[i] * factor
+# 		pz = z[i] * factor
 
-		result[i, 0] = x[i] * (1 - blend) + px * blend
-		result[i, 1] = y[i] * (1 - blend) + py * blend
-		result[i, 2] = z[i] * (1 - blend) + pz * blend
+# 		result[i, 0] = x[i] * (1 - blend) + px * blend
+# 		result[i, 1] = y[i] * (1 - blend) + py * blend
+# 		result[i, 2] = z[i] * (1 - blend) + pz * blend
 
-	return result
+# 	return result
 
 
 
@@ -411,58 +411,58 @@ class NDimCloud(Object):
 
 
 
-	def update_projection_cupy(self, rotation_matrix, d=50.0, blend=0.5):
-		# start = time.perf_counter()
+	# def update_projection_cupy(self, rotation_matrix, d=50.0, blend=0.5):
+	# 	# start = time.perf_counter()
 
-		# Konwertujemy dane do tablicy CuPy
-		vertices_gpu = cp.asarray(self.m_vertices)  # automatyczne przerzucenie na GPU
-		rotation_gpu = cp.asarray(rotation_matrix)
+	# 	# Konwertujemy dane do tablicy CuPy
+	# 	vertices_gpu = cp.asarray(self.m_vertices)  # automatyczne przerzucenie na GPU
+	# 	rotation_gpu = cp.asarray(rotation_matrix)
 
-		# print("convertion time", time.perf_counter() - start)
-		# start = time.perf_counter()
+	# 	# print("convertion time", time.perf_counter() - start)
+	# 	# start = time.perf_counter()
 
-		# Obrót
-		rotated = vertices_gpu @ rotation_gpu.T
+	# 	# Obrót
+	# 	rotated = vertices_gpu @ rotation_gpu.T
 
-		# print("rotation time", time.perf_counter() - start)
-		# start = time.perf_counter()
+	# 	# print("rotation time", time.perf_counter() - start)
+	# 	# start = time.perf_counter()
 
-		# Wydzielenie potrzebnych osi
-		x = rotated[:, self.m_real_dims[0]] * self.m_gains[0]
-		y = rotated[:, self.m_real_dims[1]] * self.m_gains[1]
-		z = rotated[:, self.m_real_dims[2]] * self.m_gains[2]
+	# 	# Wydzielenie potrzebnych osi
+	# 	x = rotated[:, self.m_real_dims[0]] * self.m_gains[0]
+	# 	y = rotated[:, self.m_real_dims[1]] * self.m_gains[1]
+	# 	z = rotated[:, self.m_real_dims[2]] * self.m_gains[2]
 
-		if self.m_real_dims[3] is not None:
-			w = rotated[:, self.m_real_dims[3]] * self.m_gains[3]
-		else:
-			w = cp.zeros_like(x)
+	# 	if self.m_real_dims[3] is not None:
+	# 		w = rotated[:, self.m_real_dims[3]] * self.m_gains[3]
+	# 	else:
+	# 		w = cp.zeros_like(x)
 
-		factor = d / cp.maximum(d - w, 1e-3)
-		px = x * factor
-		py = y * factor
-		pz = z * factor
+	# 	factor = d / cp.maximum(d - w, 1e-3)
+	# 	px = x * factor
+	# 	py = y * factor
+	# 	pz = z * factor
 
-		x_out = x * (1 - blend) + px * blend
-		y_out = y * (1 - blend) + py * blend
-		z_out = z * (1 - blend) + pz * blend
+	# 	x_out = x * (1 - blend) + px * blend
+	# 	y_out = y * (1 - blend) + py * blend
+	# 	z_out = z * (1 - blend) + pz * blend
 
-		result_gpu = cp.stack((x_out, y_out, z_out), axis=-1)
+	# 	result_gpu = cp.stack((x_out, y_out, z_out), axis=-1)
 
-		# print("another operations time", time.perf_counter() - start)
-		# start = time.perf_counter()
+	# 	# print("another operations time", time.perf_counter() - start)
+	# 	# start = time.perf_counter()
 
 
-		# Ściągamy dane z powrotem z GPU do CPU
-		self.m_projected_vertices = cp.asnumpy(result_gpu) # .astype(np.float32)
-		# self.update_vertex_buffer_gpu(result_gpu)
+	# 	# Ściągamy dane z powrotem z GPU do CPU
+	# 	self.m_projected_vertices = cp.asnumpy(result_gpu) # .astype(np.float32)
+	# 	# self.update_vertex_buffer_gpu(result_gpu)
 
-		# print("copy to buffer time", time.perf_counter() - start)
-		# start = time.perf_counter()
+	# 	# print("copy to buffer time", time.perf_counter() - start)
+	# 	# start = time.perf_counter()
 
-		self.update_vertex_buffer()
-		# self.buf_changed = True
+	# 	self.update_vertex_buffer()
+	# 	# self.buf_changed = True
 	
-		# print("update buffer time", time.perf_counter() - start)
+	# 	# print("update buffer time", time.perf_counter() - start)
 
 # wyniki:
 # convertion time 0.06809849999990547
@@ -480,8 +480,8 @@ class NDimCloud(Object):
 		
 		R = Ry @ Rx
 
-		# self.update_projection_fast(R, d=50)
-		self.update_projection_cupy(R, d=50)
+		self.update_projection_fast(R, d=50)
+		#self.update_projection_cupy(R, d=50)
 
 
 	def on_mouse_move(self, dx, dy):

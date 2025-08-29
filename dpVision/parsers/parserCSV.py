@@ -94,13 +94,13 @@ class ParserCSV(Parser):
 		
 		vertices = np.array(rows, dtype=np.float32)
 
-		# if vertices.shape[1] in (1,2,3):
-		# 	if vertices.shape[1] < 3:
-		# 		vertices = np.pad(vertices, ((0, 0), (0, 3 - vertices.shape[1])), mode='constant')
+		if vertices.shape[1] in (1,2,3):
+			if vertices.shape[1] < 3:
+				vertices = np.pad(vertices, ((0, 0), (0, 3 - vertices.shape[1])), mode='constant')
 
-		# 	cld = PointCloud()
-		# 	cld.m_vertices = vertices
-		# 	return cld
+			cld = PointCloud()
+			cld.m_vertices = vertices
+			return cld
 		
 		if headers is not None and len(headers):
 			cld = NDimCloud(headers=headers)

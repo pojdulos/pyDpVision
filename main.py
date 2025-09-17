@@ -27,6 +27,7 @@ else:
 	AP.mainWin.show()
 
 #######################################################################
+# 
 # dp_testy to mój roboczy moduł służący do testowania różnych rzeczy
 # import do usunięcia w wersji 'produkcyjnej'
 from dp_testy import *

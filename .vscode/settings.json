@@ -1,8 +1,10 @@
 {
+	"better-comments.multilineComments": true,
 	"python.defaultInterpreterPath": ".venv/Scripts/python.exe",
 	"editor.insertSpaces": false,
 	"editor.fontSize": 18,
 	"terminal.integrated.env.linux": {
 		"GTK_PATH": ""
-	}
+	},
+	"better-comments.highlightPlainText": true
 }

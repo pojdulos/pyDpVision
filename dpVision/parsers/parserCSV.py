@@ -20,7 +20,7 @@ class CSVLoaderWorker(QObject):
 	loadingFinished = pyqtSignal(pd.DataFrame)  # sygnał, kiedy wszystko wczytane
 	errorOccurred = pyqtSignal(str)
 
-	def __init__(self, path, chunksize=10000, separator=';'):
+	def __init__(self, path, chunksize=10000, separator=r'[;,\t ]+'):#';'):
 		super().__init__()
 		self.path = path
 		self.chunksize = chunksize
@@ -54,10 +54,10 @@ class CSVLoaderWorker(QObject):
 
 			if check_first_line(self.path, self.separator):
 				# mamy nagłówki
-				df = pd.read_csv(self.path, delimiter=self.separator, chunksize=self.chunksize)
+				df = pd.read_csv(self.path, engine='python', delimiter=self.separator, chunksize=self.chunksize)
 			else:
 				# nie ma nagłówków
-				df = pd.read_csv(self.path, delimiter=self.separator, header=None, chunksize=self.chunksize)
+				df = pd.read_csv(self.path, engine='python', delimiter=self.separator, header=None, chunksize=self.chunksize)
 
 			for chunk in df: #pd.read_csv(self.path, header=None, delimiter=self.separator, chunksize=self.chunksize):
 				if not self._is_running:
@@ -79,7 +79,7 @@ class ParserCSV(Parser):
 	errorOccurred = pyqtSignal() #str)
 
 	descr = 'CSV files'
-	load_exts = ['.csv']
+	load_exts = ['.csv','.dat','.txt']
 	#save_exts = ['.csv']
 
 	def __init__(self, path):
@@ -97,6 +97,31 @@ class ParserCSV(Parser):
 		if vertices.shape[1] in (1,2,3):
 			if vertices.shape[1] < 3:
 				vertices = np.pad(vertices, ((0, 0), (0, 3 - vertices.shape[1])), mode='constant')
+
+			col = 0
+			x = vertices[:, col].astype(float)
+			x = x[np.isfinite(x)]          # opcjonalnie: usuń NaN/Inf
+
+			u = np.unique(x)  # unikalne + posortowane
+			if u.size < 2:
+				min_nonzero = np.inf
+			else:
+				d = np.diff(u)
+				eps = 1e-9
+				# minimalna różnica większa od eps; jeśli brak, wyjdzie inf
+				min_nonzero = d[d > eps].min(initial=np.inf)
+
+			# typical_scale = np.median(np.abs(vertices[:, col]))
+			# print(typical_scale)
+
+			if np.isfinite(min_nonzero) and min_nonzero > eps and min_nonzero < 1.0:
+				print(round(min_nonzero,6))
+				vertices[:, 0] *= 1000.0
+				vertices[:, 1] *= 1000.0
+			else:
+				print(round(min_nonzero,3))
+
+			print(vertices)
 
 			cld = PointCloud()
 			cld.m_vertices = vertices

@@ -234,7 +234,7 @@ def testNd():
 
 
 
-testNd()
+#testNd()
 
 #fast_test_5(512,512,512)
 

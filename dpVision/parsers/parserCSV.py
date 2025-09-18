@@ -1,5 +1,5 @@
 
-from .. import Parser, AP, BaseObject, PointCloud, NDimCloud
+from .. import Parser, AP, BaseObject, PointCloud, NDimCloud, GridData64
 
 import numpy as np
 import os
@@ -14,6 +14,158 @@ import pandas as pd
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 import pandas as pd
+
+
+import numpy as np
+
+
+def check_grid_steps(df, decimals=3):
+    x = df.iloc[:,0].round(decimals).values
+    y = df.iloc[:,1].round(decimals).values
+
+    xs = np.unique(x)
+    ys = np.unique(y)
+
+    dx = np.unique(np.round(np.diff(xs), decimals))
+    dy = np.unique(np.round(np.diff(ys), decimals))
+
+    print("Kroki X:", dx)
+    print("Kroki Y:", dy)
+    return xs, ys
+
+def is_regular_grid(df, decimals=3, tol=1e-6):
+    # bierz kolumny x,y
+    x = df.iloc[:,0].round(decimals).values
+    y = df.iloc[:,1].round(decimals).values
+
+    xs, ys = check_grid_steps(df, decimals)
+    # xs = np.unique(x)
+    # ys = np.unique(y)
+
+    dx = np.diff(xs)
+    dy = np.diff(ys)
+
+    is_regular_x = np.allclose(dx, dx[0], rtol=tol, atol=tol)
+    is_regular_y = np.allclose(dy, dy[0], rtol=tol, atol=tol)
+
+    expected = len(xs) * len(ys)
+    actual = len(df)
+    complete = (expected == actual)
+
+    return is_regular_x and is_regular_y, complete, len(xs), len(ys), expected, actual
+
+def dataframe_to_grid(df, round_decimals=6, auto_unit=True):
+    """
+    Konwertuje DataFrame [x, y, z] na grid 2D.
+    
+    Zwraca:
+        grid       - ndarray (h, w) float32 z wartościami z
+        stepX,stepY- kroki (float64)
+        xs, ys     - unikalne współrzędne (float64)
+        unit_scale - 1.0 (mm) albo 1000.0 (mm->µm)
+    """
+    x = df.iloc[:,0].values.astype(np.float64)
+    y = df.iloc[:,1].values.astype(np.float64)
+    z = df.iloc[:,2].values.astype(np.float64)
+
+    xs = np.unique(x)
+    ys = np.unique(y)
+
+    stepX_raw = (xs[-1] - xs[0]) / (len(xs)-1)
+    stepY_raw = (ys[-1] - ys[0]) / (len(ys)-1)
+
+    unit_scale = 1.0
+    if auto_unit:
+        # heurystyka: jeśli kroki <0.2, to dane są w mm → przeskaluj do µm
+        if stepX_raw < 0.2 or stepY_raw < 0.2:
+            unit_scale = 1000.0
+
+    xs = xs * unit_scale
+    ys = ys * unit_scale
+    x = x * unit_scale
+    y = y * unit_scale
+
+    stepX = float(xs[-1] - xs[0]) / (len(xs)-1)
+    stepY = float(ys[-1] - ys[0]) / (len(ys)-1)
+    stepX = round(stepX, round_decimals)
+    stepY = round(stepY, round_decimals)
+
+    w, h = len(xs), len(ys)
+    grid = np.full((h, w), np.nan, dtype=np.float32)
+
+    x_to_idx = {v:i for i,v in enumerate(xs)}
+    y_to_idx = {v:i for i,v in enumerate(ys)}
+
+    for xi, yi, zi in zip(x, y, z):
+        ix = x_to_idx[xi]
+        iy = y_to_idx[yi]
+        grid[iy, ix] = zi
+
+    return grid, float(stepX), float(stepY), xs, ys, unit_scale
+
+def vertices_to_grid(vertices, round_decimals=6, auto_unit=True):
+    xs = np.unique(vertices[:,0])
+    ys = np.unique(vertices[:,1])
+
+    stepX_raw = (xs[-1] - xs[0]) / (len(xs)-1)
+    stepY_raw = (ys[-1] - ys[0]) / (len(ys)-1)
+
+    unit_scale = 1.0
+    if auto_unit:
+        if stepX_raw < 0.2 or stepY_raw < 0.2:
+            unit_scale = 1000.0  # mm → µm
+
+    xs = xs * unit_scale
+    ys = ys * unit_scale
+    vertices = vertices.copy()
+    vertices[:,0:2] *= unit_scale
+
+    # stepX = round((xs[-1] - xs[0]) / (len(xs)-1), round_decimals)
+    # stepY = round((ys[-1] - ys[0]) / (len(ys)-1), round_decimals)
+
+    stepX = float(xs[-1] - xs[0]) / (len(xs)-1)
+    stepY = float(ys[-1] - ys[0]) / (len(ys)-1)
+    stepX = round(stepX, round_decimals)
+    stepY = round(stepY, round_decimals)
+
+    w, h = len(xs), len(ys)
+    grid = np.full((h, w), np.nan, dtype=np.float32)
+
+    x_to_idx = {v:i for i,v in enumerate(xs)}
+    y_to_idx = {v:i for i,v in enumerate(ys)}
+
+    for x,y,z in vertices:
+        ix = x_to_idx[x]
+        iy = y_to_idx[y]
+        grid[iy, ix] = z
+
+    # <- zwracam stepX, stepY jako Python float (64-bit),
+    # a grid jako float32
+    return grid, float(stepX), float(stepY), xs, ys, unit_scale
+
+
+def detect_decimals_in_csv_xy(path, sep=';', sample_rows=100):
+    max_decimals = 0
+    with open(path, encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if i >= sample_rows:
+                break
+            cells = line.strip().split(sep)
+            if len(cells) < 2:
+                continue
+            for c in cells[:2]:
+                c = c.strip().strip('"')
+                if '.' in c:
+                    try:
+                        float(c)  # upewnij się że to liczba
+                        right = c.split('.', 1)[1].strip()
+                        decimals = len(right)
+                        max_decimals = max(max_decimals, decimals)
+                    except ValueError:
+                        continue
+    return max_decimals if max_decimals > 0 else 6
+
+
 
 class CSVLoaderWorker(QObject):
 	progressChanged = pyqtSignal(int)	  # sygnał do aktualizacji progress bara
@@ -85,18 +237,104 @@ class ParserCSV(Parser):
 	def __init__(self, path):
 		super( ParserCSV, self ).__init__()
 		self.path = path
+		self.round_decimals = detect_decimals_in_csv_xy(path)
 		self._thread = QThread()
 		self._worker = CSVLoaderWorker(path)
 
-	def dataframe_to_object(self, dataframe):
-		headers = dataframe.columns.tolist()
-		rows = dataframe.values.tolist()
-		
-		vertices = np.array(rows, dtype=np.float32)
+	def looks_like_grid(self, df, tol=1e-3, frac_threshold=0.95, completeness_threshold=0.5):
+		x = df.iloc[:,0].round(self.round_decimals).values
+		y = df.iloc[:,1].round(self.round_decimals).values
 
-		if vertices.shape[1] in (1,2,3):
-			if vertices.shape[1] < 3:
-				vertices = np.pad(vertices, ((0, 0), (0, 3 - vertices.shape[1])), mode='constant')
+		xs = np.unique(x)
+		ys = np.unique(y)
+
+		if len(xs) < 2 or len(ys) < 2:
+			return False, None, None, len(xs), len(ys), 0.0
+
+		dx = np.round(np.diff(xs), self.round_decimals)
+		dy = np.round(np.diff(ys), self.round_decimals)
+
+		stepX = np.median(dx)
+		stepY = np.median(dy)
+
+		frac_x = np.mean(dx == stepX)
+		frac_y = np.mean(dy == stepY)
+
+		is_regular_x = frac_x >= frac_threshold
+		is_regular_y = frac_y >= frac_threshold
+
+		completeness = len(df) / (len(xs) * len(ys))
+
+		is_grid = (is_regular_x and is_regular_y and completeness >= completeness_threshold)
+
+		print(f"stepX: {stepX}, stepY: {stepY}, frac_x={frac_x:.6f}, frac_y={frac_y:.6f}, completeness={completeness:.3f}, is_grid={is_grid}")
+
+		return is_grid, stepX, stepY, len(xs), len(ys), completeness
+
+
+
+	def dataframe_to_grid(self, df, auto_unit=True):
+		"""
+		Konwertuje DataFrame [x, y, z] na grid 2D.
+		
+		Zwraca:
+			grid       - ndarray (h, w) float32 z wartościami z
+			stepX,stepY- kroki (float64)
+			xs, ys     - unikalne współrzędne (float64)
+			unit_scale - 1.0 (mm) albo 1000.0 (mm->µm)
+		"""
+		x = df.iloc[:,0].values.astype(np.float64)
+		y = df.iloc[:,1].values.astype(np.float64)
+		z = df.iloc[:,2].values.astype(np.float64)
+
+		# Zaokrąglamy do wykrytej liczby miejsc (self.round_decimals)
+		x = np.round(x, self.round_decimals)
+		y = np.round(y, self.round_decimals)
+
+		xs = np.unique(x)
+		ys = np.unique(y)
+
+		xs = np.round(xs, self.round_decimals)
+		ys = np.round(ys, self.round_decimals)
+
+		# typowe kroki w osi X i Y
+		stepX_raw = np.median(np.diff(xs))
+		stepY_raw = np.median(np.diff(ys))
+
+		unit_scale = 1.0
+		if auto_unit:
+			# heurystyka: jeśli krok <0.2, to dane są w mm → przeskaluj do µm
+			if stepX_raw < 0.2 or stepY_raw < 0.2:
+				unit_scale = 1000.0
+
+		xs = xs * unit_scale
+		ys = ys * unit_scale
+		x = x * unit_scale
+		y = y * unit_scale
+
+		stepX = np.median(np.diff(xs))
+		stepY = np.median(np.diff(ys))
+		stepX = round(stepX, self.round_decimals)
+		stepY = round(stepY, self.round_decimals)
+
+		w, h = len(xs), len(ys)
+		grid = np.full((h, w), np.nan, dtype=np.float32)
+
+		x_to_idx = {v:i for i,v in enumerate(xs)}
+		y_to_idx = {v:i for i,v in enumerate(ys)}
+
+		for xi, yi, zi in zip(x, y, z):
+			ix = x_to_idx[xi]
+			iy = y_to_idx[yi]
+			grid[iy, ix] = zi
+
+		return grid, float(stepX), float(stepY), xs, ys, unit_scale
+
+	def dataframe_to_pointcloud(self, vertices):
+		ndims = vertices.shape[1]
+		if ndims in (1,2,3):
+			if ndims < 3:
+				vertices = np.pad(vertices, ((0, 0), (0, 3 - ndims)), mode='constant')
 
 			col = 0
 			x = vertices[:, col].astype(float)
@@ -121,20 +359,42 @@ class ParserCSV(Parser):
 			else:
 				print(round(min_nonzero,3))
 
-			print(vertices)
-
 			cld = PointCloud()
 			cld.m_vertices = vertices
 			return cld
-		
-		if headers is not None and len(headers):
-			cld = NDimCloud(headers=headers)
-		else:
-			cld = NDimCloud(dims=len(rows[0]))
-		cld.m_vertices = vertices
 
-		cld.projectTo3D()
-		return cld
+	def dataframe_to_object(self, dataframe):
+		ncols = dataframe.shape[1]
+		headers = dataframe.columns.tolist()
+
+		# --- przypadek 1: wielowymiarowe dane ---
+		if ncols > 3 or (headers is not None and len(headers) > 0 and ncols > 3):
+			print("Dane wyglądają na wielowymiarowe -> NDimCloud")
+			if headers:
+				cld = NDimCloud(headers=headers)
+			else:
+				cld = NDimCloud(dims=ncols)
+			cld.m_vertices = dataframe.values.astype(np.float32)
+			cld.projectTo3D()
+			return cld
+
+		# --- przypadek 2: kandydat na grid / chmurę punktów ---
+		ok, stepX, stepY, nx, ny, cpl = self.looks_like_grid(dataframe, tol=1e-3)
+
+		if ok:
+			print(f"To wygląda na grid {nx}×{ny}, stepX={stepX}, stepY={stepY}")
+			grid, stepX, stepY, xs, ys, scale = self.dataframe_to_grid(dataframe)
+			
+			if scale != 1.0:
+				print(f"[INFO] Dane w mm, przeskalowano do µm (unit_scale={scale})")
+
+			return GridData64(grid, stepX=stepX, stepY=stepY)
+
+		# --- przypadek 3: zwykła chmura punktów ---
+		print("To nie jest regularny grid -> PointCloud")
+		vertices = dataframe.values.astype(np.float32)
+		return self.dataframe_to_pointcloud(vertices)
+
 
 	def on_loading_finished(self, dataframe):
 		self._thread.quit()
@@ -144,7 +404,6 @@ class ParserCSV(Parser):
 
 		print("Dane załadowane!", dataframe.shape)
 
-		print(f"pd.dataframe.columns: {dataframe.columns}, pd.dataframe.values: {dataframe.values}")
 		obj = self.dataframe_to_object(dataframe)
 		self.loadingFinished.emit(obj)
 
@@ -209,16 +468,23 @@ class ParserCSV(Parser):
 
 			return header, df.values
 		
+
+
 		headers, rows = read_csv_with_optional_header(path)
 		# print(headers,rows)
 		vertices = np.array(rows, dtype=np.float32)
 
-		if vertices.shape[1] in (1,2,3):
-			if vertices.shape[1] < 3:
-				vertices = np.pad(vertices, ((0, 0), (0, 3 - vertices.shape[1])), mode='constant')
+		ndims = vertices.shape[1]
+		if ndims in (1,2,3):
+			if ndims < 3:
+				vertices = np.pad(vertices, ((0, 0), (0, 3 - ndims)), mode='constant')
 
-			cld = PointCloud()
-			cld.m_vertices = vertices
+			if ndims > 1:
+				grid, stepX, stepY, xs, ys, unit_scale = vertices_to_grid(vertices)
+				cld = GridData64(grid, stepX=stepX, stepY=stepY)
+			else:
+				cld = PointCloud()
+				cld.m_vertices = vertices
 			return cld
 		
 		if headers is not None and len(headers):

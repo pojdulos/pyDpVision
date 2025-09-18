@@ -49,6 +49,7 @@ class DockWidgetProperties(QDockWidget):
 			Object: {
 				'Transform': PropTransform,
 				'Mesh' : PropMesh,
+				#'PointCloud' : PropMesh,
 				'NDimCloud': PropNDimCloud,
 				'Motion': PropMotion,
 				'Volumetric': PropVolumetric,

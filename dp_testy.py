@@ -238,3 +238,42 @@ def testNd():
 
 #fast_test_5(512,512,512)
 
+# import numpy as np
+# from dpVision.gridData import GridData
+
+# import numpy as np
+
+# def make_grid(shape=(128, 128), kind="sinus_with_holes"):
+#     h, w = shape
+#     y = np.linspace(-2*np.pi, 2*np.pi, h, dtype=np.float32)
+#     x = np.linspace(-2*np.pi, 2*np.pi, w, dtype=np.float32)
+#     X, Y = np.meshgrid(x, y)
+
+#     if kind == "sinus":
+#         Z = np.sin(X) * np.cos(Y)
+#     elif kind == "hill":
+#         Z = np.exp(-0.1*(X**2 + Y**2))
+#     elif kind == "saddle":
+#         Z = X**2 - Y**2
+#     elif kind == "sinus_with_holes":
+#         Z = np.sin(X) * np.cos(Y)
+#         # dodaj brakujące fragmenty:
+#         Z[(np.abs(X) < 1.0) & (np.abs(Y) < 1.0)] = np.nan   # dziura w centrum
+#         Z[(X > 3) & (Y > 0)] = np.nan                      # dziura w rogu
+#     else:
+#         Z = np.zeros_like(X)
+
+#     stepX = (x[-1] - x[0]) / (w - 1)
+#     stepY = (y[-1] - y[0]) / (h - 1)
+
+#     return Z.astype(np.float32), stepX, stepY
+
+
+# grid, stepX, stepY = make_grid((128, 128), kind="sinus_with_holes")
+# gldata = GridData(grid, stepX, stepY)
+
+# tra2 = Transform()
+# if not tra2 is None:
+# 	tra2.addChild(gldata)
+
+# AP.addObject(tra2)

@@ -8,6 +8,7 @@ from .annotationSphere import AnnotationSphere
 from .annotationTriangle import AnnotationTriangle
 from .baseObject import BaseObject
 from .globals import Globals, AP
+from .gridData64 import GridData64
 from .image import Image
 from .nDimCloud import NDimCloud
 from .mainApplication import MainApplication
@@ -30,6 +31,7 @@ __all__ = [
 			"AnnotationPath", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
 		    "BaseObject",
 			"Globals", "AP",
+			"GridData64",
 			"Image",
 			"MainApplication",
 			"Face", "Mesh",

@@ -17,7 +17,7 @@ class GridData64(Object):
 		self.m_grid64 = grid.astype(np.float64)
 		self.stepX = stepX
 		self.stepY = stepY
-		self.use_uniform_color = True
+		self.use_uniform_color = False
 		self.uniform_color = [0.0,0.0,1.0]
 		self.use_mesh = False
 		

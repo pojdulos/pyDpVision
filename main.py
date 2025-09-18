@@ -5,7 +5,7 @@ from dpVision import AP, MainApplication
 from dpVision.gui import MainWindow
 from dpVision.parsers import *
 import locale
-		
+
 locale.setlocale(locale.LC_NUMERIC, 'pl_PL.UTF-8')
 
 MainApplication.setOrganizationName('IITiS PAN')

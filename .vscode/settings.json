@@ -6,5 +6,6 @@
 	"terminal.integrated.env.linux": {
 		"GTK_PATH": ""
 	},
-	"better-comments.highlightPlainText": true
+	"better-comments.highlightPlainText": true,
+	"python.analysis.typeCheckingMode": "off"
 }

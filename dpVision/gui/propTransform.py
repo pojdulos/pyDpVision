@@ -91,6 +91,7 @@ class PropTransform(PropWidget):
 		self.showScrewCheckBox.setChecked(m_trans.m_show_screw)
 
 		tra = m_trans.getTranslation()
+		print(f"translation: {tra}")
 		self.transX.setValue(tra[0])
 		self.transY.setValue(tra[1])
 		self.transZ.setValue(tra[2])
@@ -128,14 +129,11 @@ class PropTransform(PropWidget):
 		if isinstance(edit, QDoubleSpinBox):
 			old = m_trans.getTranslation()
 			if edit == self.transX:
-				diff = d-old[0]
-				m_trans.translate(diff,0,0)
+				m_trans.setTranslation(d, old[1], old[2])
 			elif edit == self.transY:
-				diff = d-old[1]
-				m_trans.translate(0,diff,0)
+				m_trans.setTranslation(old[0], d, old[2])
 			elif edit == self.transZ:
-				diff = d-old[2]
-				m_trans.translate(0,0,diff)
+				m_trans.setTranslation(old[0], old[1], d)
 			AP.updateAllViews()
 
 	def changedSca(self,d):

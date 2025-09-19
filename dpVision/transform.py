@@ -81,9 +81,6 @@ class Transform(Object):
 		if origin:
 			self.matrix.translate(-origin[0], -origin[1], -origin[2])
 
-	def scale(self, sx, sy, sz):
-		self.matrix.scale(sx, sy, sz)
-
 	def reset(self):
 		self.matrix.setToIdentity()
 
@@ -120,7 +117,43 @@ class Transform(Object):
 		return np.linalg.inv(self.rotationMatrix())
 
 	def getTranslation(self):
-		return [self.matrix[0, 3], self.matrix[1, 3], self.matrix[2, 3]]
+		return [self.matrix.column(3).x(),
+				self.matrix.column(3).y(),
+				self.matrix.column(3).z()]
+
+	# def setTranslation(self, tx, ty, tz):
+	# 	self.matrix.setColumn(3, [tx, ty, tz, 1.0])
+
+	# def setTranslation(self, tx, ty, tz):
+	# 	old = self.getTranslation()
+	# 	self.translate(tx - old[0], ty - old[1], tz - old[2])
+
+
+	def setTranslation(self, tx, ty, tz):
+		# --- 1. Pobierz kolumny bazowe (zawierają rotację i skalę) ---
+		col0 = self.matrix.column(0).toVector3D()
+		col1 = self.matrix.column(1).toVector3D()
+		col2 = self.matrix.column(2).toVector3D()
+
+		# --- 2. Oblicz skale i normalizuj ---
+		scx = col0.length()
+		scy = col1.length()
+		scz = col2.length()
+
+		if scx != 0: col0 /= scx
+		if scy != 0: col1 /= scy
+		if scz != 0: col2 /= scz
+
+		# --- 3. Złóż nową macierz ---
+		new_matrix = QMatrix4x4()
+		new_matrix.setColumn(0, QVector4D(col0.x()*scx, col0.y()*scx, col0.z()*scx, 0))
+		new_matrix.setColumn(1, QVector4D(col1.x()*scy, col1.y()*scy, col1.z()*scy, 0))
+		new_matrix.setColumn(2, QVector4D(col2.x()*scz, col2.y()*scz, col2.z()*scz, 0))
+		new_matrix.setColumn(3, QVector4D(tx, ty, tz, 1.0))
+
+		self.matrix = new_matrix
+
+
 
 	# def getScale(self):
 	# 	scaleX = math.sqrt(self.matrix[0, 0]**2 + self.matrix[0, 1]**2 + self.matrix[0, 2]**2)
@@ -134,8 +167,53 @@ class Transform(Object):
 	# 	scale_z = (self.matrix.row(2).toVector3D()).length()
 	# 	return [scale_x, scale_y, scale_z]
 
+	# def getScale(self):
+	# 	return [self.matrix.row(i).toVector3D().length() for i in range(3)]
+
 	def getScale(self):
-		return [self.matrix.row(i).toVector3D().length() for i in range(3)]
+		return [
+			self.matrix.column(0).toVector3D().length(),
+			self.matrix.column(1).toVector3D().length(),
+			self.matrix.column(2).toVector3D().length(),
+		]
+
+	def scale(self, sx, sy, sz):
+		self.matrix.scale(sx, sy, sz)
+
+	def setScale(self, sx, sy, sz):
+		sc = self.getScale()
+		dsx, dsy, dsz = sx / sc[0], sy / sc[1], sz / sc[2]
+		self.matrix.scale(dsx, dsy, dsz)
+
+	# def _setScale(matrix: QMatrix4x4, sx: float, sy: float, sz: float):
+	# 	# 1. pobierz kolumny bazowe (X, Y, Z)
+	# 	col0 = QVector3D(matrix.column(0).toVector3D())
+	# 	col1 = QVector3D(matrix.column(1).toVector3D())
+	# 	col2 = QVector3D(matrix.column(2).toVector3D())
+
+	# 	# 2. oblicz bieżące skale
+	# 	scx = col0.length()
+	# 	scy = col1.length()
+	# 	scz = col2.length()
+
+	# 	# 3. normalizuj kolumny (zostaje czysta rotacja)
+	# 	if scx != 0: col0 /= scx
+	# 	if scy != 0: col1 /= scy
+	# 	if scz != 0: col2 /= scz
+
+	# 	# 4. przemnoż przez nowe skale
+	# 	col0 *= sx
+	# 	col1 *= sy
+	# 	col2 *= sz
+
+	# 	# 5. wpisz kolumny z powrotem do macierzy
+	# 	for i in range(3):
+	# 		matrix.setColumn(i, [col0[i], col1[i], col2[i], matrix.column(i).w()])
+
+	# 	return matrix
+
+	# def setScale(self, sx, sy, sz):
+	# 	self.matrix = Transform._setScale(self.matrix, sx, sy, sz)
 
 	def fromEulerAngles(self, roll, pitch, yaw):
 		m = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=True).as_matrix()

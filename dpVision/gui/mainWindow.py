@@ -264,6 +264,9 @@ class MainWindow(QMainWindow):
 						tra.addChild(obj)
 				else:
 					return False
+
+				tra.label = os.path.basename(fileName)
+				print(f"Loaded: {fileName} as {obj.__class__.__name__}, label: {tra.label}")
 				
 				self.workspace.m_data.append(tra)
 				self.dock["workspace"].addNewItem(tra)

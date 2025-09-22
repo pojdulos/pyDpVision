@@ -218,79 +218,85 @@ class GLViewer(QOpenGLWidget):
 			glOrtho( self._left, self._right, self._bottom, self._top, self._near, self._far )
 
 
-	def rotate(self,dx,dy):
+	def rotate(self, dx, dy):
 		xAngle = dy * 0.4
 		yAngle = dx * 0.4
-		# zAngle = 0.0
 
-		invrot = self.transform.invertedMatrix()
+		# osie ekranu wyliczone z kamery
+		forward = np.array(self._camera.dir, dtype=float)   # Z ekranu
+		forward /= np.linalg.norm(forward)
+
+		up = np.array(self._camera.up, dtype=float)         # Y ekranu
+		up /= np.linalg.norm(up)
+
+		right = np.cross(forward, up)                       # X ekranu
+		right /= np.linalg.norm(right)
 
 		obj = self.mainWindow.workspace.m_currentObject
 		if obj is None:
-			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0, 0.0]))
-			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0, 0.0]))
-			self.transform.rotate( yAngle, yAxis )
-			self.transform.rotate( xAngle, xAxis )
-			self.update()
+			# obrót całej sceny (kamera)
+			self.transform.rotate(yAngle, up)    # obrót lewo/prawo
+			self.transform.rotate(xAngle, right) # obrót góra/dół
 			self.transformChanged.emit(self)
-		elif obj.__class__.__name__ == 'Transform':
-			invrot = np.dot(obj.invertedMatrix(),invrot)
-			xAxis = np.dot(invrot, np.array([1.0, 0.0, 0.0, 0.0]))
-			yAxis = np.dot(invrot, np.array([0.0, 1.0, 0.0, 0.0]))
-			obj.rotate2( yAngle, yAxis )
-			obj.rotate2( xAngle, xAxis )
-			self.update()
+		elif isinstance(obj, Transform):
+			# obrót obiektu w screen-space
+			obj.rotate(yAngle, up)
+			obj.rotate(xAngle, right)
 			self.transformChanged.emit(obj)
 
-	def translate(self,dx,dy,dz=0.0):
-		invrot = self.transform.invertedMatrix()
-		obj = self.mainWindow.workspace.m_currentObject
-		if obj is None:
-			move = np.dot(invrot, np.array([dx, dy, dz, 0.0 ]))
-			self.transform.translate(move[0],move[1],move[2])
-			self.transformChanged.emit(self)
-		elif obj.__class__.__name__ == 'Transform':	
-			invrot = np.dot(obj.invertedMatrix(), invrot)
-			move = np.dot(invrot, np.array([dx, dy, dz, 0.0 ]))
-			obj.translate(move[0],move[1],move[2])
-			self.transformChanged.emit(obj)
 		self.update()
-		
+
+	def translate(self, dx, dy, dz=0.0):
+		# osie kamery (ekranowe)
+		forward = np.array(self._camera.dir, dtype=float)   # oś Z ekranu
+		forward /= np.linalg.norm(forward)
+
+		up = np.array(self._camera.up, dtype=float)         # oś Y ekranu
+		up /= np.linalg.norm(up)
+
+		right = np.cross(forward, up)                       # oś X ekranu
+		right /= np.linalg.norm(right)
+
+		# ruch w układzie ekranu
+		move = dx * right + dy * up + dz * forward
+
+		obj = self.mainWindow.workspace.m_currentObject
+		if obj is None:
+			# przesuwanie kamery
+			self.transform.translate(*move)
+			self.transformChanged.emit(self)
+		elif isinstance(obj, Transform):
+			# przesuwanie obiektu w układzie ekranu (nie w lokalnym!)
+			obj.translate(*move)
+			self.transformChanged.emit(obj)
+
+		self.update()
+
 	
 	def mouseMoveEvent(self, event):
-		if not (self.lastPos is None):
+		if self.lastPos is not None:
 			dx = float(event.pos().x()) - float(self.lastPos.x())
 			dy = float(event.pos().y()) - float(self.lastPos.y())
 
-			# if event.buttons() & Qt.MouseButton.LeftButton:
-			# 	self.rotate(dx, dy)
-			# elif event.buttons() & Qt.MouseButton.RightButton:
-			# 	self.translate( dx/5, -dy/5, 0.0 )
-		
 			if event.buttons() & Qt.MouseButton.LeftButton:
 				modifiers = QApplication.keyboardModifiers()
 				if modifiers == Qt.ShiftModifier:
-					self.translate( 0.0, 0.0, -dy/5 )
-					#print('Shift+MouseMove')
+					# zoom (przód/tył wzdłuż osi kamery)
+					self.translate(0.0, 0.0, -dy / 5.0)
 				elif modifiers == Qt.ControlModifier:
-					self.translate( dx/5, -dy/5, 0.0 )
-					#print('Control+MouseMove')
+					# przesuwanie w płaszczyźnie ekranu
+					self.translate(dx / 5.0, -dy / 5.0, 0.0)
 				else:
+					# obrót
 					self.rotate(dx, dy)
-					#print('MouseMove')
+
 			elif event.buttons() & Qt.MouseButton.RightButton:
 				obj = self.mainWindow.workspace.m_currentObject
 				if obj is not None:
 					obj.on_mouse_move(dx, dy)
 
-		#x_angle, y_angle, z_angle = self.transform.getEulerAnglesDeg()
-		#print("Kąty Eulera:", x_angle, y_angle, z_angle)
-		#print("Wektor translacji:", self.transform.getTranslation())
-		#print("Wektor skali:", self.transform.getScale())
-		
 		self.lastPos = event.pos()
-		#self.mainWindow.dock["properties"].m_widget.updateProperties()
-		self.mouseMovedSignal.emit((self,event))
+		self.mouseMovedSignal.emit((self, event))
 		
 
 	def mousePressEvent(self, event ):

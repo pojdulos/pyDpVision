@@ -58,7 +58,7 @@ class PointCloud(Object):
 		return ctr
 
 	def getBB(self):
-		_b, _min, _max = Object.getBB()  # Pobieranie BB z klasy nadrzędnej
+		_b, _min, _max = Object.getBB(self)  # Pobieranie BB z klasy nadrzędnej
 		if _b:  # Jeśli BB istnieje w klasie nadrzędnej
 			if len(self.m_vertices) > 0:  # Sprawdzenie, czy są wierzchołki w aktualnej klasie
 				_min = [min(dim) for dim in zip(_min, *self.m_vertices)]

@@ -19,6 +19,8 @@ class	PropTransform(PropWidget):
 		AP.loadUi('propTransform.ui', self)
 		#self.createUI()
 
+		self.obj_ref = weakref.ref(_obj)
+
 		self.treeView.setVisible(False)
 		self.resize(self.layout().sizeHint())
 
@@ -29,16 +31,11 @@ class	PropTransform(PropWidget):
 		self.quatY.setEnabled(True)
 		self.quatZ.setEnabled(True)
 
-		self.scaleCheck.setChecked(_obj.m_lock_scale) # domyślnie "lock aspect ratio"
-		self.scaleY.setEnabled(not _obj.m_lock_scale)
-		self.scaleZ.setEnabled(not _obj.m_lock_scale)
-
 		self.quatW.valueChanged.connect(self.changedQua)
 		self.quatX.valueChanged.connect(self.changedQua)
 		self.quatY.valueChanged.connect(self.changedQua)
 		self.quatZ.valueChanged.connect(self.changedQua)
 
-		self.obj_ref = weakref.ref(_obj)
 
 	@staticmethod
 	def	create(m, parent=0):
@@ -107,16 +104,19 @@ class	PropTransform(PropWidget):
 		self.scaleX.setValue(s[0])
 		self.scaleY.setValue(s[1])
 		self.scaleZ.setValue(s[2])
-		#	self.scaleCheck.setChecked(True)
+
+		self.scaleCheck.setChecked(m_trans.m_lock_scale) # domyślnie "lock aspect ratio"
+		self.scaleY.setEnabled(not m_trans.m_lock_scale)
+		self.scaleZ.setEnabled(not m_trans.m_lock_scale)
 
 		self.showScrewCheckBox.setChecked(m_trans.m_show_screw)
 
-		tra	=	m_trans.getTranslation()
-		print(f"translation:	{tra}")
+		tra	= m_trans.getTranslation()
+		print(f"translation: {tra}")
 		self.transX.setValue(tra[0])
 		self.transY.setValue(tra[1])
 		self.transZ.setValue(tra[2])
-		for	i	in	w:	i.blockSignals(False)
+		for	i in w: i.blockSignals(False)
 
 
 	def changedEul(self, d):

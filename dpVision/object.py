@@ -50,3 +50,7 @@ class Object(BaseObject):
 
 		return _b, _min, _max
 
+	def getMidpoint(self):
+		_b, _min, _max = self.getBB()
+		ctr = [(m1 + m2) / 2 for m1, m2 in zip(_min, _max)]
+		return ctr

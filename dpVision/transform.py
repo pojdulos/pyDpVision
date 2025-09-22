@@ -118,12 +118,41 @@ class Transform(Object):
 		self.m_translation += [dx, dy, dz]
 		self.updateMatrix()
 
+
+
 	def rotate(self, angle, axis, origin=None):
-		axis = np.array(axis, dtype=np.float64).ravel()[:3]
-		rot = Rotation.from_rotvec(np.radians(angle) * axis)
-		self.m_rotation = rot * self.m_rotation
-		if origin is not None:
-			self.m_translation += np.array(origin[:3], dtype=np.float64)
+		"""
+		Obraca transformację wokół zadanej osi w układzie globalnym.
+		:param angle: kąt obrotu w stopniach (możesz zmienić na radiany jeśli wolisz)
+		:param axis: lista/ndarray [x, y, z] – oś obrotu
+		:param origin: lista/ndarray [x, y, z], pivot wokół którego obracamy
+		"""
+		# normalizacja osi
+		axis = np.asarray(axis, dtype=float)
+		axis /= np.linalg.norm(axis)
+
+		# scipy używa radianów
+		angle_rad = np.radians(angle)
+
+		# nowy obrót jako obiekt Rotation
+		R = Rotation.from_rotvec(axis * angle_rad)
+
+		if origin is None:
+			# obrót tylko orientacji
+			self.m_rotation = R * self.m_rotation
+		else:
+			origin = np.asarray(origin, dtype=float)
+
+			# przesunięcie do pivotu
+			self.m_translation -= origin
+
+			# obrót zarówno rotacji, jak i translacji
+			self.m_translation = R.apply(self.m_translation)
+			self.m_rotation = R * self.m_rotation
+
+			# powrót z pivotu
+			self.m_translation += origin
+
 		self.updateMatrix()
 
 	def scale(self, sx, sy, sz):
@@ -171,3 +200,4 @@ class Transform(Object):
 					raise ValueError("Nieprawidłowa liczba wartości w schowku")
 			except ValueError as e:
 				print("Błąd konwersji wartości: ", e)
+

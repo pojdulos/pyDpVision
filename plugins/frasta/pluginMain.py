@@ -9,7 +9,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from dpVision import AP, PluginInterface, Parser, BaseObject
+from dpVision import AP, PluginInterface, Parser, BaseObject, Transform
 from dpVision.parsers import ParserCSV
 from .profileViewer import ProfileViewer
 
@@ -20,6 +20,13 @@ class Frasta(PluginInterface):
 	def __init__(self):
 		self.plugin_name = '(dp) Frasta'
 		self.panel = None
+		self.scale_transform = Transform()
+		self.scale_transform.setScale(0.01, 0.01, 0.01)  # skalowanie skanów
+		self.adj_transform = Transform()
+		self.scale_transform.addChild(self.adj_transform)
+		self.ref_grid = None
+		self.adj_grid = None
+		AP.addObject(self.scale_transform)
 
 	def on_load(self):
 		print( f"plugin {self.plugin_name} loaded.")
@@ -84,15 +91,15 @@ class Frasta(PluginInterface):
 		print(f"REF: old={old}, new={new}")
 
 		old_obj = old() if old else None
-		if old_obj is not None:
-			grid_data = old_obj.m_data[0]
-			grid_data.uniform_color = [0.6,0.6,0.6]
+		if old_obj is not None and self.ref_grid is not None:
+			self.ref_grid.uniform_color = [0.6,0.6,0.6]
+			old_obj.addChild(self.ref_grid)
 
 		new_obj = new() if new else None
 		if new_obj is not None:
-			new_obj.setScale(0.005, 0.005, 0.005)
-			grid_data = new_obj.m_data[0]
-			grid_data.uniform_color = [0.0,1.0,0.0]
+			self.ref_grid = new_obj.m_data[0]
+			self.ref_grid.uniform_color = [0.0,1.0,0.0]
+			self.scale_transform.addChild(self.ref_grid)
 
 		# odblokuj wszystkie w drugim
 		for i in range(self.seladj.count()):
@@ -103,6 +110,7 @@ class Frasta(PluginInterface):
 		if idx >= 0 and self.seladj.model().item(idx) is not None:
 			self.seladj.model().item(idx).setEnabled(False)
 
+		AP.mainWin.dock["workspace"].rebuildTree()
 		AP.mainWin.update()
 		AP.updateAllViews()
 
@@ -116,15 +124,15 @@ class Frasta(PluginInterface):
 		print(f"ADJ: old={old}, new={new}")
 
 		old_obj = old() if old else None
-		if old_obj is not None:
-			grid_data = old_obj.m_data[0]
-			grid_data.uniform_color = [0.6,0.6,0.6]
+		if old_obj is not None and self.adj_grid is not None:
+			self.adj_grid.uniform_color = [0.6,0.6,0.6]
+			old_obj.addChild(self.adj_grid)
 
 		new_obj = new() if new else None
 		if new_obj is not None:
-			new_obj.setScale(0.005, 0.005, 0.005)
-			grid_data = new_obj.m_data[0]
-			grid_data.uniform_color = [0.0,0.0,1.0]
+			self.adj_grid = new_obj.m_data[0]
+			self.adj_grid.uniform_color = [0.0,0.0,1.0]
+			self.adj_transform.addChild(self.adj_grid)
 
 		# odblokuj wszystkie w pierwszym
 		for i in range(self.selref.count()):
@@ -135,6 +143,7 @@ class Frasta(PluginInterface):
 		if idx >= 0 and self.selref.model().item(idx) is not None:
 			self.selref.model().item(idx).setEnabled(False)
 
+		AP.mainWin.dock["workspace"].rebuildTree()
 		AP.mainWin.update()
 		AP.updateAllViews()
 
@@ -290,19 +299,8 @@ class Frasta(PluginInterface):
 			self.seladj.setCurrentIndex(adj_idx)
 
 	def onAction_profile_view(self):
-		ref = self.selref.itemData(self.selref.currentIndex())
-		adj = self.seladj.itemData(self.seladj.currentIndex())
-
-		if ref is None or adj is None:
-			return
-
-		self._old_adj = None
-		self._old_ref = None	
-
-		ref_obj = ref().m_data[0]
-		adj_obj = adj().m_data[0]
-		grid1 = ref_obj.m_grid64
-		grid2 = adj_obj.m_grid64
+		grid1 = self.ref_grid.m_grid64.copy()
+		grid2 = self.adj_grid.m_grid64.copy()
 
 		if grid1.shape != grid2.shape:
 			h = min(grid1.shape[0], grid2.shape[0])
@@ -325,35 +323,22 @@ class Frasta(PluginInterface):
 
 		self._profile_viewer.set_data(
 			grid1, grid2,
-			ref_obj.stepX, ref_obj.stepY,
-			adj_obj.stepX, adj_obj.stepY
+			self.ref_grid.stepX, self.ref_grid.stepY,
+			self.adj_grid.stepX, self.adj_grid.stepY
 		)
 		self._profile_viewer.show()
 		self._profile_viewer.raise_()
 		self._profile_viewer.activateWindow()
 
 	def onAction_RotY(self):
-		ref = self.seladj.currentData()
-		obj = ref() if ref else None
-		if obj is None:
+		if self.adj_grid is None:
 			print("No object selected in Adj")
 			return
-		else:
-			print(f"Selected object in Adj: {obj.label}")
-		
-		#if not isinstance(obj, BaseObject):
-		#	print("Selected object is not a BaseObject")
 	
-	
-		grid_data = obj.m_data[0]
-		grid_data.m_grid64 = np.flipud(grid_data.m_grid64)
-		grid_data.m_grid64 = -grid_data.m_grid64
-		grid_data.upload_to_gpu()
+		self.adj_grid.m_grid64 = np.flipud(self.adj_grid.m_grid64)
+		self.adj_grid.m_grid64 = -self.adj_grid.m_grid64
+		self.adj_grid.upload_to_gpu()
 
-		#print("Akcja menu: Nowy graf")
-		# self.graphs.append( Graph( rows=self.edit1.value(), cols=self.edit2.value() ) )
-		# AP.mainWin.workspace.m_data.append(self.graphs[-1])
-		# AP.mainWin.dock["workspace"].addNewItem(self.graphs[-1])
 		AP.mainWin.update()
 		AP.updateAllViews()
 

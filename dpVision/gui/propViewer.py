@@ -11,7 +11,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QVector3D
 
-from .. import AP
+from .. import AP,Transform
 import weakref
 from .gLViewer import GLViewer
 from .propWidget import PropWidget
@@ -71,19 +71,23 @@ class PropViewer(PropWidget):
 		self.orthoWidget.setVisible(isOrtho)
 		self.perspWidget.setVisible(isPersp)
 
-		self.updateMatrix()
+		self.updateMatrix(viewer.transform)
 
 		for i in w: i.blockSignals(False)
 
-	def updateMatrix(self):
-		viewer = self.obj_ref()
+	def	updateMatrix(self, transform:Transform):
+		mat	= transform.toNumPy()
 		self.matrixTable.blockSignals(True)
 		for row in range(4):
-			for col in range(4):
-				index = self.matrixTable.model().index(row,col)
-				value = viewer.transform.matrix[row,col]
-				self.matrixTable.model().setData(index, round(value,6))
+			for	col in range(4):
+				value = mat[row, col]
+				item = self.matrixTable.item(row,	col)
+				if	item is None:
+					item = QTableWidgetItem()
+					self.matrixTable.setItem(row, col, item)
+				item.setText(f"{value:.6f}")
 		self.matrixTable.blockSignals(False)
+
 
 	def updateBgColorButton(self, col):
 		s = "background-color: rgb(" + str(col.red()) + ", " + str(col.green()) + ", " + str(col.blue()) + ");"

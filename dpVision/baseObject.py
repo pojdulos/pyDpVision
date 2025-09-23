@@ -10,6 +10,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 #from OpenGL.GL import *
 import OpenGL.GL as gl
+import numpy as np
 
 import weakref
 
@@ -27,6 +28,7 @@ class BaseObject(QObject):
 		self.m_showSelf = True
 		self.m_showKids = True
 
+				
 	def __del__(self):
 		self.__parent = None
 		# print(self.__class__.__name__+" destructor")
@@ -129,5 +131,8 @@ class BaseObject(QObject):
 		gl.glPopMatrix()
 
 	def getGlobalTransformation(self):
-		return self.__parent.getGlobalTransformation() if self.__parent else QMatrix4x4()
-
+		if self.__parent is not None:
+			parent = self.__parent()
+			if parent is not None:
+				return parent.getGlobalTransformation()
+		return np.eye(4, dtype=np.float64)

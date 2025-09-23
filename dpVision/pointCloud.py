@@ -70,14 +70,14 @@ class PointCloud(Object):
 			_b = True  # Zaktualizowanie flagi _b
 		return _b, _min, _max
 
-	def getCenterOfBB(self):
-		ctr = [0., 0., 0.]
-		num_vertices = len(self.m_vertices)
-		if num_vertices:
-			_min = [min(dim) for dim in zip(*self.m_vertices)]
-			_max = [max(dim) for dim in zip(*self.m_vertices)]
-			ctr = [(m1 + m2) / 2 for m1, m2 in zip(_min, _max)]
-		return ctr
+	# def getCenterOfBB(self):
+	# 	ctr = [0., 0., 0.]
+	# 	num_vertices = len(self.m_vertices)
+	# 	if num_vertices:
+	# 		_min = [min(dim) for dim in zip(*self.m_vertices)]
+	# 		_max = [max(dim) for dim in zip(*self.m_vertices)]
+	# 		ctr = [(m1 + m2) / 2 for m1, m2 in zip(_min, _max)]
+	# 	return ctr
 
 	def test(self):
 		self.m_vertices = np.vstack([self.m_vertices, Vertex(10, 10, 1)])

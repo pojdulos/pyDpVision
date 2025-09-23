@@ -169,12 +169,12 @@ class ProfileViewer(QtWidgets.QMainWindow):
 
         self.valid_mask = ~np.isnan(self.reference_grid_smooth) & ~np.isnan(self.adjusted_grid_smooth)
 
-        self.adjusted_grid_corrected = self.adjusted_grid_smooth + np.nanmean(self.reference_grid_smooth - self.adjusted_grid_smooth)
+        self.adjusted_grid_corrected = self.adjusted_grid_smooth #+ np.nanmean(self.reference_grid_smooth - self.adjusted_grid_smooth)
 
-        if self.checkbox_tilt.isChecked():
-            self.adjusted_grid_corrected = remove_relative_tilt(self.reference_grid_smooth, self.adjusted_grid_corrected, self.valid_mask)
+        # if self.checkbox_tilt.isChecked():
+        #     self.adjusted_grid_corrected = remove_relative_tilt(self.reference_grid_smooth, self.adjusted_grid_corrected, self.valid_mask)
 
-        self.adjusted_grid_corrected = remove_relative_offset(self.reference_grid_smooth, self.adjusted_grid_corrected, self.valid_mask)
+        # self.adjusted_grid_corrected = remove_relative_offset(self.reference_grid_smooth, self.adjusted_grid_corrected, self.valid_mask)
 
         size_x_mm = self.reference_grid.shape[1] * self.ref_pixel_um.x() / 1000.0
         self.plot_widget.getPlotItem().getViewBox().setRange(xRange=(0, size_x_mm))

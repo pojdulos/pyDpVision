@@ -28,6 +28,45 @@ class Transform(Object):
 		else:
 			self.updateMatrix()
 
+	def getGlobalTransformation(self):
+		if self.__parent is not None:
+			parent = self.__parent()
+			if parent is not None:
+				return parent.getGlobalTransformation() @ self.matrix
+		return self.matrix
+
+
+	def getBB(self):
+		# 1. Najpierw zbieramy BB dzieci
+		_b, _min, _max = Object.getBB(self)
+
+		if not _b:  # jeśli dzieci nie mają BB
+			return False, None, None
+
+		# 2. Generujemy 8 narożników AABB
+		corners = [
+			[_min[0], _min[1], _min[2], 1.0],
+			[_min[0], _min[1], _max[2], 1.0],
+			[_min[0], _max[1], _min[2], 1.0],
+			[_min[0], _max[1], _max[2], 1.0],
+			[_max[0], _min[1], _min[2], 1.0],
+			[_max[0], _min[1], _max[2], 1.0],
+			[_max[0], _max[1], _min[2], 1.0],
+			[_max[0], _max[1], _max[2], 1.0],
+		]
+		corners = np.array(corners, dtype=np.float64)
+
+		# 3. Przekształcamy wszystkie narożniki macierzą transformacji
+		mat = self.toNumPy()
+		transformed = (mat @ corners.T).T[:, :3]  # bierzemy tylko XYZ
+
+		# 4. Wyznaczamy nowe min/max
+		bb_min = transformed.min(axis=0).tolist()
+		bb_max = transformed.max(axis=0).tolist()
+
+		return True, bb_min, bb_max
+
+
 	# --- budowa macierzy TRS ---
 	def updateMatrix(self):
 		T = np.eye(4)
@@ -94,11 +133,6 @@ class Transform(Object):
 	def getScale(self):
 		return self.m_scale.tolist()
 
-	# def setRotation(self, quat):
-	#	 # oczekuje listy [w, x, y, z]
-	#	 w, x, y, z = quat
-	#	 self.m_rotation = Rotation.from_quat([x, y, z, w])
-	#	 self.updateMatrix()
 	def setRotation(self, quat):
 		quat = np.array(quat, dtype=float)
 		if np.allclose(quat, 0.0):

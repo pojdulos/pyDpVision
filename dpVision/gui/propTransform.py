@@ -41,83 +41,87 @@ class	PropTransform(PropWidget):
 	def	create(m, parent=0):
 		return	PropWidget.build([PropTransform(m), PropBaseObject(m)], parent)
 
-	def	updateMatrix(self):
-		m_trans:	Transform	=	self.obj_ref()
-		mat	=	m_trans.toNumPy()		#	zawsze	numpy	4x4
+	def	updateMatrix(self, m_trans:Transform):
+		mat	= m_trans.toNumPy()
 		self.matrixTable.blockSignals(True)
-		for	row	in	range(4):
-			for	col	in	range(4):
-				value	=	mat[row,	col]
-				item	=	self.matrixTable.item(row,	col)
-				if	item	is	None:
-					item	=	QTableWidgetItem()
-					self.matrixTable.setItem(row,	col,	item)
-				item.setText(f"{value:.6f}")		#	format	ładniej
+		for row in range(4):
+			for	col in range(4):
+				value = mat[row, col]
+				item = self.matrixTable.item(row,	col)
+				if	item is None:
+					item = QTableWidgetItem()
+					self.matrixTable.setItem(row, col, item)
+				item.setText(f"{value:.6f}")
 		self.matrixTable.blockSignals(False)
 
 
+	def updateSpinBoxes(self, widgets:tuple, values):
+		if len(widgets) != len(values):
+			raise ValueError("Liczba widgetów i wartości nie jest zgodna")
+		for w in widgets:
+			w.blockSignals(True)
+		for w, val in zip(widgets, values):
+			w.setValue(val)
+		for w in widgets:
+			w.blockSignals(False)
 
-	def	updateEuler(self):
-		m_trans	=	self.obj_ref()
-		rot	=	m_trans.getEulerAnglesDeg()
-		self.eulerX.blockSignals(True)
-		self.eulerY.blockSignals(True)
-		self.eulerZ.blockSignals(True)
-		self.eulerX.setValue(rot[0])
-		self.eulerY.setValue(rot[1])
-		self.eulerZ.setValue(rot[2])
-		self.eulerX.blockSignals(False)
-		self.eulerY.blockSignals(False)
-		self.eulerZ.blockSignals(False)
+	def updateEuler(self, m_trans:Transform):
+		rot = m_trans.getEulerAnglesDeg()
+		widgets = (self.eulerX, self.eulerY, self.eulerZ)
+		self.updateSpinBoxes(widgets, rot)
 
-	def	updateQuat(self):
-		m_trans	=	self.obj_ref()
+	def	updateQuat(self, m_trans:Transform):
 		qua	=	m_trans.getRotation()
-		self.quatW.blockSignals(True)
-		self.quatX.blockSignals(True)
-		self.quatY.blockSignals(True)
-		self.quatZ.blockSignals(True)
-		self.quatW.setValue(qua[0])
-		self.quatX.setValue(qua[1])
-		self.quatY.setValue(qua[2])
-		self.quatZ.setValue(qua[3])
-		self.quatW.blockSignals(False)
-		self.quatX.blockSignals(False)
-		self.quatY.blockSignals(False)
-		self.quatZ.blockSignals(False)
+		widgets = (self.quatW, self.quatX, self.quatY, self.quatZ)
+		self.updateSpinBoxes(widgets, qua)
+
+	def updateTranslation(self, m_trans:Transform):
+		tra = m_trans.getTranslation()
+		widgets= (self.transX,self.transY,self.transZ)
+		self.updateSpinBoxes(widgets, tra)
+
+	def updateScale(self, m_trans:Transform):
+		s = m_trans.getScale()
+		widgets = (self.scaleX,self.scaleY,self.scaleZ)
+		self.updateSpinBoxes(widgets, s)
+
+		lock = m_trans.m_lock_scale
+		self.scaleCheck.blockSignals(True)
+		self.scaleCheck.setChecked(lock) # domyślnie "lock aspect ratio"
+		self.scaleCheck.blockSignals(False)
+		self.scaleY.setEnabled(not lock)
+		self.scaleZ.setEnabled(not lock)
 
 	def	updateProperties(self):
 		m_trans	=	self.obj_ref()
 		if	m_trans	is	None:
 			return
 		
-		#	w	=	{	self.showScrewCheckBox,	\
-					#			self.transX,	self.transY,	self.transZ	}
-		w	=	self.get_subwidgets()
+		self.updateMatrix(m_trans)
+		self.updateEuler(m_trans)
+		self.updateQuat(m_trans)
+		self.updateScale(m_trans)
+		self.updateTranslation(m_trans)
 
-		for	i	in	w:	i.blockSignals(True)
-		self.updateMatrix()
-		self.updateEuler()
-		self.updateQuat()
-
-		s	=	m_trans.getScale()
-		self.scaleX.setValue(s[0])
-		self.scaleY.setValue(s[1])
-		self.scaleZ.setValue(s[2])
-
-		self.scaleCheck.setChecked(m_trans.m_lock_scale) # domyślnie "lock aspect ratio"
-		self.scaleY.setEnabled(not m_trans.m_lock_scale)
-		self.scaleZ.setEnabled(not m_trans.m_lock_scale)
-
+		self.showScrewCheckBox.blockSignals(True)
 		self.showScrewCheckBox.setChecked(m_trans.m_show_screw)
+		self.showScrewCheckBox.blockSignals(False)
 
-		tra	= m_trans.getTranslation()
-		print(f"translation: {tra}")
-		self.transX.setValue(tra[0])
-		self.transY.setValue(tra[1])
-		self.transZ.setValue(tra[2])
-		for	i in w: i.blockSignals(False)
 
+	def changedQua(self, d):
+		m_trans: Transform = self.obj_ref()
+		if not isinstance(self.sender(), QDoubleSpinBox):
+			return
+
+		w = self.quatW.value()
+		x = self.quatX.value()
+		y = self.quatY.value()
+		z = self.quatZ.value()
+
+		m_trans.setRotation([w, x, y, z])
+		self.updateMatrix(m_trans)
+		self.updateEuler(m_trans)
+		AP.updateAllViews()
 
 	def changedEul(self, d):
 		if not isinstance(self.sender(), QDoubleSpinBox):
@@ -129,8 +133,8 @@ class	PropTransform(PropWidget):
 		yaw   = self.eulerZ.value()
 
 		m_trans.fromEulerAngles(roll, pitch, yaw)
-		self.updateMatrix()
-		self.updateQuat()
+		self.updateMatrix(m_trans)
+		self.updateQuat(m_trans)
 		AP.updateAllViews()
 
 	
@@ -145,14 +149,6 @@ class	PropTransform(PropWidget):
 
 		m_trans.setTranslation(tx, ty, tz)
 		AP.updateAllViews()
-
-
-	# def	changedSca(self,d):
-	# 	m_trans	=	self.obj_ref()
-	# 	s	=	m_trans.getScale()
-	# 	print(f"scale:	{d}")
-	# 	m_trans.scale(d/s[0],d/s[1],d/s[2])
-	# 	AP.updateAllViews()
 
 	def changedSca(self, d):
 		if not isinstance(self.sender(), QDoubleSpinBox):
@@ -173,43 +169,8 @@ class	PropTransform(PropWidget):
 			sz = self.scaleZ.value()
 			m_trans.setScale(sx, sy, sz)
 
-		self.updateMatrix()
+		self.updateMatrix(m_trans)
 		AP.updateAllViews()
-
-	def changedQua(self, d):
-		m_trans: Transform = self.obj_ref()
-		if not isinstance(self.sender(), QDoubleSpinBox):
-			return
-
-		w = self.quatW.value()
-		x = self.quatX.value()
-		y = self.quatY.value()
-		z = self.quatZ.value()
-
-		m_trans.setRotation([w, x, y, z])
-		self.updateMatrix()
-		self.updateEuler()
-		AP.updateAllViews()
-
-	
-	def	clearMatrix(self):
-		m_trans	=	self.obj_ref()
-		m_trans.reset()
-		AP.mainWin.dock['properties'].updateProperties()
-		AP.updateAllViews()
-	
-	def	copyToClipboard(self):
-		m_trans	=	self.obj_ref()
-		m_trans.copyToClipboard()
-
-	def	pasteFromClipboard(self):
-		m_trans	=	self.obj_ref()
-		m_trans.pasteFromClipboard()
-		AP.mainWin.dock['properties'].updateProperties()
-		AP.updateAllViews()
-
-	def	onRotButton(self):
-		pass
 
 	def onScaleCheck(self, checked: bool):
 		if checked:
@@ -238,6 +199,28 @@ class	PropTransform(PropWidget):
 		self.updateMatrix()
 		AP.updateAllViews()
 
+
+	
+	def	clearMatrix(self):
+		m_trans = self.obj_ref()
+		m_trans.reset()
+		self.updateProperties()
+		AP.updateAllViews()
+	
+	def	copyToClipboard(self):
+		m_trans = self.obj_ref()
+		m_trans.copyToClipboard()
+
+	def	pasteFromClipboard(self):
+		m_trans = self.obj_ref()
+		m_trans.pasteFromClipboard()
+		self.updateProperties()
+		AP.updateAllViews()
+
+	def	onRotButton(self):
+		pass
+
+
 	@pyqtSlot(float)
 	def	onOriginPointValueChanged(self,d):
 		m_trans	=	self.obj_ref()
@@ -246,14 +229,14 @@ class	PropTransform(PropWidget):
 			m_trans.m_origin	=	[self.originX.value(),	self.originY.value(),	self.originZ.value()]
 
 	@pyqtSlot(bool)
-	def	onShowScrewCheckBox(self,	b):
-		m_trans	=	self.obj_ref()
-		m_trans.m_show_screw	=	b
+	def	onShowScrewCheckBox(self, b):
+		m_trans = self.obj_ref()
+		m_trans.m_show_screw = b
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def	onOriginRadio(self,b):
-		m_trans	=	self.obj_ref()
+		m_trans = self.obj_ref()
 		radio	=	self.sender()
 		if	not	isinstance(radio,	QRadioButton):	return
 		if	radio	==	self.originRadioObj:

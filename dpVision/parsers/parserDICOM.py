@@ -30,8 +30,8 @@ class ParserDICOM(Parser):
 			if not current_ext or f.endswith(current_ext):
 				try:
 					# Próba odczytania pliku DICOM
-					#dicom_file = pydicom.dcmread(os.path.join(current_dir, f))
-					dicom_file = pydicom.read_file(os.path.join(current_dir, f), force=True)
+					dicom_file = pydicom.dcmread(os.path.join(current_dir, f), force=True,)
+					#dicom_file = pydicom.read_file(os.path.join(current_dir, f), force=True)
 					dicom_files.append(dicom_file)
 				except Exception as e:
 					# Jeśli wystąpi błąd, plik zostanie pominięty

@@ -218,35 +218,56 @@ class GLViewer(QOpenGLWidget):
 			glOrtho( self._left, self._right, self._bottom, self._top, self._near, self._far )
 
 
-	def rotate(self, dx, dy):
-		xAngle = dy * 0.4
-		yAngle = dx * 0.4
+	def rotate_object(self, obj, xAngle, yAngle, zAngle=0.0):
+		midpoint = obj.getMidpoint()
+		p1 = obj.toNumPy().dot(np.array([*midpoint, 1.0]))[:3]
 
-		# pobieramy obroty sceny
 		inv_rot = self.transform.m_rotation.inv()
 
-		# osie ekranu przekształcone do przestrzeni world
+		# osie ekranu → world space
 		xAxis = inv_rot.apply([1.0, 0.0, 0.0])
 		yAxis = inv_rot.apply([0.0, 1.0, 0.0])
+		zAxis = inv_rot.apply([0.0, 0.0, 1.0])
 
-		obj = self.mainWindow.workspace.m_currentObject
+		obj.rotate(xAngle, xAxis, origin=p1)
+		obj.rotate(yAngle, yAxis, origin=p1)
+		obj.rotate(zAngle, zAxis, origin=p1)
+
+
+	def rotate_scene(self, xAngle, yAngle, zAngle=0.0):
+		self.transform.rotate(xAngle, [1.0, 0.0, 0.0])
+		self.transform.rotate(yAngle, [0.0, 1.0, 0.0])
+		self.transform.rotate(zAngle, [0.0, 0.0, 1.0])
+
+
+	def rotate(self, dx, dy, dz=0.0):
+		# przeliczenie pikseli na stopnie
+		xAngle = (dy / self.height()) * 180.0
+		yAngle = (dx / self.width())  * 180.0
+		# zAngle = (dz / min(self.width(), self.height())) * 180.0  # np. obrót "skrętny"
+		zAngle = (dz / self.width()) * 180.0
+
+		# obj = self.mainWindow.workspace.m_currentObject
+		objs = self.mainWindow.dock["workspace"].getSelectedObjects()
+		obj = objs[0] if len(objs) == 1 else None
+
 		if obj is not None and isinstance(obj, Transform):
-			# obrót obiektu wokół pivotu – działa już poprawnie
-			midpoint = obj.getMidpoint()
-			p1 = obj.toNumPy().dot(np.array([*midpoint, 1.0]))[:3]
-			obj.rotate(xAngle, xAxis, origin=p1)
-			obj.rotate(yAngle, yAxis, origin=p1)
+			self.rotate_object(obj, xAngle, yAngle, zAngle)
 			self.transformChanged.emit(obj)
 		else:
-			self.transform.rotate(xAngle, [1.0,0.0,0.0])
-			self.transform.rotate(yAngle, [0.0,1.0,0.0])
+			self.rotate_scene(xAngle, yAngle, zAngle)
 			self.transformChanged.emit(self)
 
 		self.update()
 		self.mainWindow.dock["properties"].updateProperties()
 
-
 	def translate(self, dx, dy, dz=0.0):
+		dist = np.linalg.norm(self._camera.pos)  # odległość kamery od środka sceny
+		scale = dist * 0.75                       # współczynnik czułości
+		stepX = scale * dx / self.width()
+		stepY = scale * dy / self.height()
+		stepZ = scale * dz / self.height()
+
 		# --- osie ekranu z kamery ---
 		forward = np.array(self._camera.dir, dtype=float)   # Z ekranu
 		forward /= np.linalg.norm(forward)
@@ -262,7 +283,7 @@ class GLViewer(QOpenGLWidget):
 		if obj is None:
 			# --- przesuwanie kamery ---
 			# używamy czystych osi kamery → typowy screen-space
-			move = dx * right + dy * up + dz * forward
+			move = stepX * right + stepY * up + stepZ * forward
 			self.transform.translate(*move)
 			self.transformChanged.emit(self)
 			print("translacja KAMERY:", move)
@@ -274,7 +295,7 @@ class GLViewer(QOpenGLWidget):
 			up_ws = inv_rot.apply(up)
 			forward_ws = inv_rot.apply(forward)
 
-			move = dx * right_ws + dy * up_ws + dz * forward_ws
+			move = stepX * right_ws + stepY * up_ws + stepZ * forward_ws
 			obj.translate(*move)
 			self.transformChanged.emit(obj)
 			print("translacja OBIEKTU:", move)
@@ -291,13 +312,16 @@ class GLViewer(QOpenGLWidget):
 				modifiers = QApplication.keyboardModifiers()
 				if modifiers == Qt.ShiftModifier:
 					# zoom (przód/tył wzdłuż osi kamery)
-					self.translate(0.0, 0.0, -dy / 5.0)
+					self.translate(0.0, 0.0, -dy)
 				elif modifiers == Qt.ControlModifier:
 					# przesuwanie w płaszczyźnie ekranu
-					self.translate(dx / 5.0, -dy / 5.0, 0.0)
-				else:
+					self.translate(dx, -dy, 0.0)
+				elif modifiers == Qt.AltModifier:
+					# obrót "skrętny" wokół osi Z
+					self.rotate(0.0, 0.0, dx)
+				else:	
 					# obrót
-					self.rotate(dx, dy)
+					self.rotate(dx, dy, 0.0)
 
 			elif event.buttons() & Qt.MouseButton.RightButton:
 				obj = self.mainWindow.workspace.m_currentObject
@@ -318,8 +342,8 @@ class GLViewer(QOpenGLWidget):
 		self.update()
 
 	def wheelEvent(self, event):
-		d = -float(event.angleDelta().y())
-		self.translate( 0.0, 0.0, d/25 )
+		dy = float(event.angleDelta().y())
+		self.translate( 0.0, 0.0, -dy )
 
 	def draw3Dcontent(self):
 		glMatrixMode(GL_MODELVIEW)

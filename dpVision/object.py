@@ -11,6 +11,10 @@ class Object(BaseObject):
 	def __init__(self, parent=None):
 		super( Object, self ).__init__( parent )
 		self.m_data = []
+		self._dirty = True
+		self._cached_bb = None
+		self._cached_midpoint = None
+
 
 	def children(self):
 		return self.m_data
@@ -19,6 +23,8 @@ class Object(BaseObject):
 		if d is None or not issubclass(type(d), BaseObject):
 			return False
 
+		if d.parent is not None:
+			d.parent.removeChild(d)
 		d.parent = self
 		self.m_data.append( d )
 
@@ -35,9 +41,12 @@ class Object(BaseObject):
 			child.render()
 			
 	def getBB(self):
+		if not self._dirty and self._cached_bb is not None:
+			return self._cached_bb
+
 		_b = False
 		_min, _max = None, None
-		
+
 		for kid in self.m_data:
 			kid_b, kid_min, kid_max = kid.getBB()
 			if kid_b:
@@ -48,9 +57,18 @@ class Object(BaseObject):
 					_max = [max(m1, m2) for m1, m2 in zip(_max, kid_max)]
 				_b = True
 
-		return _b, _min, _max
+		self._cached_bb = (_b, _min, _max)
+		self._dirty = False
+		return self._cached_bb
 
 	def getMidpoint(self):
+		if not self._dirty and self._cached_midpoint is not None:
+			return self._cached_midpoint
+
 		_b, _min, _max = self.getBB()
+		if not _b:
+			return None
+
 		ctr = [(m1 + m2) / 2 for m1, m2 in zip(_min, _max)]
+		self._cached_midpoint = ctr
 		return ctr

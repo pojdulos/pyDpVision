@@ -67,7 +67,7 @@ class Object(BaseObject):
 
 		_b, _min, _max = self.getBB()
 		if not _b:
-			return None
+			return [0.0,0.0,0.0]
 
 		ctr = [(m1 + m2) / 2 for m1, m2 in zip(_min, _max)]
 		self._cached_midpoint = ctr

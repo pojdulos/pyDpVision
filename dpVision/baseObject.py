@@ -27,7 +27,7 @@ class BaseObject(QObject):
 		
 		self.m_showSelf = True
 		self.m_showKids = True
-
+		self.m_showBB = True
 				
 	def __del__(self):
 		self.__parent = None
@@ -122,12 +122,77 @@ class BaseObject(QObject):
 	def renderKids(self):
 		pass
 	
+	def getBB(self):
+		return None
+	
+	def drawBBwireframe(self, _min, _max, _color=(1.0, 1.0, 0.0)):
+		gl.glPushMatrix()
+		gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+
+		gl.glDisable(gl.GL_TEXTURE_2D)
+		gl.glEnable(gl.GL_COLOR_MATERIAL)
+		gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
+		
+		gl.glColor3fv(_color)
+		gl.glBegin(gl.GL_LINES)
+		# Bottom face
+		gl.glVertex3f(_min[0], _min[1], _min[2])
+		gl.glVertex3f(_max[0], _min[1], _min[2])
+
+		gl.glVertex3f(_max[0], _min[1], _min[2])
+		gl.glVertex3f(_max[0], _max[1], _min[2])
+
+		gl.glVertex3f(_min[0], _max[1], _min[2])
+		gl.glVertex3f(_max[0], _max[1], _min[2])
+
+		gl.glVertex3f(_min[0], _max[1], _min[2])
+		gl.glVertex3f(_min[0], _min[1], _min[2])
+
+		# Top face
+		gl.glVertex3f(_min[0], _min[1], _max[2])
+		gl.glVertex3f(_max[0], _min[1], _max[2])
+
+		gl.glVertex3f(_max[0], _min[1], _max[2])
+		gl.glVertex3f(_max[0], _max[1], _max[2])
+
+		gl.glVertex3f(_max[0], _max[1], _max[2])
+		gl.glVertex3f(_min[0], _max[1], _max[2])
+
+		gl.glVertex3f(_min[0], _max[1], _max[2])
+		gl.glVertex3f(_min[0], _min[1], _max[2])
+
+		# Vertical edges
+		gl.glVertex3f(_min[0], _min[1], _min[2])
+		gl.glVertex3f(_min[0], _min[1], _max[2])
+
+		gl.glVertex3f(_max[0], _min[1], _min[2])
+		gl.glVertex3f(_max[0], _min[1], _max[2])
+
+		gl.glVertex3f(_max[0], _max[1], _min[2])
+		gl.glVertex3f(_max[0], _max[1], _max[2])
+
+		gl.glVertex3f(_min[0], _max[1], _min[2])
+		gl.glVertex3f(_min[0], _max[1], _max[2])
+		gl.glEnd()
+
+		gl.glPopAttrib()
+		gl.glPopMatrix()
+
+	def renderBB(self):
+		bb = self.getBB()
+		if bb is not None:
+			_b, _min, _max = bb
+			if _b:
+				self.drawBBwireframe(_min, _max, _color=(0.0, 1.0, 0.0))
+
 	def render(self):
 		gl.glPushMatrix()
 		if (self.m_showSelf):
 			self.renderSelf()
 		if (self.m_showKids):
 			self.renderKids()
+		if (self.m_showBB):
+			self.renderBB()
 		gl.glPopMatrix()
 
 	def getGlobalTransformation(self):

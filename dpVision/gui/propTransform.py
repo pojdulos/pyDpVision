@@ -1,40 +1,55 @@
-#	-*-	coding:	utf-8	-*-
+# -*- coding: utf-8 -*-
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
 
-from	abc	import	ABC,	abstractmethod
-import	re
-from	PyQt5	import	uic
-from	PyQt5.QtGui	import	*
-from	PyQt5.QtCore	import	*
-from	PyQt5.QtWidgets	import	*
+from ..	import AP,Transform
 
-from	..	import	AP,Transform
+from .propWidget import PropWidget
+from .propBaseObject import PropBaseObject
+import weakref
+from .doubleSpinBoxN import DoubleSpinBoxN,DoubleSpinBoxN2
 
-from	.propWidget	import	PropWidget
-from	.propBaseObject	import	PropBaseObject
-import	weakref
+def get_palette(color:QColor, bgcolor:QColor=None):
+	palette = QPalette()
+	brush = QBrush(color)
+	brush.setStyle(Qt.SolidPattern)
+	palette.setBrush(QPalette.Active, QPalette.Text, brush)
+	return palette
 
-class	PropTransform(PropWidget):
-	def	__init__(self, _obj:Transform,	parent=None):
+class PropTransform(PropWidget):
+	def __init__(self, _obj:Transform, parent=None):
 		super(PropTransform, self).__init__(parent)
-		AP.loadUi('propTransform.ui', self)
-		#self.createUI()
+		self.setupUi(self)
 
 		self.obj_ref = weakref.ref(_obj)
 
 		self.treeView.setVisible(False)
+		self.originGroup.setVisible(False)
 		self.resize(self.layout().sizeHint())
 
-		self.originGroup.setVisible(False)
+		self.connect_signals()
 
-		self.quatW.setEnabled(True)
-		self.quatX.setEnabled(True)
-		self.quatY.setEnabled(True)
-		self.quatZ.setEnabled(True)
+	def connect_signals(self):
+		self.clearButton.clicked.connect(self.clearMatrix)
+		self.copyButton.clicked.connect(self.copyToClipboard)
+		self.pasteButton.clicked.connect(self.pasteFromClipboard)
+		
+		self.groupBox_quaternion.valueChanged.connect(self.changedQua)
+		self.groupBox_euler.valueChanged.connect(self.changedEul)
+		self.groupBox_translation.valueChanged.connect(self.changedTra)
+		self.groupBox_scale.valueChanged.connect(self.changedSca)
+		
+		self.originRadioPoint.toggled.connect(self.onOriginRadio)
+		self.originRadioBB.toggled.connect(self.onOriginRadio)
+		self.originRadioWeight.toggled.connect(self.onOriginRadio)
+		self.originRadioObj.toggled.connect(self.onOriginRadio)
+		self.originX.valueChanged.connect(self.onOriginPointValueChanged)
+		self.originY.valueChanged.connect(self.onOriginPointValueChanged)
+		self.originZ.valueChanged.connect(self.onOriginPointValueChanged)
 
-		self.quatW.valueChanged.connect(self.changedQua)
-		self.quatX.valueChanged.connect(self.changedQua)
-		self.quatY.valueChanged.connect(self.changedQua)
-		self.quatZ.valueChanged.connect(self.changedQua)
+		# self.rotButton.clicked.connect(self.onRotButton)
+		# self.showScrewCheckBox.toggled.connect(self.onShowScrewCheckBox)
 
 
 	@staticmethod
@@ -67,30 +82,21 @@ class	PropTransform(PropWidget):
 
 	def updateEuler(self, m_trans:Transform):
 		rot = m_trans.getEulerAnglesDeg()
-		widgets = (self.eulerX, self.eulerY, self.eulerZ)
-		self.updateSpinBoxes(widgets, rot)
+		self.groupBox_euler.setValue(rot)
 
 	def	updateQuat(self, m_trans:Transform):
 		qua	=	m_trans.getRotation()
-		widgets = (self.quatW, self.quatX, self.quatY, self.quatZ)
-		self.updateSpinBoxes(widgets, qua)
+		self.groupBox_quaternion.setValue(qua)#.as_quat())  # zwraca [x,y,z,w]
 
 	def updateTranslation(self, m_trans:Transform):
 		tra = m_trans.getTranslation()
-		widgets= (self.transX,self.transY,self.transZ)
-		self.updateSpinBoxes(widgets, tra)
+		self.groupBox_translation.setValue(tra)
 
 	def updateScale(self, m_trans:Transform):
 		s = m_trans.getScale()
-		widgets = (self.scaleX,self.scaleY,self.scaleZ)
-		self.updateSpinBoxes(widgets, s)
-
 		lock = m_trans.m_lock_scale
-		self.scaleCheck.blockSignals(True)
-		self.scaleCheck.setChecked(lock) # domyślnie "lock aspect ratio"
-		self.scaleCheck.blockSignals(False)
-		self.scaleY.setEnabled(not lock)
-		self.scaleZ.setEnabled(not lock)
+		self.groupBox_scale.setValue(s)
+		self.groupBox_scale.setLockedToFirst(lock)
 
 	def	updateProperties(self):
 		m_trans	=	self.obj_ref()
@@ -103,98 +109,92 @@ class	PropTransform(PropWidget):
 		self.updateScale(m_trans)
 		self.updateTranslation(m_trans)
 
-		self.showScrewCheckBox.blockSignals(True)
-		self.showScrewCheckBox.setChecked(m_trans.m_show_screw)
-		self.showScrewCheckBox.blockSignals(False)
+		# self.showScrewCheckBox.blockSignals(True)
+		# self.showScrewCheckBox.setChecked(m_trans.m_show_screw)
+		# self.showScrewCheckBox.blockSignals(False)
 
 
 	def changedQua(self, d):
 		m_trans: Transform = self.obj_ref()
-		if not isinstance(self.sender(), QDoubleSpinBox):
+		if not isinstance(self.sender(), DoubleSpinBoxN):
 			return
 
-		w = self.quatW.value()
-		x = self.quatX.value()
-		y = self.quatY.value()
-		z = self.quatZ.value()
+		m_trans.setRotation(d)
 
-		m_trans.setRotation([w, x, y, z])
 		self.updateMatrix(m_trans)
 		self.updateEuler(m_trans)
 		AP.updateAllViews()
 
 	def changedEul(self, d):
-		if not isinstance(self.sender(), QDoubleSpinBox):
+		if not isinstance(self.sender(), DoubleSpinBoxN):
 			return
 
 		m_trans = self.obj_ref()
-		roll  = self.eulerX.value()
-		pitch = self.eulerY.value()
-		yaw   = self.eulerZ.value()
+
+		roll, pitch, yaw = d
 
 		m_trans.fromEulerAngles(roll, pitch, yaw)
 		self.updateMatrix(m_trans)
 		self.updateQuat(m_trans)
 		AP.updateAllViews()
 
-	
+
 	def changedTra(self, d):
 		m_trans = self.obj_ref()
-		if not isinstance(self.sender(), QDoubleSpinBox):
+		if not isinstance(self.sender(), DoubleSpinBoxN):
 			return
 
-		tx = self.transX.value()
-		ty = self.transY.value()
-		tz = self.transZ.value()
+		tx, ty, tz = d
 
 		m_trans.setTranslation(tx, ty, tz)
+		self.updateMatrix(m_trans)
 		AP.updateAllViews()
 
 	def changedSca(self, d):
-		if not isinstance(self.sender(), QDoubleSpinBox):
+		if not isinstance(self.sender(), DoubleSpinBoxN2):
 			return
 
 		m_trans = self.obj_ref()
 
-		if self.scaleCheck.isChecked():
-			# lock aspect ratio → wszystkie osie takie same
-			s = self.scaleX.value()
-			m_trans.setScale(s, s, s)
-			self.scaleY.setValue(s)
-			self.scaleZ.setValue(s)
-		else:
-			# niezależne osie → bierzemy wszystkie trzy z UI
-			sx = self.scaleX.value()
-			sy = self.scaleY.value()
-			sz = self.scaleZ.value()
-			m_trans.setScale(sx, sy, sz)
+		# if self.scaleCheck.isChecked():
+		# 	# lock aspect ratio → wszystkie osie takie same
+		# 	s = self.scaleX.value()
+		# 	m_trans.setScale(s, s, s)
+		# 	self.scaleY.setValue(s)
+		# 	self.scaleZ.setValue(s)
+		# else:
+		# 	# niezależne osie → bierzemy wszystkie trzy z UI
+		# 	sx = self.scaleX.value()
+		# 	sy = self.scaleY.value()
+		# 	sz = self.scaleZ.value()
+		# 	m_trans.setScale(sx, sy, sz)
 
 		self.updateMatrix(m_trans)
 		AP.updateAllViews()
 
 	def onScaleCheck(self, checked: bool):
-		if checked:
-			# tryb "lock aspect ratio" → tylko X aktywny
-			self.scaleX.setEnabled(True)
-			self.scaleY.setEnabled(False)
-			self.scaleZ.setEnabled(False)
+		# if checked:
+		# 	# tryb "lock aspect ratio" → tylko X aktywny
+		# 	self.scaleX.setEnabled(True)
+		# 	self.scaleY.setEnabled(False)
+		# 	self.scaleZ.setEnabled(False)
 
-			# zsynchronizuj wartości Y,Z z X
-			s = self.scaleX.value()
-			self.scaleY.setValue(s)
-			self.scaleZ.setValue(s)
-		else:
-			# tryb "independent axes" → wszystkie aktywne
-			self.scaleX.setEnabled(True)
-			self.scaleY.setEnabled(True)
-			self.scaleZ.setEnabled(True)
+		# 	# zsynchronizuj wartości Y,Z z X
+		# 	s = self.scaleX.value()
+		# 	self.scaleY.setValue(s)
+		# 	self.scaleZ.setValue(s)
+		# else:
+		# 	# tryb "independent axes" → wszystkie aktywne
+		# 	self.scaleX.setEnabled(True)
+		# 	self.scaleY.setEnabled(True)
+		# 	self.scaleZ.setEnabled(True)
 
-		m_trans	=	self.obj_ref()
-		m_trans.m_lock_scale = checked
-		sx = self.scaleX.value()
-		sy = self.scaleY.value()
-		sz = self.scaleZ.value()
-		m_trans.setScale(sx, sy, sz)
+		# m_trans	=	self.obj_ref()
+		# m_trans.m_lock_scale = checked
+		# sx = self.scaleX.value()
+		# sy = self.scaleY.value()
+		# sz = self.scaleZ.value()
+		# m_trans.setScale(sx, sy, sz)
 
 		self.updateMatrix()
 		AP.updateAllViews()
@@ -254,98 +254,242 @@ class	PropTransform(PropWidget):
 			m_trans.m_origin	=	[self.originX.value(),	self.originY.value(),	self.originZ.value()]	if	b	else	[0.,0.,0.]
 		
 		
-	def	createUI(self):
-		# self.setMinimumSize(200,	130)
-		# self.setMaximumSize(200,	16777215)
+	def buildMatrixSection(self):
+		# Główny layout sekcji macierzy
+		self.matrixSectionLayout = QVBoxLayout()
+		self.matrixSectionLayout.setContentsMargins(5, 0, 5, 0)
+		self.matrixSectionLayout.setSpacing(0)
 
-		mainLayout	=	QHBoxLayout(self)
-		mainLayout.setContentsMargins(0,	0,	0,	0)
+		# Pasek z labelką i przyciskami
+		self.matrixBarLayout = QHBoxLayout()
+		self.matrixBarLayout.setContentsMargins(0, 0, 0, 0)
+		self.matrixBarLayout.setSpacing(0)
 
-		#	---	główny	groupbox	---
-		transformGroup	=	QGroupBox("Transformation",	self)
-		transformGroup.setMinimumSize(200,	0)
-		transformGroup.setMaximumSize(200,	16777215)
-		mainLayout.addWidget(transformGroup)
+		self.matrixLabel = QLabel()
+		self.matrixLabel.setAlignment(Qt.AlignLeading|Qt.AlignLeft|Qt.AlignVCenter)
+		self.matrixBarLayout.addWidget(self.matrixLabel)
 
-		v_layout	=	QVBoxLayout(transformGroup)
-		v_layout.setContentsMargins(0,	0,	0,	0)
+		# Przyciski
+		self.clearButton = QPushButton()
+		self.clearButton.setMaximumSize(QSize(24, 16777215))
+		clear_icon = QIcon()
+		clear_icon.addPixmap(QPixmap(":/icons/Erase.ico"), QIcon.Normal, QIcon.Off)
+		self.clearButton.setIcon(clear_icon)
+		self.matrixBarLayout.addWidget(self.clearButton)
 
-		#	---	checkbox	"show	screw"	---
-		self.showScrewCheckBox	=	QCheckBox("show	screw",	transformGroup)
-		v_layout.addWidget(self.showScrewCheckBox)
+		self.copyButton = QPushButton()
+		self.copyButton.setMaximumSize(QSize(24, 16777215))
+		copy_icon = QIcon()
+		copy_icon.addPixmap(QPixmap(":/icons/Copy.ico"), QIcon.Normal, QIcon.Off)
+		self.copyButton.setIcon(copy_icon)
+		self.matrixBarLayout.addWidget(self.copyButton)
 
-		#	---	matrix	group	---
-		self.matrixLabel	=	QLabel("Transf.	matrix:")
-		self.matrixTable	=	QTableWidget(4,	4)
-		self.matrixTable = QTableWidget(4, 4)
-		self.matrixTable.setFixedSize(182, 82)
-		self.matrixTable.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-		self.matrixTable.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self.pasteButton = QPushButton()
+		self.pasteButton.setMaximumSize(QSize(24, 16777215))
+		paste_icon = QIcon()
+		paste_icon.addPixmap(QPixmap(":/icons/Paste.ico"), QIcon.Normal, QIcon.Off)
+		self.pasteButton.setIcon(paste_icon)
+		self.matrixBarLayout.addWidget(self.pasteButton)
+
+		self.matrixSectionLayout.addLayout(self.matrixBarLayout)
+		# Tabela macierzy
+		self.matrixTable = QTableWidget()
+		self.matrixTable.setRowCount(4)
+		self.matrixTable.setColumnCount(4)
+		self.matrixTable.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+		self.matrixTable.setMaximumWidth(400)  # np. limit szerokości
+		self.matrixTable.setMaximumHeight(100)
+
+		header = self.matrixTable.horizontalHeader()
+		header.setSectionResizeMode(QHeaderView.Stretch)
+		header.setMinimumSectionSize(45)  # minimalna szerokość kolumny
+		header.setMaximumSectionSize(100) # opcjonalnie limit szerokości kolumny
+		header.setHighlightSections(False)
+		self.matrixTable.horizontalHeader().setVisible(False)		
+
 		self.matrixTable.verticalHeader().setVisible(False)
-		self.matrixTable.horizontalHeader().setVisible(False)
+		self.matrixTable.verticalHeader().setDefaultSectionSize(20)
+		self.matrixTable.verticalHeader().setHighlightSections(False)
+		self.matrixTable.verticalHeader().setMinimumSectionSize(20)
 
-		# ustaw rozmiary komórek
-		h = self.matrixTable.horizontalHeader()
-		v = self.matrixTable.verticalHeader()
-		h.setDefaultSectionSize(45)
-		h.setMinimumSectionSize(45)
-		v.setDefaultSectionSize(20)
-		v.setMinimumSectionSize(20)
 
-		matLayout	=	QVBoxLayout()
-		matLayout.addWidget(self.matrixLabel)
-		matLayout.addWidget(self.matrixTable)
-		v_layout.addLayout(matLayout)
+		font = QFont()
+		font.setPointSize(7)
+		self.matrixTable.setFont(font)
+		self.matrixTable.setFrameShape(QFrame.StyledPanel)
+		self.matrixTable.setFrameShadow(QFrame.Sunken)
+		self.matrixTable.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self.matrixTable.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self.matrixTable.setAutoScroll(False)
+		self.matrixTable.setDragDropOverwriteMode(False)
+		self.matrixTable.setTextElideMode(Qt.ElideNone)
+		self.matrixTable.setGridStyle(Qt.SolidLine)
+		self.matrixTable.setWordWrap(False)
+		self.matrixTable.setCornerButtonEnabled(False)
+		self.matrixTable.setRowCount(4)
+		self.matrixTable.setColumnCount(4)
+		self.matrixTable.setObjectName("matrixTable")
 
-		#	---	scale	group	---
-		scaleGroup	=	QGroupBox("scale")
-		self.scaleX	=	QDoubleSpinBox();	self.scaleX.setPrefix("⨯	")
-		self.scaleY	=	QDoubleSpinBox();	self.scaleY.setPrefix("⨯	");	self.scaleY.setEnabled(False)
-		self.scaleZ	=	QDoubleSpinBox();	self.scaleZ.setPrefix("⨯	");	self.scaleZ.setEnabled(False)
-		self.scaleCheck	=	QCheckBox()
+		self.matrixSectionLayout.addWidget(self.matrixTable)
 
-		scaleLayout	=	QVBoxLayout(scaleGroup)
-		scaleLayout.addWidget(self.scaleX)
-		scaleLayout.addWidget(self.scaleY)
-		scaleLayout.addWidget(self.scaleZ)
-		scaleLayout.addWidget(self.scaleCheck)
-		v_layout.addWidget(scaleGroup)
+		# Dodaj całość do głównego layoutu
+		self.main_layout.addLayout(self.matrixSectionLayout)
 
-		#	---	translation	group	---
-		transGroup	=	QGroupBox("translation")
-		self.transX	=	QDoubleSpinBox();	self.transX.setPrefix("X:	")
-		self.transY	=	QDoubleSpinBox();	self.transY.setPrefix("Y:	")
-		self.transZ	=	QDoubleSpinBox();	self.transZ.setPrefix("Z:	")
-		transLayout	=	QVBoxLayout(transGroup)
-		transLayout.addWidget(self.transX)
-		transLayout.addWidget(self.transY)
-		transLayout.addWidget(self.transZ)
-		v_layout.addWidget(transGroup)
+	def buildTranslScaleSection(self):
+		self.widget_transl_scale_section = QWidget(self.transformGroup)
+		self.layout_transl_scale_section = QHBoxLayout(self.widget_transl_scale_section)
 
-		#	---	euler	group	---
-		eulerGroup	=	QGroupBox("euler")
-		self.eulerX	=	QDoubleSpinBox();	self.eulerX.setSuffix("°")
-		self.eulerY	=	QDoubleSpinBox();	self.eulerY.setSuffix("°")
-		self.eulerZ	=	QDoubleSpinBox();	self.eulerZ.setSuffix("°")
-		eulerLayout	=	QVBoxLayout(eulerGroup)
-		eulerLayout.addWidget(self.eulerX)
-		eulerLayout.addWidget(self.eulerY)
-		eulerLayout.addWidget(self.eulerZ)
-		v_layout.addWidget(eulerGroup)
+		self.groupBox_scale = DoubleSpinBoxN2(count=3, orientation=Qt.Vertical, labels=['X:', 'Y:', 'Z:'])
+		self.groupBox_scale.setDecimals(3)
+		self.groupBox_scale.setSingleStep(0.1)
+		self.groupBox_scale.setRange(-9999.0, 9999.0)
+		self.groupBox_scale.setPalette((QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
+		self.groupBox_scale.setLockedToFirst(True)  # domyślnie "lock aspect ratio"
+		self.groupBox_scale.setPrefix(("⨯ ", "⨯ ", "⨯ "))
 
-		#	---	quaternion	group	---
-		quatGroup	=	QGroupBox("quaternion")
-		self.quatW	=	QDoubleSpinBox();	self.quatW.setEnabled(False)
-		self.quatX	=	QDoubleSpinBox();	self.quatX.setEnabled(False)
-		self.quatY	=	QDoubleSpinBox();	self.quatY.setEnabled(False)
-		self.quatZ	=	QDoubleSpinBox();	self.quatZ.setEnabled(False)
-		quatLayout	=	QVBoxLayout(quatGroup)
-		quatLayout.addWidget(self.quatW)
-		quatLayout.addWidget(self.quatX)
-		quatLayout.addWidget(self.quatY)
-		quatLayout.addWidget(self.quatZ)
-		v_layout.addWidget(quatGroup)
+		self.layout_transl_scale_section.addWidget(self.groupBox_scale)
+		
+		self.groupBox_translation = DoubleSpinBoxN(count=3, orientation=Qt.Vertical, labels=['X:', 'Y:', 'Z:'])
+		self.groupBox_translation.setDecimals(3)
+		self.groupBox_translation.setSingleStep(0.1)
+		self.groupBox_translation.setRange(-9999.0, 9999.0)
+		self.groupBox_translation.setPalette((QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
 
-		#	---	tree	view	---
-		self.treeView	=	QTreeView(transformGroup)
-		v_layout.addWidget(self.treeView)
+		self.layout_transl_scale_section.addWidget(self.groupBox_translation)
+		
+		self.main_layout.addWidget(self.widget_transl_scale_section)
+
+	def buildEulerSection(self):
+		# Euler
+		self.widget_angle_section = QWidget(self.transformGroup)
+		self.layout_angle_section = QHBoxLayout(self.widget_angle_section)
+		
+		self.groupBox_euler = DoubleSpinBoxN(count=3, orientation=Qt.Vertical)
+		self.groupBox_euler.setDecimals(3)
+		self.groupBox_euler.setSingleStep(0.1)
+		self.groupBox_euler.setRange(-9999.0, 9999.0)
+		self.groupBox_euler.setPalette((QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
+		self.groupBox_euler.setSuffix(("°", "°", "°"))
+		self.layout_angle_section.addWidget(self.groupBox_euler)
+
+		self.groupBox_quaternion = DoubleSpinBoxN(count=4, orientation=Qt.Vertical, labels=['w:', 'x:', 'y:', 'z:'])
+		self.groupBox_quaternion.setDecimals(3)
+		self.groupBox_quaternion.setSingleStep(0.1)
+		self.groupBox_quaternion.setRange(-9999.0, 9999.0)
+		self.groupBox_quaternion.setPalette((QColor(0, 0, 0), QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
+		
+		self.layout_angle_section.addWidget(self.groupBox_quaternion)
+		
+		self.main_layout.addWidget(self.widget_angle_section)
+
+	def buildOriginSection(self):
+		# Origin
+		self.originGroup = QGroupBox(self.transformGroup)
+		self.horizontalLayout_10 = QHBoxLayout(self.originGroup)
+		self.line_3 = QFrame(self.originGroup)
+		self.horizontalLayout_10.addWidget(self.line_3)
+		self.originType = QWidget(self.originGroup)
+		self.verticalLayout_3 = QVBoxLayout(self.originType)
+		self.originRadioObj = QRadioButton(self.originType)
+		self.verticalLayout_3.addWidget(self.originRadioObj)
+		self.originRadioPoint = QRadioButton(self.originType)
+		self.verticalLayout_3.addWidget(self.originRadioPoint)
+		self.originRadioBB = QRadioButton(self.originType)
+		self.verticalLayout_3.addWidget(self.originRadioBB)
+		self.originRadioWeight = QRadioButton(self.originType)
+		self.verticalLayout_3.addWidget(self.originRadioWeight)
+		self.horizontalLayout_10.addWidget(self.originType)
+		self.originCoords = QWidget(self.originGroup)
+		self.verticalLayout = QVBoxLayout(self.originCoords)
+		self.originX = QDoubleSpinBox(self.originCoords)
+		self.verticalLayout.addWidget(self.originX)
+		self.originY = QDoubleSpinBox(self.originCoords)
+		self.verticalLayout.addWidget(self.originY)
+		self.originZ = QDoubleSpinBox(self.originCoords)
+		self.verticalLayout.addWidget(self.originZ)
+		self.horizontalLayout_10.addWidget(self.originCoords)
+		self.line_2 = QFrame(self.originGroup)
+		self.horizontalLayout_10.addWidget(self.line_2)
+		self.widget_5 = QWidget(self.originGroup)
+		self.verticalLayout_4 = QVBoxLayout(self.widget_5)
+		self.clearButton_2 = QPushButton(self.widget_5)
+		self.verticalLayout_4.addWidget(self.clearButton_2)
+		self.copyButton_2 = QPushButton(self.widget_5)
+		self.verticalLayout_4.addWidget(self.copyButton_2)
+		self.pasteButton_2 = QPushButton(self.widget_5)
+		self.verticalLayout_4.addWidget(self.pasteButton_2)
+		self.horizontalLayout_10.addWidget(self.widget_5)
+		self.main_layout.addWidget(self.originGroup)
+
+	def buildTreeViewSection(self):
+		# TreeView
+		self.treeView = QTreeView(self.transformGroup)
+		self.main_layout.addWidget(self.treeView)
+
+	def setupUi(self, PropTransform):
+		PropTransform.setObjectName("PropTransform")
+		sizePolicy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+		sizePolicy.setHorizontalStretch(0)
+		sizePolicy.setVerticalStretch(0)
+		sizePolicy.setHeightForWidth(PropTransform.sizePolicy().hasHeightForWidth())
+		PropTransform.setSizePolicy(sizePolicy)
+
+		self.horizontalLayout_8 = QHBoxLayout(PropTransform)
+		self.horizontalLayout_8.setContentsMargins(0, 0, 0, 0)
+		self.horizontalLayout_8.setSpacing(0)
+		self.horizontalLayout_8.setObjectName("horizontalLayout_8")
+
+		self.transformGroup = QGroupBox(PropTransform)
+		self.transformGroup.setObjectName("transformGroup")
+		self.transformGroup.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+		self.transformGroup.setMaximumSize(QSize(200, 16777215))
+		#self.transformGroup.setMinimumSize(QSize(200, 0))
+		
+		self.main_layout = QVBoxLayout(self.transformGroup)
+		self.main_layout.setContentsMargins(0, 0, 0, 0)
+		self.main_layout.setSpacing(0)
+		self.main_layout.setObjectName("main_layout")
+
+		self.buildOriginSection()
+		self.buildMatrixSection()
+		self.buildTranslScaleSection()
+		self.buildEulerSection()
+		self.buildTreeViewSection()
+
+		self.horizontalLayout_8.addWidget(self.transformGroup)
+		self.retranslateUi(PropTransform)
+
+
+		QMetaObject.connectSlotsByName(PropTransform)
+
+	def retranslateUi(self, PropTransform):
+		_translate = QCoreApplication.translate
+		PropTransform.setWindowTitle(_translate("PropTransform", "Form"))
+		self.transformGroup.setTitle(_translate("PropTransform", "Transformation"))
+		# self.showScrewCheckBox.setText(_translate("PropTransform", "show screw"))
+		self.originGroup.setTitle(_translate("PropTransform", "origin"))
+		self.originRadioObj.setText(_translate("PropTransform", "obj[0,0,0]"))
+		self.originRadioPoint.setText(_translate("PropTransform", "point coords:"))
+		self.originRadioBB.setText(_translate("PropTransform", "bbox ctr"))
+		self.originRadioWeight.setText(_translate("PropTransform", "weight ctr"))
+		self.originX.setPrefix(_translate("PropTransform", "X: "))
+		self.originY.setPrefix(_translate("PropTransform", "Y: "))
+		self.originZ.setPrefix(_translate("PropTransform", "Z: "))
+		self.clearButton_2.setToolTip(_translate("PropTransform", "clear transformation"))
+		self.copyButton_2.setToolTip(_translate("PropTransform", "copy matrix to clipboard"))
+		self.pasteButton_2.setToolTip(_translate("PropTransform", "paste matrix from clipboard"))
+		self.matrixLabel.setText(_translate("PropTransform", "Matrix:"))
+		self.clearButton.setToolTip(_translate("PropTransform", "clear transformation"))
+		self.copyButton.setToolTip(_translate("PropTransform", "copy matrix to clipboard"))
+		self.pasteButton.setToolTip(_translate("PropTransform", "paste matrix from clipboard"))
+		# self.internalAxisRadio.setText(_translate("PropTransform", "internal axis"))
+		# self.externalAxisRadio.setText(_translate("PropTransform", "external axis"))
+		# self.axisCombo.setItemText(0, _translate("PropTransform", "x"))
+		# self.axisCombo.setItemText(1, _translate("PropTransform", "y"))
+		# self.axisCombo.setItemText(2, _translate("PropTransform", "z"))
+		# self.angleSpinBox.setSuffix(_translate("PropTransform", "°"))
+		# self.rotButton.setText(_translate("PropTransform", "rotate"))
+		self.groupBox_scale.setTitle(_translate("PropTransform", "scale"))
+		self.groupBox_translation.setTitle(_translate("PropTransform", "translation"))
+		self.groupBox_euler.setTitle(_translate("PropTransform", "euler"))
+		self.groupBox_quaternion.setTitle(_translate("PropTransform", "quaternion"))

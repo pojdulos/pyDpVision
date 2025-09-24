@@ -35,8 +35,12 @@ class Transform(Object):
 				return parent.getGlobalTransformation() @ self.matrix
 		return self.matrix
 
-
-	def getBB(self):
+	''' opcjonalna wersja getBB(),
+	która pozycjonuje BB dzieci wzgledem BB tego obiektu
+	w oparciu o macierz transformacji.
+	Raczej nie będzie używana ale zostawiam na razie.
+	'''
+	def getBBXX(self):
 		# 1. Najpierw zbieramy BB dzieci
 		_b, _min, _max = Object.getBB(self)
 
@@ -152,6 +156,17 @@ class Transform(Object):
 		self.m_translation += [dx, dy, dz]
 		self.updateMatrix()
 
+
+	def fromEulerAngles(self, roll, pitch, yaw, degrees=True):
+		"""
+		Ustawia rotację z kątów Eulera.
+		:param roll: obrót wokół osi X
+		:param pitch: obrót wokół osi Y
+		:param yaw: obrót wokół osi Z
+		:param degrees: True jeśli podajemy kąty w stopniach (domyślnie)
+		"""
+		self.m_rotation = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
+		self.updateMatrix()
 
 
 	def rotate(self, angle, axis, origin=None):

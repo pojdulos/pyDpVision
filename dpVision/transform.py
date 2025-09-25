@@ -141,7 +141,13 @@ class Transform(Object):
 		quat = np.array(quat, dtype=float)
 		if np.allclose(quat, 0.0):
 			quat = np.array([1, 0, 0, 0], dtype=float)
-		quat /= np.linalg.norm(quat)
+
+		norm = np.linalg.norm(quat)
+		if norm < 1e-12:  # prawie zero
+			quat = np.array([1,0,0,0], dtype=float)
+		else:
+			quat = quat / norm
+
 		self.m_rotation = Rotation.from_quat([quat[1], quat[2], quat[3], quat[0]])
 		self.updateMatrix()
 
@@ -204,7 +210,7 @@ class Transform(Object):
 
 		self.updateMatrix()
 
-	def scale(self, sx, sy, sz):
+	def rescale_by(self, sx, sy, sz):
 		self.m_scale *= [sx, sy, sz]
 		self.updateMatrix()
 
@@ -215,8 +221,27 @@ class Transform(Object):
 		self.updateMatrix()
 
 	# --- konwersje ---
-	def fromNumPy(self, numpy_array):
-		self.matrix = np.array(numpy_array, dtype=np.float64).reshape((4, 4))
+	def fromNumPy(self, numpy_array: np.ndarray):
+		M = np.array(numpy_array, dtype=np.float64).reshape((4, 4))
+		self.matrix = M
+
+		# --- Translacja ---
+		self.m_translation = M[:3, 3]
+
+		# --- Skala (długości wektorów kolumnowych 3x3) ---
+		scale_x = np.linalg.norm(M[:3, 0])
+		scale_y = np.linalg.norm(M[:3, 1])
+		scale_z = np.linalg.norm(M[:3, 2])
+		self.m_scale = np.array([scale_x, scale_y, scale_z])
+
+		# --- Rotacja (zmacierzy 3x3 z usuniętą skalą) ---
+		Rmat = np.zeros((3, 3))
+		if scale_x != 0: Rmat[:, 0] = M[:3, 0] / scale_x
+		if scale_y != 0: Rmat[:, 1] = M[:3, 1] / scale_y
+		if scale_z != 0: Rmat[:, 2] = M[:3, 2] / scale_z
+
+		self.m_rotation = Rotation.from_matrix(Rmat)
+
 		return self.matrix
 
 	def toNumPy(self):
@@ -244,7 +269,8 @@ class Transform(Object):
 			try:
 				values = [float(i) for i in pieces]
 				if len(values) == 16:
-					self.matrix = np.array(values, dtype=np.float64).reshape((4, 4))
+					# self.matrix = np.array(values, dtype=np.float64).reshape((4, 4))
+					self.fromNumPy(values)
 				else:
 					raise ValueError("Nieprawidłowa liczba wartości w schowku")
 			except ValueError as e:

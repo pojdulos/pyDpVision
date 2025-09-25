@@ -286,7 +286,7 @@ class GLViewer(QOpenGLWidget):
 			move = stepX * right + stepY * up + stepZ * forward
 			self.transform.translate(*move)
 			self.transformChanged.emit(self)
-			print("translacja KAMERY:", move)
+			#print("translacja KAMERY:", move)
 		elif isinstance(obj, Transform):
 			# --- przesuwanie obiektu ---
 			# osie kamery przekształcone do układu Workspace (uwzględniają obrót sceny)
@@ -298,7 +298,7 @@ class GLViewer(QOpenGLWidget):
 			move = stepX * right_ws + stepY * up_ws + stepZ * forward_ws
 			obj.translate(*move)
 			self.transformChanged.emit(obj)
-			print("translacja OBIEKTU:", move)
+			#print("translacja OBIEKTU:", move)
 
 		self.update()
 

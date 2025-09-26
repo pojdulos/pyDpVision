@@ -24,60 +24,68 @@ class BaseObject(QObject):
 		self.description = ""
 		self.checked = False
 		self.modified = True
-		
+		self.locked = False
+
 		self.m_showSelf = True
 		self.m_showKids = True
 		self.m_showBB = True
 				
 	def __del__(self):
-		self.__parent = None
+		self._parent = None
 		# print(self.__class__.__name__+" destructor")
 
 	@property
 	def parent(self):
-		return self.__parent() if self.__parent is not None else None
+		return self._parent() if self._parent is not None else None
 	
 	@parent.setter
 	def parent(self, parent):
 		if parent is None:
-			self.__parent = None
+			self._parent = None
 		elif issubclass(type(parent), BaseObject) and type(parent) is not BaseObject: # BaseObject can not have children
-			self.__parent = weakref.ref(parent)
+			self._parent = weakref.ref(parent)
 		else:
 			raise TypeError("Parent must be a derived class of BaseObject")
 
 	@property
 	def label(self):
-		return self.__label
+		return self._label
 	
 	@label.setter
 	def label(self, _lbl):
-		self.__label = _lbl
+		self._label = _lbl
 
 	@property
 	def description(self):
-		return self.__descr
+		return self._descr
 	
 	@description.setter
 	def description(self, _dsc):
-		self.__descr = _dsc
+		self._descr = _dsc
 
 	@property
 	def checked(self):
-		return self.__checked
+		return self._checked
 	
 	@checked.setter
 	def checked(self, b):
-		# print('BaseObject: checked' if b else 'BaseObject: unchecked')
-		self.__checked = b
+		self._checked = b
+
+	@property
+	def locked(self):
+		return self._locked
+	
+	@locked.setter 
+	def locked(self, b:bool):
+		self._locked = b
 
 	@property
 	def modified(self):
-		return self.__modified
+		return self._modified
 	
 	@modified.setter
 	def modified(self, b):
-		self.__modified = b
+		self._modified = b
 	
 	def setSelfVisibility(self, b):
 		self.m_showSelf = b
@@ -191,7 +199,7 @@ class BaseObject(QObject):
 			self.renderSelf()
 		if (self.m_showKids):
 			self.renderKids()
-		if (self.m_showBB):
+		if self.m_showSelf and self.m_showBB:
 			self.renderBB()
 		gl.glPopMatrix()
 

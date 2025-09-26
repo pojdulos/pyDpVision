@@ -93,7 +93,7 @@ class ProfileViewer(QtWidgets.QMainWindow):
 
         sep_layout = QtWidgets.QHBoxLayout()
         self.spinbox_separation = QtWidgets.QSpinBox()
-        self.spinbox_separation.setRange(-1000, 1000)
+        self.spinbox_separation.setRange(-5000, 5000)
         self.spinbox_separation.setValue(self.separation)
         self.spinbox_separation.valueChanged.connect(self.update_plot)
         sep_layout.addWidget(QtWidgets.QLabel("Separation:"))

@@ -5,6 +5,8 @@ layout(triangle_strip, max_vertices = 4) out;
 uniform mat4 u_mvp;
 uniform float u_stepX;
 uniform float u_stepY;
+uniform float u_offsetX;
+uniform float u_offsetY;
 uniform int u_width;
 uniform int u_height;
 uniform sampler2D u_gridTex;
@@ -23,8 +25,8 @@ void make_vertex(int i, int j, out vec4 pos, out float z, out float mask, out ve
     z = rg.r;
     mask = rg.g;
 
-    float x = j * u_stepX;
-    float y = i * u_stepY;
+    float x = u_offsetX + j * u_stepX;
+    float y = u_offsetY + i * u_stepY;
     pos = vec4(x, y, z, 1.0);
 
     // sąsiedzi do gradientu

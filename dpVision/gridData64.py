@@ -17,6 +17,8 @@ class GridData64(Object):
 		self.m_grid64 = grid.astype(np.float64)
 		self.stepX = stepX
 		self.stepY = stepY
+		self.offsetY = -stepY*self.m_grid64.shape[0]/2
+		self.offsetX = -stepX*self.m_grid64.shape[1]/2
 		self.use_uniform_color = True
 		self.uniform_color = [0.6,0.6,0.6]
 		self.use_mesh = False
@@ -85,6 +87,8 @@ class GridData64(Object):
 		# --- Uniformy: kroki siatki + rozmiar grida ---
 		glUniform1f(glGetUniformLocation(self.shader_program, "u_stepX"), self.stepX)
 		glUniform1f(glGetUniformLocation(self.shader_program, "u_stepY"), self.stepY)
+		glUniform1f(glGetUniformLocation(self.shader_program, "u_offsetX"), self.offsetX)
+		glUniform1f(glGetUniformLocation(self.shader_program, "u_offsetY"), self.offsetY)
 		glUniform1i(glGetUniformLocation(self.shader_program, "u_width"), self.w)
 		glUniform1i(glGetUniformLocation(self.shader_program, "u_height"), self.h)
 
@@ -129,3 +133,25 @@ class GridData64(Object):
 		if stepX is not None: self.stepX = stepX
 		if stepY is not None: self.stepY = stepY
 		self.upload_to_gpu()
+
+	def getBB(self):
+		_b, _min1, _max1 = Object.getBB(self)  # Pobieranie BB z klasy nadrzędnej
+		if self.m_grid64.size == 0:
+			return _b, _min1, _max1
+		
+		_min = [
+			self.offsetX,
+		  	self.offsetY,
+			np.nanmin(self.m_grid64)
+		]
+		
+		_max = [
+			self.offsetX+self.stepX*self.m_grid64.shape[1],
+			self.offsetY+self.stepY*self.m_grid64.shape[0],
+			np.nanmax(self.m_grid64)
+		]
+		
+		if _b:
+			_min = [min(a, b) for a, b in zip(_min1, _min)]
+			_max = [max(a, b) for a, b in zip(_max1, _max)]
+		return True, _min, _max

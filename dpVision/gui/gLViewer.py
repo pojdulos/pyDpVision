@@ -218,7 +218,12 @@ class GLViewer(QOpenGLWidget):
 			glOrtho( self._left, self._right, self._bottom, self._top, self._near, self._far )
 
 
-	def rotate_object(self, obj, xAngle, yAngle, zAngle=0.0):
+	def rotate_object(self, obj:Transform, xAngle, yAngle, zAngle=0.0):
+		lck = obj.locked
+		print('rotate_object: locked' if lck else 'rotate_object: unlocked')
+		if lck:
+			return
+		
 		midpoint = obj.getMidpoint()
 		p1 = obj.toNumPy().dot(np.array([*midpoint, 1.0]))[:3]
 
@@ -287,7 +292,7 @@ class GLViewer(QOpenGLWidget):
 			self.transform.translate(*move)
 			self.transformChanged.emit(self)
 			#print("translacja KAMERY:", move)
-		elif isinstance(obj, Transform):
+		elif isinstance(obj, Transform) and not obj.locked:
 			# --- przesuwanie obiektu ---
 			# osie kamery przekształcone do układu Workspace (uwzględniają obrót sceny)
 			inv_rot = self.transform.m_rotation.inv()

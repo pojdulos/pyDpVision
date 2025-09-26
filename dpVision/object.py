@@ -18,6 +18,21 @@ class Object(BaseObject):
 
 	def children(self):
 		return self.m_data
+	
+	def children_by_type(self, types):
+		# Jeśli to pojedynczy typ (np. GridData64)
+		if isinstance(types, type):
+			types = (types,)
+		# Jeśli to list/set/numpy array itp. → rzutuj na tuple
+		elif not isinstance(types, tuple):
+			try:
+				types = tuple(types)
+			except TypeError:
+				# np. jak poda ktoś int albo obiekt nieiterowalny
+				types = (types,)
+
+		return [kid for kid in self.m_data if isinstance(kid, types)]
+
 
 	def addChild(self, d):
 		if d is None or not issubclass(type(d), BaseObject):
@@ -41,6 +56,7 @@ class Object(BaseObject):
 			child.render()
 			
 	def getBB(self):
+		return False, None, None
 		if not self._dirty and self._cached_bb is not None:
 			return self._cached_bb
 

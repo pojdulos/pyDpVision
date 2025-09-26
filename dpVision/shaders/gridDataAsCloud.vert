@@ -2,6 +2,8 @@
 uniform mat4 u_mvp;
 uniform float u_stepX;
 uniform float u_stepY;
+uniform float u_offsetX;
+uniform float u_offsetY;
 uniform int u_width;
 uniform int u_height;
 uniform sampler2D u_gridTex;
@@ -37,8 +39,8 @@ void main()
 
     v_normal = normalize(vec3(-dzdx, -dzdy, 1.0));
 
-    float x = j * u_stepX;
-    float y = i * u_stepY;
+    float x = u_offsetX + j * u_stepX;
+    float y = u_offsetY + i * u_stepY;
 
     gl_Position = u_mvp * vec4(x, y, z, 1.0);
 }

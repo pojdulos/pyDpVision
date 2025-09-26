@@ -9,24 +9,83 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from dpVision import AP, PluginInterface, Parser, BaseObject, Transform
+from dpVision import AP, PluginInterface, Parser, BaseObject, Transform, GridData64
 from dpVision.parsers import ParserCSV
 from .profileViewer import ProfileViewer
 
 import weakref
 import numpy as np
 
+import numpy as np
+
+def make_distance_map_fast(grid1: GridData64, grid2: GridData64, transform: np.ndarray,
+						mode="bilinear", max_dist=None) -> GridData64:
+	h, w = grid1.h, grid1.w
+	stepX, stepY = grid1.stepX, grid1.stepY
+
+	# współrzędne w grid1
+	xs = grid1.offsetX + np.arange(w) * stepX
+	ys = grid1.offsetY + np.arange(h) * stepY
+	X, Y = np.meshgrid(xs, ys)
+
+	Z = grid1.m_grid64
+
+	transform = np.linalg.inv(transform)
+	
+	# flatten
+	pts = np.stack([X.ravel(), Y.ravel(), Z.ravel(), np.ones_like(Z).ravel()], axis=1)
+	pts_t = (transform @ pts.T).T  # (N,4)
+
+	px, py, pz = pts_t[:,0], pts_t[:,1], pts_t[:,2]
+
+	# współrzędne w grid2
+	gx = (px - grid2.offsetX) / grid2.stepX
+	gy = (py - grid2.offsetY) / grid2.stepY
+
+	valid = (
+		np.isfinite(pz) &
+		(gx >= 0) & (gy >= 0) &
+		(gx < grid2.w-1) & (gy < grid2.h-1)
+	)
+
+	gx, gy, pz = gx[valid], gy[valid], pz[valid]
+	ix, iy = np.floor(gx).astype(int), np.floor(gy).astype(int)
+	dx, dy = gx - ix, gy - iy
+
+	if mode == "nearest":
+		z_interp = grid2.m_grid64[iy, ix]
+	else:  # bilinear
+		z11 = grid2.m_grid64[iy, ix]
+		z21 = grid2.m_grid64[iy, ix+1]
+		z12 = grid2.m_grid64[iy+1, ix]
+		z22 = grid2.m_grid64[iy+1, ix+1]
+		z_interp = (
+			z11*(1-dx)*(1-dy) +
+			z21*dx*(1-dy) +
+			z12*(1-dx)*dy +
+			z22*dx*dy
+		)
+
+	dist = np.full(Z.shape, np.nan, dtype=np.float64)
+	dist.ravel()[valid] = pz - z_interp
+
+	# --- ograniczenie maksymalnej odległości ---
+	if max_dist is not None:
+		#mask = np.abs(dist) > max_dist
+		mask = (dist <= 0) # max_dist
+		dist[mask] = np.nan   # albo np.clip(dist, -max_dist, max_dist) jeśli chcesz "przyciąć"
+
+	return GridData64(dist, stepX=stepX, stepY=stepY)
+
+
 class Frasta(PluginInterface):
 	def __init__(self):
 		self.plugin_name = '(dp) Frasta'
 		self.panel = None
-		self.scale_transform = Transform()
-		self.scale_transform.setScale(0.01, 0.01, 0.01)  # skalowanie skanów
-		self.adj_transform = Transform()
-		self.scale_transform.addChild(self.adj_transform)
+		self.scale_transform = None
+		self.adj_transform = None
 		self.ref_grid = None
 		self.adj_grid = None
-		AP.addObject(self.scale_transform)
 
 	def on_load(self):
 		print( f"plugin {self.plugin_name} loaded.")
@@ -66,8 +125,14 @@ class Frasta(PluginInterface):
 		rotY_button = QPushButton("Y-Rotate (Adj)")
 		rotY_button.clicked.connect(self.onAction_RotY)
 
+		alignBB_button = QPushButton("Align BBs")
+		alignBB_button.clicked.connect(self.onAction_align_bboxes)
+
 		profile_button = QPushButton("Profile view")
 		profile_button.clicked.connect(self.onAction_profile_view)
+
+		map_button = QPushButton("test map")
+		map_button.clicked.connect(self.onAction_test_map)
 
 		layout = QFormLayout()
 		layout.addRow(refresh_button)
@@ -75,7 +140,9 @@ class Frasta(PluginInterface):
 		layout.addRow("Adj:", self.seladj)
 		layout.addRow(swap_button)
 		layout.addRow(rotY_button)
+		layout.addRow(alignBB_button)
 		layout.addRow(profile_button)
+		layout.addRow(map_button)
 		
 		central_widget = QWidget()
 		central_widget.setLayout(layout)
@@ -212,6 +279,30 @@ class Frasta(PluginInterface):
 				old_adj = ref()
 
 		tmp = list(AP.mainWin.workspace.m_data)
+		
+		# tmp2 = []
+		# for tt in AP.mainWin.workspace.m_data:
+		# 	gtt = tt.children_by_type(GridData64)
+		# 	if len(gtt) != 0:
+		# 		tmp2.append(*gtt)
+		# print(f"Znaleziono {len(tmp2)} obiektów GridData64: {gtt}")
+
+		if self.scale_transform is None:
+			self.scale_transform = Transform()
+			self.scale_transform.label = "Frasta scale (0.01x)"
+			self.scale_transform.locked = True
+			self.scale_transform.setScale(0.01, 0.01, 0.01)  # skalowanie skanów
+			AP.addObject(self.scale_transform)
+		if self.adj_transform is None:
+			self.adj_transform = Transform()
+			self.adj_transform.label = "Frasta Adjusted position"
+			self.adj_transform.locked = True
+			AP.addObject(self.adj_transform,self.scale_transform)
+
+		if self.scale_transform in tmp:
+			tmp.remove(self.scale_transform)
+		if self.adj_transform in tmp:
+			tmp.remove(self.adj_transform)
 
 		# --- odświeżenie REF ---
 		self.selref.blockSignals(True)
@@ -298,6 +389,12 @@ class Frasta(PluginInterface):
 		if adj_idx >= 0:
 			self.seladj.setCurrentIndex(adj_idx)
 
+	def onAction_align_bboxes(self):
+		refbb = self.ref_grid.getBB()
+		adjBB = self.adj_grid.getBB()
+		z_diff = refbb[2][2] - adjBB[1][2]
+		self.adj_transform.translate(0.0, 0.0, 0.8*z_diff)
+
 	def onAction_profile_view(self):
 		grid1 = self.ref_grid.m_grid64.copy()
 		grid2 = self.adj_grid.m_grid64.copy()
@@ -326,6 +423,9 @@ class Frasta(PluginInterface):
 			self.ref_grid.stepX, self.ref_grid.stepY,
 			self.adj_grid.stepX, self.adj_grid.stepY
 		)
+
+		self._profile_viewer.spinbox_separation.setValue(int(self.adj_transform.getTranslation()[2]))
+
 		self._profile_viewer.show()
 		self._profile_viewer.raise_()
 		self._profile_viewer.activateWindow()
@@ -342,6 +442,12 @@ class Frasta(PluginInterface):
 		AP.mainWin.update()
 		AP.updateAllViews()
 
+
+	def onAction_test_map(self):
+		map = make_distance_map_fast(self.ref_grid, self.adj_grid,
+							self.adj_transform.toNumPy(), mode="bilinear", max_dist=50.0)
+		map.use_uniform_color = False
+		AP.addObject(map, self.scale_transform)
 
 	def onAction_UnLoad(self):
 		print("Akcja menu: Wyładuj plugin")

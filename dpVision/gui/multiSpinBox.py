@@ -6,6 +6,7 @@ def get_palette(color:QtGui.QColor, bgcolor:QtGui.QColor=None):
 	brush = QtGui.QBrush(color)
 	brush.setStyle(QtCore.Qt.SolidPattern)
 	palette.setBrush(QtGui.QPalette.Active, QtGui.QPalette.Text, brush)
+	palette.setBrush(QtGui.QPalette.Inactive, QtGui.QPalette.Text, brush)
 	return palette
 
 

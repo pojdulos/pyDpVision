@@ -3,6 +3,7 @@
 from .annotation import Annotation
 #from .annotationEdge import AnnotationEdge
 from .annotationPath import AnnotationPath
+from .annotationPlane import AnnotationPlane
 from .annotationPoint import AnnotationPoint
 from .annotationSphere import AnnotationSphere
 from .annotationTriangle import AnnotationTriangle
@@ -28,7 +29,7 @@ from .workspace import Workspace
 
 __all__ = [
 			"Annotation", #"AnnotationEdge",
-			"AnnotationPath", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
+			"AnnotationPath", "AnnotationPlane", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
 		    "BaseObject",
 			"Globals", "AP",
 			"GridData64",

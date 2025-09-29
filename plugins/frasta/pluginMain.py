@@ -10,13 +10,13 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 from dpVision import AP, PluginInterface, Parser, BaseObject, Transform, GridData64
+from dpVision.annotationPlane import AnnotationPlane
 from dpVision.parsers import ParserCSV
 from .profileViewer import ProfileViewer
 
 import weakref
 import numpy as np
 
-import numpy as np
 
 def make_distance_map_fast(grid1: GridData64, grid2: GridData64, transform: np.ndarray,
 						mode="bilinear", max_dist=None) -> GridData64:
@@ -78,6 +78,193 @@ def make_distance_map_fast(grid1: GridData64, grid2: GridData64, transform: np.n
 	return GridData64(dist, stepX=stepX, stepY=stepY)
 
 
+from scipy.spatial.transform import Rotation as R
+
+def plane_transform(center1, normal1, center2, normal2):
+	# normalizacja
+	n1 = normal1 / np.linalg.norm(normal1)
+	n2 = normal2 / np.linalg.norm(normal2)
+
+	# oś i kąt rotacji
+	v = np.cross(n1, n2)
+	s = np.linalg.norm(v)
+	c = np.dot(n1, n2)
+
+	if s == 0:  # normalne równoległe
+		if c > 0:
+			rot = np.eye(3)
+		else:
+			# rotacja o 180° wokół dowolnej osi prostopadłej do n1
+			axis = np.array([1, 0, 0]) if abs(n1[0]) < 0.9 else np.array([0, 1, 0])
+			v = np.cross(n1, axis)
+			v /= np.linalg.norm(v)
+			rot = R.from_rotvec(np.pi * v).as_matrix()
+	else:
+		v /= s
+		angle = np.arctan2(s, c)
+		rot = R.from_rotvec(angle * v).as_matrix()
+
+	# translacja
+	t = center2 - rot @ center1
+
+	# macierz 4x4
+	T = np.eye(4)
+	T[:3, :3] = rot
+	T[:3, 3] = t
+	return T
+
+import numpy as np
+from scipy import ndimage
+from numpy.fft import fft2, ifft2
+
+def rotation_about_normal(normal, theta_deg):
+	n = normal / np.linalg.norm(normal)
+	th = np.deg2rad(theta_deg)
+	K = np.array([[0, -n[2], n[1]],
+				[n[2], 0, -n[0]],
+				[-n[1], n[0], 0]])
+	R = np.eye(3) + np.sin(th) * K + (1-np.cos(th)) * (K @ K)
+	T = np.eye(4)
+	T[:3,:3] = R
+	return T
+
+def rotate_2d(img, angle_deg):
+	return ndimage.rotate(img, angle=angle_deg, reshape=False,
+						order=1, mode='constant', cval=np.nan)
+
+def phase_correlation(im1, im2):
+	A = np.nan_to_num(im1, copy=False)
+	B = np.nan_to_num(im2, copy=False)
+	FA, FB = fft2(A), fft2(B)
+	R = FA * np.conj(FB)
+	R /= np.maximum(np.abs(R), 1e-12)
+	r = np.real(ifft2(R))
+	maxpos = np.unravel_index(np.argmax(r), r.shape)
+	shift = np.array(maxpos, dtype=float)
+	for k, N in enumerate(r.shape):
+		if shift[k] > N // 2:
+			shift[k] -= N
+	return int(shift[0]), int(shift[1])
+
+def refine_in_plane_transform(ref_grid, adj_grid, ref_abc, adj_abc, T0,
+							pre_theta=0.0,
+							angle_range=10.0,
+							angle_step=0.5):
+	"""
+	Szacuje dodatkowy obrót wokół normalnej i przesunięcia w płaszczyźnie
+	względem macierzy wstępnej T0.
+
+	pre_theta   -- wstępny obrót "na oko" (np. 180°)
+	angle_range -- zakres przeszukiwania wokół pre_theta (± stopni)
+	angle_step  -- krok w stopniach
+	"""
+
+	Zref = np.array(ref_grid.m_grid64, dtype=float)
+	Zadj = np.array(adj_grid.m_grid64, dtype=float)
+
+	# przycięcie do wspólnego wymiaru
+	h = min(Zref.shape[0], Zadj.shape[0])
+	w = min(Zref.shape[1], Zadj.shape[1])
+	Zref = Zref[:h, :w]
+	Zadj = Zadj[:h, :w]
+
+	# równania płaszczyzn
+	ar, br, cr = ref_abc
+	aa, ba, ca = adj_abc
+
+	X, Y = np.meshgrid(np.arange(w), np.arange(h))
+
+	Href = Zref - (ar * X + br * Y + cr)
+	Hadj = Zadj - (aa * X + ba * Y + ca)
+
+	# --- krok 1: szukanie kąta wokół normalnej ---
+	best = dict(theta=0.0, dy=0, dx=0, score=-np.inf)
+	thetas = np.arange(-angle_range, angle_range + angle_step, angle_step)
+
+	for theta in thetas:
+		R2 = rotate_2d(-Hadj, pre_theta + theta)  # uwzględniamy pre_theta
+		dy, dx = phase_correlation(Href, R2)
+		# A = np.nan_to_num(Href)
+		# B = np.roll(np.roll(R2, dy, axis=0), dx, axis=1)
+		# score = np.sum(A * B)
+
+		A = np.nan_to_num(Href)
+		B = np.roll(np.roll(R2, dy, axis=0), dx, axis=1)
+
+		# zerowanie średnich
+		A0 = A - np.mean(A)
+		B0 = B - np.mean(B)
+
+		num = np.sum(A0 * B0)
+		den = np.sqrt(np.sum(A0**2) * np.sum(B0**2)) + 1e-12
+		score = num / den
+
+
+		print(f"theta = {theta}, score = {score}")
+		if score > best["score"]:
+			best.update(dict(theta=pre_theta + theta,
+							dy=dy, dx=dx, score=score))
+
+	theta = best["theta"]
+	dy, dx = best["dy"], best["dx"]
+
+	# --- krok 2: offset normalny ---
+	R2 = rotate_2d(-Hadj, theta)
+	R2s = np.roll(np.roll(R2, dy, axis=0), dx, axis=1)
+	valid = np.isfinite(Href) & np.isfinite(R2s)
+	dn = np.median(Href[valid] + R2s[valid]) if np.any(valid) else 0.0
+
+	# --- krok 3: złożenie transformacji 3D ---
+	n = np.array([ar, br, -1.0], dtype=float)
+	n /= np.linalg.norm(n)
+	tmp = np.array([0, 0, 1.0]) if abs(n[2]) < 0.9 else np.array([1.0, 0, 0])
+	u = np.cross(tmp, n); u /= np.linalg.norm(u)
+	v = np.cross(n, u)
+
+	th = np.deg2rad(theta)
+	K = np.array([[0, -n[2], n[1]],
+				[n[2], 0, -n[0]],
+				[-n[1], n[0], 0]])
+	Rn = np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * (K @ K)
+
+	t = dx * u + dy * v + dn * n
+
+	T_refine = np.eye(4)
+	T_refine[:3, :3] = Rn
+	T_refine[:3, 3] = t
+
+	return T_refine
+
+from scipy.interpolate import griddata
+
+def apply_transform_to_grid(Z, sx, sy, sz, T):
+	h, w = Z.shape
+	X, Y = np.meshgrid(np.arange(w), np.arange(h))
+
+	# współrzędne oryginalne (fizyczne)
+	xw = X * sx
+	yw = Y * sy
+	zw = Z * sz
+
+	pts = np.column_stack((xw.ravel(), yw.ravel(), zw.ravel(), np.ones(h*w)))
+	pts_T = (T @ pts.T).T
+
+	# nowe współrzędne
+	xw_T, yw_T, zw_T = pts_T[:,0], pts_T[:,1], pts_T[:,2]
+
+	# z powrotem na regularną siatkę XY ref_grid
+	grid_x, grid_y = np.meshgrid(np.arange(w)*sx, np.arange(h)*sy)
+
+	Z_new = griddata(
+		np.column_stack((xw_T, yw_T)),
+		zw_T / sz,
+		(grid_x, grid_y),
+		method='linear',
+		fill_value=np.nan
+	)
+	return Z_new
+
+
 class Frasta(PluginInterface):
 	def __init__(self):
 		self.plugin_name = '(dp) Frasta'
@@ -134,6 +321,11 @@ class Frasta(PluginInterface):
 		map_button = QPushButton("test map")
 		map_button.clicked.connect(self.onAction_test_map)
 
+		ransac_button = QPushButton("ransac test")
+		ransac_button.clicked.connect(self.onAction_ransac)
+
+
+
 		layout = QFormLayout()
 		layout.addRow(refresh_button)
 		layout.addRow("Ref:", self.selref)
@@ -143,6 +335,7 @@ class Frasta(PluginInterface):
 		layout.addRow(alignBB_button)
 		layout.addRow(profile_button)
 		layout.addRow(map_button)
+		layout.addRow(ransac_button)
 		
 		central_widget = QWidget()
 		central_widget.setLayout(layout)
@@ -394,6 +587,7 @@ class Frasta(PluginInterface):
 		adjBB = self.adj_grid.getBB()
 		z_diff = refbb[2][2] - adjBB[1][2]
 		self.adj_transform.translate(0.0, 0.0, 0.8*z_diff)
+		AP.updateAllViews()
 
 	def onAction_profile_view(self):
 		grid1 = self.ref_grid.m_grid64.copy()
@@ -448,6 +642,238 @@ class Frasta(PluginInterface):
 							self.adj_transform.toNumPy(), mode="bilinear", max_dist=50.0)
 		map.use_uniform_color = False
 		AP.addObject(map, self.scale_transform)
+
+	def onAction_ransac(self):
+		ref_grid: GridData64 = self.ref_grid
+		grid = ref_grid.m_grid64
+		# --- rozdzielczości (mm/pix) ---
+		sx = getattr(ref_grid, "stepX", 2.76)
+		sy = getattr(ref_grid, "stepY", 2.76)
+		sz = 1.0
+		ref_plane, ref_abc = self.calc_ransac(grid, sx=sx, sy=sy, sz=sz, use_crop=False)
+		ref_plane.m_color=QColor(128,255,192,128)
+		AP.addObject(ref_plane, self.scale_transform)
+		AP.updateAllViews()
+
+		adj_grid: GridData64 = self.adj_grid
+		grid = adj_grid.m_grid64
+		# --- rozdzielczości (mm/pix) ---
+		sx = getattr(adj_grid, "stepX", 2.76)
+		sy = getattr(adj_grid, "stepY", 2.76)
+		sz = 1.0
+		adj_plane, adj_abc = self.calc_ransac(grid, sx=sx, sy=sy, sz=sz, use_crop=False)
+		adj_plane.m_color=QColor(128,164,255,128)
+		AP.addObject(adj_plane, self.adj_transform)
+		AP.updateAllViews()
+
+		T0 = plane_transform(adj_plane.m_center, adj_plane.m_normal,
+							ref_plane.m_center, ref_plane.m_normal)
+
+		T_refined = refine_in_plane_transform(ref_grid, adj_grid,
+											ref_abc, adj_abc, T0,
+											pre_theta=175.0,  # <- wstępny obrót
+											angle_range=20.0,
+											angle_step=0.5)
+
+		T_final = T_refined @ T0
+
+		self.adj_transform.fromNumPy(T_final)
+		print(*T_final.flatten())
+
+	def calc_ransac(self, _grid, sx=1.0, sy=1.0, sz=1.0, use_crop=False):
+		grid = _grid
+		h, w = grid.shape
+
+		if use_crop:
+			# --- WYCIĘCIE 500x500 WOKÓŁ ŚRODKA ---
+			cx, cy = w // 2, h // 2
+			r = 500
+			x0, x1 = max(cx - r, 0), min(cx + r, w)
+			y0, y1 = max(cy - r, 0), min(cy + r, h)
+
+			sub = grid[y0:y1, x0:x1]
+			X_px, Y_px = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1))
+			Z_u = sub
+		else:
+			# --- CAŁA SIATKA ---
+			X_px, Y_px = np.meshgrid(np.arange(w), np.arange(h))
+			Z_u = grid
+
+		# Usuwamy NaN
+		mask = ~np.isnan(Z_u)
+		x_px = X_px[mask].ravel()
+		y_px = Y_px[mask].ravel()
+		z_u  = Z_u[mask].ravel()
+
+		Xy = np.column_stack((x_px, y_px))
+
+		from sklearn.linear_model import RANSACRegressor, LinearRegression
+		ransac = RANSACRegressor(
+			estimator=LinearRegression(),
+			min_samples=3,
+			residual_threshold=50.0,  # dopasuj do jednostek Z
+			max_trials=1000,
+			random_state=0
+		)
+		ransac.fit(Xy, z_u)
+
+		a, b = ransac.estimator_.coef_
+		c = ransac.estimator_.intercept_
+
+		# --- PRZESKALOWANIE DO JEDNOSTEK ŚWIATA ---
+		a_w = a * (sz / sx)
+		b_w = b * (sz / sy)
+		c_w = c * sz
+
+		print(f"Plane (pixels-unscaled): z_u = {a:.6f}*x_px + {b:.6f}*y_px + {c:.6f}")
+		print(f"Plane (world-scaled):   z   = {a_w:.6f}*x   + {b_w:.6f}*y   + {c_w:.6f}")
+
+		# Normalna
+		normal = np.array([a_w, b_w, -1.0], dtype=float)
+		normal /= np.linalg.norm(normal)
+		print("Normal (world):", normal)
+
+		# Centrum płaszczyzny – zależy od trybu
+		if use_crop:
+			cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+		else:
+			cx, cy = w // 2, h // 2
+
+		center_world = np.array([
+			sx * cx,
+			sy * cy,
+			a_w * (sx * cx) + b_w * (sy * cy) + c_w
+		], dtype=float)
+
+		#plane = AnnotationPlane(pC=center_world, pN=normal, size=8000)
+		plane = AnnotationPlane(pC=[0,0,center_world[2]], pN=normal, size=8000)
+
+		return plane, [a_w, b_w, c_w]
+
+
+	def onAction_ransac2(self):
+		ref_grid: GridData64 = self.ref_grid
+		grid = ref_grid.m_grid64
+		h, w = grid.shape
+
+		# --- JEŚLI ZNASZ ROZDZIELCZOŚCI (świat na piksel/voxel) ---
+		# Podstaw swoje wartości (mm/pix lub inne):
+		sx = getattr(ref_grid, "spacing_x", 2.76)  # świat / piksel w osi X
+		sy = getattr(ref_grid, "spacing_y", 2.76)  # świat / piksel w osi Y
+		sz = getattr(ref_grid, "spacing_z", 1.0)  # świat / jednostkę Z (np. mm na jednostkę wysokości)
+
+		# --- WYCIĘCIE 500x500 WOKÓŁ ŚRODKA ---
+		cx, cy = w // 2, h // 2
+		r = 500 #250  # połowa boku -> 500x500
+		x0, x1 = max(cx - r, 0), min(cx + r, w)
+		y0, y1 = max(cy - r, 0), min(cy + r, h)
+
+		sub = grid[y0:y1, x0:x1]  # pamiętaj: [row, col] = [y, x]
+		H, W = sub.shape
+
+		X_px, Y_px = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1))  # współrzędne w pikselach
+		Z_u = sub  # Z w jednostkach oryginalnych (np. mm lub „wartość wysokości”)
+
+		mask = ~np.isnan(Z_u)
+		x_px = X_px[mask].ravel()
+		y_px = Y_px[mask].ravel()
+		z_u  = Z_u[mask].ravel()
+
+		Xy = np.column_stack((x_px, y_px))
+
+		from sklearn.linear_model import RANSACRegressor, LinearRegression
+		ransac = RANSACRegressor(
+			estimator=LinearRegression(),
+			min_samples=3,
+			residual_threshold=50.0,
+			max_trials=1000,
+			random_state=0
+		)
+		ransac.fit(Xy, z_u)
+
+		a, b = ransac.estimator_.coef_
+		c = ransac.estimator_.intercept_
+
+		# --- PRZESKALOWANIE DO JEDNOSTEK ŚWIATA ---
+		a_w = a * (sz / sx)
+		b_w = b * (sz / sy)
+		c_w = c * sz  # jeśli chcesz też poprawnie przesunąć w świecie
+
+		print(f"Plane (pixels-unscaled): z_u = {a:.6f}*x_px + {b:.6f}*y_px + {c:.6f}")
+		print(f"Plane (world-scaled):   z   = {a_w:.6f}*x   + {b_w:.6f}*y   + {c_w:.6f}")
+
+		# Normalna w świecie dla z = a_w x + b_w y + c_w
+		normal = np.array([a_w, b_w, -1.0], dtype=float)
+		normal /= np.linalg.norm(normal)
+		print("Normal (world):", normal)
+
+		# Środek płaszczyzny ustaw w centrum wycinka (w świecie):
+		center_world = np.array([sx * cx, sy * cy, a_w * (sx * cx) + b_w * (sy * cy) + c_w], dtype=float)
+
+		from dpVision.annotationPlane import AnnotationPlane
+		plane = AnnotationPlane(pC=[0,0,700], pN=normal, size=8000)
+
+		# Uwaga: jeśli scale_transform skaluje niejednorodnie, może przekłamać normalną przy renderze.
+		# Lepiej dodać bezpośrednio (albo upewnić się, że scale_transform jest jednorodny):
+		AP.addObject(plane, self.scale_transform)
+		AP.updateAllViews()
+
+	def onAction_ransac1(self):
+		ref_grid:GridData64 = self.ref_grid
+		grid = ref_grid.m_grid64
+		# h, w = grid.shape
+		
+		# X, Y = np.meshgrid(np.arange(w), np.arange(h))  # współrzędne siatki
+		# points = np.column_stack((X.ravel(), Y.ravel(), grid.ravel()))
+
+		# # Usuwamy punkty, gdzie Z = NaN
+		# mask = ~np.isnan(points[:, 2])
+		# points_clean = points[mask]
+
+
+		h, w = grid.shape
+		cx, cy = w // 2, h // 2   # środek siatki
+		r = 500                   # promień/połowa rozmiaru wycinka w pikselach
+
+		X, Y = np.meshgrid(np.arange(w), np.arange(h))
+		points = np.column_stack((X.ravel(), Y.ravel(), grid.ravel()))
+
+		# maska: brak NaN + ograniczenie do prostokąta wokół środka
+		mask = (
+			~np.isnan(points[:, 2]) &
+			(np.abs(points[:, 0] - cx) < r) &
+			(np.abs(points[:, 1] - cy) < r)
+		)
+
+		points_clean = points[mask]
+
+		Xy = points_clean[:, :2]
+		z  = points_clean[:, 2]
+
+		from sklearn.linear_model import RANSACRegressor, LinearRegression
+
+		ransac = RANSACRegressor(
+			estimator=LinearRegression(),
+			min_samples=3,
+			residual_threshold=50.0,  # próg w jednostkach Z (dobierz do szumu/outlierów)
+			max_trials=1000
+		)
+		ransac.fit(Xy, z)
+
+		a, b = ransac.estimator_.coef_
+		c = ransac.estimator_.intercept_
+
+		print(f"Równanie płaszczyzny: z = {a:.4f} * x + {b:.4f} * y + {c:.4f}")
+
+		normal = np.array([a, b, -1.0])
+		normal /= np.linalg.norm(normal)
+		print("Normalna:", normal)
+
+		from dpVision.annotationPlane import AnnotationPlane
+
+		plane = AnnotationPlane(pC=[0,0,700],pN=normal, size=8000)
+		AP.addObject(plane, self.scale_transform)
+		AP.updateAllViews()
 
 	def onAction_UnLoad(self):
 		print("Akcja menu: Wyładuj plugin")

@@ -137,17 +137,12 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		# vb.setLimits(yMin=0, yMax=h - 1, xMin=0, xMax=w - 1)
 		# vb.setRange(xRange=(0, w - 1), yRange=(0, h - 1), padding=0)
 			
-	def set_distance_map(self, dist_grid: GridData64):
-		self.distance_map = dist_grid
-		self.pixel_um = QPointF(dist_grid.stepX, dist_grid.stepY)
-		self.redraw_roi()
-		self.update_plot()
-		self.resize_image_view(dist_grid.m_grid64.shape)
 
 	# --- logika ---
 	def update_plot(self):
 		"""Odśwież widok binarny na podstawie separacji."""
 		sep = self.spinbox_separation.value()
+		self.separation = sep
 		dist = self.distance_map.m_grid64
 		valid = np.isfinite(dist)
 		binary_contact = (dist <= sep) & valid
@@ -272,17 +267,24 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		rr = rr[mask]
 		cc = cc[mask]
 
-		prof_dist = self.distance_map.m_grid64[rr, cc]
+		prof_dist = -self.distance_map.m_grid64[rr, cc]
 		valid_mask = np.isfinite(prof_dist)
 
 		# jeśli siatki są podane
 		profiles = []
 		if self.grid1 is not None and self.grid2 is not None:
-			prof1 = self.grid1.m_grid64[rr, cc]
-			prof2 = self.grid2.m_grid64[rr, cc]
+			prof1 = -self.grid1.m_grid64[rr, cc]
+			prof2 = -(self.grid2.m_grid64[rr, cc] + self.separation)   # <--- tu dodajemy separation
 			valid_mask &= np.isfinite(prof1) & np.isfinite(prof2)
 			profiles.append(("Ref", prof1[valid_mask], pg.mkPen('g', width=2)))
 			profiles.append(("Adj", prof2[valid_mask], pg.mkPen('b', width=2)))
+
+		# if self.grid1 is not None and self.grid2 is not None:
+		# 	prof1 = self.grid1.m_grid64[rr, cc]
+		# 	prof2 = self.grid2.m_grid64[rr, cc]
+		# 	valid_mask &= np.isfinite(prof1) & np.isfinite(prof2)
+		# 	profiles.append(("Ref", prof1[valid_mask], pg.mkPen('g', width=2)))
+		# 	profiles.append(("Adj", prof2[valid_mask], pg.mkPen('b', width=2)))
 
 		positions_line = np.arange(len(rr))[valid_mask] * self.distance_map.stepX / 1000.0
 		prof_dist = prof_dist[valid_mask]

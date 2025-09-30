@@ -11,14 +11,14 @@ from .shaders import create_program
 
 
 class GridData64(Object):
-	def __init__(self, grid, stepX=1.0, stepY=1.0, parent=None):
+	def __init__(self, grid, stepX=1.0, stepY=1.0, offsetX=None, offsetY=None, parent=None):
 		super(GridData64, self).__init__(parent)
 		# oryginalny grid w float64 do obliczeń
 		self.m_grid64 = grid.astype(np.float64)
 		self.stepX = stepX
 		self.stepY = stepY
-		self.offsetY = -stepY*self.m_grid64.shape[0]/2
-		self.offsetX = -stepX*self.m_grid64.shape[1]/2
+		self.offsetY = -stepY*self.m_grid64.shape[0]/2 if offsetY is None else offsetY
+		self.offsetX = -stepX*self.m_grid64.shape[1]/2 if offsetX is None else offsetX
 		self.use_uniform_color = True
 		self.uniform_color = [0.6,0.6,0.6]
 		self.use_mesh = False

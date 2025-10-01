@@ -82,6 +82,8 @@ class Frasta(PluginInterface):
 		ransac_button = QPushButton("ransac test")
 		ransac_button.clicked.connect(self.onAction_ransac)
 
+		testview_button = QPushButton("test FrastaViewer")
+		testview_button.clicked.connect(self.test_FrastaViewer)
 
 
 		layout = QFormLayout()
@@ -94,6 +96,7 @@ class Frasta(PluginInterface):
 		layout.addRow(profile_button)
 		layout.addRow(map_button)
 		layout.addRow(ransac_button)
+		layout.addRow(testview_button)
 		
 		central_widget = QWidget()
 		central_widget.setLayout(layout)
@@ -404,7 +407,7 @@ class Frasta(PluginInterface):
 			self.adj_grid.stepX, self.adj_grid.stepY
 		)
 
-		self._profile_viewer.spinbox_separation.setValue(int(self.adj_transform.getTranslation()[2]))
+		#self._profile_viewer.spinbox_separation.setValue(int(self.adj_transform.getTranslation()[2]))
 
 		self._profile_viewer.show()
 		self._profile_viewer.raise_()
@@ -439,8 +442,15 @@ class Frasta(PluginInterface):
 		ref_in_plane, adj_in_plane, dist_map = make_distance_map_plane(self.ref_grid, self.adj_grid,
 			T_final, self.ref_abc, mode="bilinear", max_dist=None)
 		
-
+		dist_map.label = "dist_map"
 		dist_map.use_uniform_color = False
+
+		ref_in_plane.label = "new_ref"
+		ref_in_plane.uniform_color = [0.0,1.0,0.0]
+		
+		adj_in_plane.label = "new_adj"
+		adj_in_plane.uniform_color = [0.0,0.0,1.0]
+
 
 		AP.addObject(dist_map, self.scale_transform)
 		AP.addObject(ref_in_plane, self.scale_transform)
@@ -699,3 +709,82 @@ class Frasta(PluginInterface):
 	def on_button1(self):
 		#QMessageBox.information(self.mainWindow, 'Komunikat', 'Akcja wykonana przez '+self.plugin_name)
 		pass
+
+	def test_FrastaViewer(self):
+		def gen_data(height=500, width=500, stepX=10.0, stepY=10.0, offsetX=0.0, offsetY=0.0):
+			h, w = height, width
+			_stepX, _stepY = stepX, stepY
+			_offsetX, _offsetY = offsetX, offsetY
+
+			xs = np.linspace(0, w-1, w) * _stepX
+			ys = np.linspace(0, h-1, h) * _stepY
+			X, Y = np.meshgrid(xs, ys)
+
+			# --- ref_grid ---
+			Z_ref = (
+				30.0 * np.sin(2*np.pi*X/1500.0) +   # sinus tylko w X
+				10.0 * np.cos(2*np.pi*Y/2200.0)     # słabsza fala w Y
+			)
+			# asymetryczny gradient
+			Z_ref += 0.05 * X + 0.01 * Y  
+
+			# dodaj garb (gaussian bump) w lewym dolnym rogu
+			bump = np.exp(-((X-200)**2 + (Y-200)**2) / (2*150**2)) * 280.0
+			Z_ref += bump
+
+			# --- adj_grid ---
+			Z_adj = (
+				30.0 * np.sin(2*np.pi*(X+50)/1500.0) +
+				10.0 * np.cos(2*np.pi*(Y-30)/2200.0)
+			)
+			Z_adj += 0.05 * (X+30) + 0.01 * (Y-20)
+
+			# ten sam garb, ale lekko przesunięty → nie pokrywa się idealnie
+			bump2 = np.exp(-((X-300)**2 + (Y-250)**2) / (2*150**2)) * 80.0
+			Z_adj += bump2
+
+			# globalny offset
+			#Z_adj += 15.0  
+
+			# lokalny uskok w prawym górnym rogu
+			mask_corner = (X > xs.max()*0.7) & (Y < ys.max()*0.3)
+			Z_adj[mask_corner] -= 100.0
+
+			# szum
+			Z_adj += np.random.normal(scale=5.0, size=Z_adj.shape)
+
+			# --- wrap ---
+			ref_grid = GridData64(Z_ref, stepX=_stepX, stepY=_stepY,
+								offsetX=_offsetX, offsetY=_offsetY)
+			ref_grid.label = "REF"
+
+			adj_grid = GridData64(Z_adj, stepX=_stepX, stepY=_stepY,
+								offsetX=_offsetX, offsetY=_offsetY)
+			adj_grid.label = "ADJ"
+
+			dist_map = GridData64(Z_ref - Z_adj, stepX=_stepX, stepY=_stepY,
+								offsetX=_offsetX, offsetY=_offsetY)
+			dist_map.label = "MAP"
+
+			return dist_map, ref_grid, adj_grid
+
+		# --- 1. generujemy dane ---
+		dist_map, ref_grid, adj_grid = gen_data(offsetX=None, offsetY=None)
+
+		tr = Transform()
+		tr.setScale(0.02,0.02,0.02)
+		tr.addChild(ref_grid)
+		tr.addChild(adj_grid)
+		tr.addChild(dist_map)
+		AP.addObject(tr)
+
+		# --- 2. uruchamiamy okienko ---
+		if getattr(self, "_profile_viewer", None) is None:
+			self._profile_viewer = FrastaViewer(parent=AP.mainWin)
+
+		# przekazujemy już gotowe obiekty
+		self._profile_viewer.set_data( dist_map, ref_grid, adj_grid )
+
+		self._profile_viewer.show()
+		self._profile_viewer.raise_()
+		self._profile_viewer.activateWindow()

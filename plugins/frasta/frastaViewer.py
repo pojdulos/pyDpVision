@@ -23,7 +23,6 @@ def create_image_view():
     view.ui.histogram.hide()
     view.ui.roiBtn.hide()
     view.ui.menuBtn.hide()
-    # view.getView().setBackgroundColor('w')
     return view
 
 class FrastaViewer(QtWidgets.QMainWindow):
@@ -55,6 +54,7 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.image_view = create_image_view()
 		self.image_view.setMinimumWidth(400)
 		layout.addWidget(self.image_view, 3)
+		self.image_view.getView().sigRangeChanged.connect(self.on_range_changed)
 
 		# separation spinbox
 		sep_layout = QtWidgets.QHBoxLayout()
@@ -129,46 +129,24 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.redraw_roi()
 		self.update_plot()
 
-		self.image_view.setImage(self.distance_map.m_grid64.T, autoLevels=True)
-		self.resize_image_view(self.distance_map.m_grid64.shape)
-
-		# vb = self.image_view.getView()
-		# vb.setAspectLocked(True)
-		# vb.setLimits(yMin=0, yMax=h - 1, xMin=0, xMax=w - 1)
-		# vb.setRange(xRange=(0, w - 1), yRange=(0, h - 1), padding=0)
-			
 
 	# --- logika ---
 	def update_plot(self):
 		"""Odśwież widok binarny na podstawie separacji."""
-		sep = self.spinbox_separation.value()
-		self.separation = sep
+		self.separation = self.spinbox_separation.value()
 		dist = self.distance_map.m_grid64
 		valid = np.isfinite(dist)
-		binary_contact = (dist <= sep) & valid
-		self.image_view.setImage(binary_contact.T.astype(np.uint8), autoRange=False, autoLevels=True)
+		binary_contact = (dist > self.separation) & valid
+
+		# self.image_view.setImage(np.fliplr(binary_contact.T.astype(np.uint8)), autoRange=False, autoLevels=True)
+		arr = binary_contact.astype(np.uint8)
+		arr = arr.T[:, ::-1]   # transpozycja + odwrócenie w pionie
+		self.image_view.setImage(arr, autoRange=False, autoLevels=True)
 
 		self.binary_contact = binary_contact
 		self.update_profile_from_roi()
 		self.update_volume_info()
 
-	def update_volume_info(self):
-		if self.binary_contact is None: return
-		x_min, x_max, y_min, y_max = self.get_viewbox_ranges_int(shape=self.binary_contact.shape)
-		px_um, py_um = self.pixel_um.x(), self.pixel_um.y()
-		pixel_area_um2 = px_um * py_um
-		fragment = self.binary_contact[y_min:y_max+1, x_min:x_max+1]
-		white_count = np.count_nonzero(fragment)
-		white_area_um2 = pixel_area_um2 * white_count
-		white_area_mm2 = white_area_um2 * 1e-6
-		diff = self.distance_map.m_grid64[y_min:y_max+1, x_min:x_max+1] - self.separation
-		diff_masked = np.where(fragment, diff, 0)
-		volume_um3 = np.abs(np.sum(diff_masked)) * pixel_area_um2
-		volume_mm3 = volume_um3 * 1e-9
-		self.statusBar().showMessage(
-			f"Białe pola: {white_count}, area: {white_area_um2:.2f}µm² ({white_area_mm2:.4f}mm²), "
-			f"volume: {volume_um3:.2f}µm³ ({volume_mm3:.4f}mm³)"
-		)
 
 	# --- ROI i profile ---
 	def on_image_click(self, event):
@@ -203,7 +181,7 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		pt1 = self.line_roi.mapToParent(handle1.pos())
 		x1, y1 = pt0.x(), pt0.y()
 		x2, y2 = pt1.x(), pt1.y()
-		
+
 		# Dodaj markery
 		marker1 = pg.ScatterPlotItem([x1], [y1], size=18, pen=pg.mkPen('g', width=3), brush=pg.mkBrush(0,255,0,100), symbol='o')
 		marker2 = pg.ScatterPlotItem([x2], [y2], size=18, pen=pg.mkPen('r', width=3), brush=pg.mkBrush(255,0,0,100), symbol='x')
@@ -227,11 +205,14 @@ class FrastaViewer(QtWidgets.QMainWindow):
 			except Exception:
 				pass
 
-		self.line_roi = pg.LineROI([self.x1, self.y1], [self.x2, self.y2],
-								pen=pg.mkPen('r', width=2), width=1)
-		# pozwól przesuwać całą linię
+		# używamy współrzędnych widoku, nie numpy
+		self.line_roi = pg.LineROI(
+			[self.x1, self.y1],
+			[self.x2, self.y2],
+			pen=pg.mkPen('r', width=2),
+			width=1
+		)
 		self.line_roi.handles[2]['type'] = 'center'
-
 		self.line_roi.sigRegionChanged.connect(self.update_profile_from_roi)
 		self.line_roi.sigRegionChanged.connect(self.update_roi_markers)
 
@@ -241,66 +222,79 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.update_roi_markers()
 
 
-
 	def clamp_roi_to_image(self):
-		"""Przytnij ROI do granic obrazu distance_map."""
-		img_shape = self.distance_map.m_grid64.shape  # (rows, cols)
-		h1 = self.line_roi.getHandles()[0].pos()
-		h2 = self.line_roi.getHandles()[1].pos()
-		pos1 = self.line_roi.mapToParent(h1).toPoint()
-		pos2 = self.line_roi.mapToParent(h2).toPoint()
-		self.x1 = min(max(pos1.x(), 0), img_shape[1] - 1)
-		self.y1 = min(max(pos1.y(), 0), img_shape[0] - 1)
-		self.x2 = min(max(pos2.x(), 0), img_shape[1] - 1)
-		self.y2 = min(max(pos2.y(), 0), img_shape[0] - 1)
-		if (pos1.x(), pos1.y(), pos2.x(), pos2.y()) != (self.x1, self.y1, self.x2, self.y2):
-			self.redraw_roi()
+		if self.line_roi is None: 
+			return
+		h, w = self.distance_map.m_grid64.shape
+		x_max = h - 1
+		y_max = w - 1
+
+		handles = self.line_roi.getHandles()
+		pt1 = self.line_roi.mapToParent(handles[0].pos())
+		pt2 = self.line_roi.mapToParent(handles[1].pos())
+
+		self.x1 = float(np.clip(pt1.x(), 0, x_max))
+		self.y1 = float(np.clip(pt1.y(), 0, y_max))
+		self.x2 = float(np.clip(pt2.x(), 0, x_max))
+		self.y2 = float(np.clip(pt2.y(), 0, y_max))
+
+
+	def get_roi_coords(self):
+		if self.line_roi is None:
+			return None, None
+		handles = self.line_roi.getHandles()
+		pt0 = self.line_roi.mapToParent(handles[0].pos())
+		pt1 = self.line_roi.mapToParent(handles[1].pos())
+
+		r0, c0 = self.view_to_numpy(pt0.x(), pt0.y())
+		r1, c1 = self.view_to_numpy(pt1.x(), pt1.y())
+		return (r0, c0), (r1, c1)
 
 	def update_profile_from_roi(self):
 		self.clamp_roi_to_image()
-		rr, cc = line(self.y1, self.x1, self.y2, self.x2)
-		rr = np.clip(rr, 0, self.distance_map.m_grid64.shape[0] - 1)
-		cc = np.clip(cc, 0, self.distance_map.m_grid64.shape[1] - 1)
+		if self.line_roi is None: 
+			return
+
+		p1, p2 = self.get_roi_coords()  # używa view_to_numpy()
+		if p1 is None or p2 is None:
+			return
+
+		r0, c0 = p1
+		r1, c1 = p2
+		rr, cc = line(r0, c0, r1, c1)
 
 		h, w = self.distance_map.m_grid64.shape
-		mask = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
-		rr = rr[mask]
-		cc = cc[mask]
+		rr = np.clip(rr, 0, h-1)
+		cc = np.clip(cc, 0, w-1)
 
-		prof_dist = -self.distance_map.m_grid64[rr, cc]
-		valid_mask = np.isfinite(prof_dist)
+		# profil odległości
+		prof_dist = self.distance_map.m_grid64[rr, cc]
+		valid = np.isfinite(prof_dist)
 
-		# jeśli siatki są podane
 		profiles = []
 		if self.grid1 is not None and self.grid2 is not None:
-			prof1 = -self.grid1.m_grid64[rr, cc]
-			prof2 = -(self.grid2.m_grid64[rr, cc] + self.separation)   # <--- tu dodajemy separation
-			valid_mask &= np.isfinite(prof1) & np.isfinite(prof2)
-			profiles.append(("Ref", prof1[valid_mask], pg.mkPen('g', width=2)))
-			profiles.append(("Adj", prof2[valid_mask], pg.mkPen('b', width=2)))
+			prof1 = self.grid1.m_grid64[rr, cc]
+			prof2 = self.grid2.m_grid64[rr, cc] + self.separation
+			valid &= np.isfinite(prof1) & np.isfinite(prof2)
+			profiles.append(("Ref", prof1[valid], pg.mkPen('g', width=2)))
+			profiles.append(("Adj", prof2[valid], pg.mkPen('b', width=2)))
 
-		# if self.grid1 is not None and self.grid2 is not None:
-		# 	prof1 = self.grid1.m_grid64[rr, cc]
-		# 	prof2 = self.grid2.m_grid64[rr, cc]
-		# 	valid_mask &= np.isfinite(prof1) & np.isfinite(prof2)
-		# 	profiles.append(("Ref", prof1[valid_mask], pg.mkPen('g', width=2)))
-		# 	profiles.append(("Adj", prof2[valid_mask], pg.mkPen('b', width=2)))
-
-		positions_line = np.arange(len(rr))[valid_mask] * self.distance_map.stepX / 1000.0
-		prof_dist = prof_dist[valid_mask]
+		positions_line = np.arange(len(rr))[valid] * (self.distance_map.stepX / 1000.0)
+		prof_dist = prof_dist[valid]
 
 		self.plot_widget.clear()
 		for name, prof, pen in profiles:
 			self.plot_widget.plot(positions_line, prof, pen=pen, name=name)
-		self.plot_widget.plot(positions_line, prof_dist, pen=pg.mkPen('r', width=2), name="Dist")
+		#self.plot_widget.plot(positions_line, prof_dist, pen=pg.mkPen('r', width=2), name="Dist")
 
-		# zapisz do self – do dalszych operacji
-		self.positions_line = positions_line
+		# zapamiętaj
+		self.positions_line   = positions_line
 		self.reference_profile = profiles[0][1] if profiles else None
-		self.adjusted_profile = profiles[1][1] if profiles else None
-		self.distance_profile = prof_dist
-		self.rr = rr[valid_mask]
-		self.cc = cc[valid_mask]
+		self.adjusted_profile  = profiles[1][1] if profiles else None
+		#self.distance_profile  = prof_dist
+		self.rr = rr[valid]
+		self.cc = cc[valid]
+
 
 	# --- obsługa myszy i adnotacje ---
 	def on_mouse_move(self, pos):
@@ -331,7 +325,7 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self._save_profile_point(idx)
 
 	def _save_profile_point(self, idx):
-		y_img, x_img = self.rr[idx], self.cc[idx]
+		x_img, y_img = self.numpy_to_view(self.rr[idx], self.cc[idx])
 		val = self.reference_profile[idx]
 		pos_mm = self.positions_line[idx]
 		self.saved_points.append({
@@ -412,19 +406,46 @@ class FrastaViewer(QtWidgets.QMainWindow):
 											style=QtCore.Qt.DashLine))
 		self.plot_widget.addItem(vline); self.cursor_lines.append(vline)
 
+	def _shape_np(self):
+		h, w = self.distance_map.m_grid64.shape
+		return h, w
+
+	def view_to_numpy(self, x_view, y_view):
+		h, w = self._shape_np()  # h = rows, w = cols w oryginalnym numpy
+		col = int(round(x_view))           # pozioma
+		row = h - 1 - int(round(y_view))   # pionowa odwrócona
+		row = int(np.clip(row, 0, h-1))
+		col = int(np.clip(col, 0, w-1))
+		return row, col
+
+	def numpy_to_view(self, row, col):
+		h, w = self._shape_np()
+		x_view = float(col)
+		y_view = float(h - 1 - row)
+		return x_view, y_view
+
 	def _update_image_marker(self, idx):
-		y_img, x_img = self.rr[idx], self.cc[idx]
+		if self.rr is None or self.cc is None or idx < 0 or idx >= len(self.rr):
+			return
+		r, c = self.rr[idx], self.cc[idx]
+		x_view, y_view = self.numpy_to_view(r, c)
+
 		view = self.image_view.getView()
-		if self.image_marker: view.removeItem(self.image_marker)
-		self.image_marker = pg.ScatterPlotItem([x_img], [y_img], size=14,
+		if self.image_marker:
+			view.removeItem(self.image_marker)
+		self.image_marker = pg.ScatterPlotItem([x_view], [y_view],
+											size=14,
 											pen=pg.mkPen('m', width=2),
 											brush=pg.mkBrush(255,0,255,100))
 		view.addItem(self.image_marker)
+
+
 
 	def _clear_marker(self):
 		view = self.image_view.getView()
 		if self.image_marker:
 			view.removeItem(self.image_marker); self.image_marker = None
+
 
 	def resize_image_view(self, shape):
 		h, w = shape; aspect = w/h; base = 500
@@ -432,16 +453,52 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		else: h,w = base,int(base*aspect)
 		self.image_view.setFixedSize(w,h)
 
+
+	def on_range_changed(self, viewbox, ranges):
+		self.update_volume_info()
+
+	def update_volume_info(self):
+		if self.binary_contact is None: return
+		x_min, x_max, y_min, y_max = self.get_viewbox_ranges_int(shape=self.binary_contact.shape)
+		px_um, py_um = self.pixel_um.x(), self.pixel_um.y()
+		pixel_area_um2 = px_um * py_um
+		fragment = self.binary_contact[y_min:y_max+1, x_min:x_max+1]
+		white_count = np.count_nonzero(fragment)
+		white_area_um2 = pixel_area_um2 * white_count
+		white_area_mm2 = white_area_um2 * 1e-6
+		diff = self.distance_map.m_grid64[y_min:y_max+1, x_min:x_max+1] - self.separation
+		diff_masked = np.where(fragment, diff, 0)
+		volume_um3 = np.abs(np.sum(diff_masked)) * pixel_area_um2
+		volume_mm3 = volume_um3 * 1e-9
+		self.statusBar().showMessage(
+			f"Białe pola: {white_count}, area: {white_area_um2:.2f}µm² ({white_area_mm2:.4f}mm²), "
+			f"volume: {volume_um3:.2f}µm³ ({volume_mm3:.4f}mm³)"
+		)
+
 	def get_viewbox_ranges_int(self, shape=None, overflow=False):
 		vb = self.image_view.getView()
-		(x0,x1),(y0,y1)=vb.viewRange()
-		if overflow:
-			x_min,x_max=int(np.floor(x0)),int(np.ceil(x1))-1
-			y_min,y_max=int(np.floor(y0)),int(np.ceil(y1))-1
-		else:
-			x_min,x_max=int(np.ceil(x0)),int(np.floor(x1))-1
-			y_min,y_max=int(np.ceil(y0)),int(np.floor(y1))-1
+		(x0, x1), (y0, y1) = vb.viewRange()
+
+		# Rogi w układzie widoku
+		corners_view = [
+			(x0, y0),
+			(x0, y1),
+			(x1, y0),
+			(x1, y1)
+		]
+
+		# Przekształć do indeksów numpy
+		coords_np = [self.view_to_numpy(x, y) for (x, y) in corners_view]
+		rows = [r for r, c in coords_np]
+		cols = [c for r, c in coords_np]
+
+		r_min, r_max = min(rows), max(rows)
+		c_min, c_max = min(cols), max(cols)
+
+		# Przytnij do wymiarów siatki
 		if shape is not None:
-			x_min=max(0,x_min); x_max=min(shape[1]-1,x_max)
-			y_min=max(0,y_min); y_max=min(shape[0]-1,y_max)
-		return x_min,x_max,y_min,y_max
+			h, w = shape
+			r_min = max(0, r_min); r_max = min(h-1, r_max)
+			c_min = max(0, c_min); c_max = min(w-1, c_max)
+
+		return c_min, c_max, r_min, r_max  # x_min, x_max, y_min, y_max w logice numpy

@@ -6,6 +6,15 @@ from dpVision.gui import MainWindow
 from dpVision.parsers import *
 import locale
 
+def set_logger():
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
+set_logger()
+
 locale.setlocale(locale.LC_NUMERIC, 'pl_PL.UTF-8')
 
 MainApplication.setOrganizationName('IITiS PAN')

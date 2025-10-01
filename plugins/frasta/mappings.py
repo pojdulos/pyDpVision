@@ -295,6 +295,8 @@ def make_distance_map_plane(grid1: GridData64, grid2: GridData64, transform: np.
 
 	xs = grid1.offsetX + np.arange(w) * stepX
 	ys = grid1.offsetY + np.arange(h) * stepY
+	# ys = grid1.offsetY + (h - 1 - np.arange(h)) * stepY
+
 	X, Y = np.meshgrid(xs, ys)
 	Z = grid1.m_grid64
 
@@ -333,7 +335,7 @@ def make_distance_map_plane(grid1: GridData64, grid2: GridData64, transform: np.
 
 	# --- dystans wzdłuż normalnej ---
 	a, b, c = plane_abc
-	n = np.array([a, b, -1.0], dtype=float)
+	n = np.array([a, b, 1.0], dtype=float)
 	n /= np.linalg.norm(n)
 
 	# kroki rastra po rzutowaniu na płaszczyznę (bez ścinania)

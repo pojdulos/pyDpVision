@@ -9,7 +9,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from dpVision import AP, PluginInterface, Transform, GridData64
+from dpVision import AP, PluginInterface, Transform, GridData64, AnnotationPoint
 from dpVision.annotationPlane import AnnotationPlane
 from dpVision.parsers import ParserCSV
 from .profileViewer import ProfileViewer
@@ -26,11 +26,16 @@ logger = logging.getLogger(__name__)
 class PluginQtConnector(QObject):
 	def __init__(self, parent):
 		QObject.__init__(self)
-		self.parent = parent
+		self.parent:Frasta = parent
 
 	@pyqtSlot(tuple)
 	def on_profileLineChanged(self, line):
 		self.parent.on_profileLineChanged(line)
+
+	@pyqtSlot(tuple)
+	def on_pointClicked(self, point):
+		self.parent.on_pointClicked(point)
+
 
 class Frasta(PluginInterface):
 	def __init__(self):
@@ -91,7 +96,7 @@ class Frasta(PluginInterface):
 		ransac_button = QPushButton("ransac test")
 		ransac_button.clicked.connect(self.onAction_ransac)
 
-		testview_button = QPushButton("test FrastaViewer")
+		testview_button = QPushButton("synthetic data")
 		testview_button.clicked.connect(self.test_FrastaViewer)
 
 
@@ -102,10 +107,10 @@ class Frasta(PluginInterface):
 		layout.addRow(swap_button)
 		layout.addRow(rotY_button)
 		layout.addRow(alignBB_button)
-		layout.addRow(profile_button)
 		layout.addRow(map_button)
 		layout.addRow(ransac_button)
 		layout.addRow(testview_button)
+		layout.addRow(profile_button)
 		
 		central_widget = QWidget()
 		central_widget.setLayout(layout)
@@ -370,11 +375,13 @@ class Frasta(PluginInterface):
 		# płaszczyzna do 3D
 		if self.plane is None:
 			self.plane = AnnotationPlane()
-		AP.addObject(self.plane, self.scale_transform)
+			self.plane.setColor(r=255,g=255,b=255,a=192)
+			AP.addObject(self.plane, self.scale_transform)
 		
 		if getattr(self, "_profile_viewer", None) is None:
 			self._profile_viewer = FrastaViewer(parent=AP.mainWin)
-			self._profile_viewer.profileLineChanged.connect(self.on_profileLineChanged)
+			self._profile_viewer.profileLineChanged.connect(self.connector.on_profileLineChanged)
+			self._profile_viewer.pointClicked.connect(self.connector.on_pointClicked)
 
 		# przekazujemy już gotowe obiekty
 		self._profile_viewer.set_data(
@@ -390,40 +397,6 @@ class Frasta(PluginInterface):
 		self._profile_viewer.activateWindow()
 
 
-	def onAction_profile_view_old(self):
-		grid1 = self.ref_grid.m_grid64.copy()
-		grid2 = self.adj_grid.m_grid64.copy()
-
-		if grid1.shape != grid2.shape:
-			h = min(grid1.shape[0], grid2.shape[0])
-			w = min(grid1.shape[1], grid2.shape[1])
-			reply = QMessageBox.question(
-				self.panel, "Różne rozmiary",
-				f"Skany mają różne rozmiary:\n"
-				f"{grid1.shape} vs {grid2.shape}\n"
-				f"Przyciąć oba do wspólnego obszaru {h}x{w} i kontynuować?",
-				QMessageBox.Yes | QMessageBox.No
-			)
-			if reply != QMessageBox.Yes:
-				return
-			grid1 = grid1[:h, :w]
-			grid2 = grid2[:h, :w]
-
-		# -- TYLKO JEDNO OKNO --
-		if getattr(self, "_profile_viewer", None) is None:
-			self._profile_viewer = ProfileViewer(parent=AP.mainWin)
-
-		self._profile_viewer.set_data(
-			grid1, grid2,
-			self.ref_grid.stepX, self.ref_grid.stepY,
-			self.adj_grid.stepX, self.adj_grid.stepY
-		)
-
-		#self._profile_viewer.separation = int(self.adj_transform.getTranslation()[2])
-
-		self._profile_viewer.show()
-		self._profile_viewer.raise_()
-		self._profile_viewer.activateWindow()
 
 	def onAction_RotY(self):
 		if self.adj_grid is None:
@@ -586,130 +559,6 @@ class Frasta(PluginInterface):
 		return plane, [a_w, b_w, c_w]
 
 
-	def onAction_ransac2(self):
-		ref_grid: GridData64 = self.ref_grid
-		grid = ref_grid.m_grid64
-		h, w = grid.shape
-
-		# --- JEŚLI ZNASZ ROZDZIELCZOŚCI (świat na piksel/voxel) ---
-		# Podstaw swoje wartości (mm/pix lub inne):
-		sx = getattr(ref_grid, "spacing_x", 2.76)  # świat / piksel w osi X
-		sy = getattr(ref_grid, "spacing_y", 2.76)  # świat / piksel w osi Y
-		sz = getattr(ref_grid, "spacing_z", 1.0)  # świat / jednostkę Z (np. mm na jednostkę wysokości)
-
-		# --- WYCIĘCIE 500x500 WOKÓŁ ŚRODKA ---
-		cx, cy = w // 2, h // 2
-		r = 500 #250  # połowa boku -> 500x500
-		x0, x1 = max(cx - r, 0), min(cx + r, w)
-		y0, y1 = max(cy - r, 0), min(cy + r, h)
-
-		sub = grid[y0:y1, x0:x1]  # pamiętaj: [row, col] = [y, x]
-		H, W = sub.shape
-
-		X_px, Y_px = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1))  # współrzędne w pikselach
-		Z_u = sub  # Z w jednostkach oryginalnych (np. mm lub „wartość wysokości”)
-
-		mask = ~np.isnan(Z_u)
-		x_px = X_px[mask].ravel()
-		y_px = Y_px[mask].ravel()
-		z_u  = Z_u[mask].ravel()
-
-		Xy = np.column_stack((x_px, y_px))
-
-		from sklearn.linear_model import RANSACRegressor, LinearRegression
-		ransac = RANSACRegressor(
-			estimator=LinearRegression(),
-			min_samples=3,
-			residual_threshold=50.0,
-			max_trials=1000,
-			random_state=0
-		)
-		ransac.fit(Xy, z_u)
-
-		a, b = ransac.estimator_.coef_
-		c = ransac.estimator_.intercept_
-
-		# --- PRZESKALOWANIE DO JEDNOSTEK ŚWIATA ---
-		a_w = a * (sz / sx)
-		b_w = b * (sz / sy)
-		c_w = c * sz  # jeśli chcesz też poprawnie przesunąć w świecie
-
-		print(f"Plane (pixels-unscaled): z_u = {a:.6f}*x_px + {b:.6f}*y_px + {c:.6f}")
-		print(f"Plane (world-scaled):   z   = {a_w:.6f}*x   + {b_w:.6f}*y   + {c_w:.6f}")
-
-		# Normalna w świecie dla z = a_w x + b_w y + c_w
-		normal = np.array([a_w, b_w, -1.0], dtype=float)
-		normal /= np.linalg.norm(normal)
-		print("Normal (world):", normal)
-
-		# Środek płaszczyzny ustaw w centrum wycinka (w świecie):
-		center_world = np.array([sx * cx, sy * cy, a_w * (sx * cx) + b_w * (sy * cy) + c_w], dtype=float)
-
-		from dpVision.annotationPlane import AnnotationPlane
-		plane = AnnotationPlane(pC=[0,0,700], pN=normal, size=8000)
-
-		# Uwaga: jeśli scale_transform skaluje niejednorodnie, może przekłamać normalną przy renderze.
-		# Lepiej dodać bezpośrednio (albo upewnić się, że scale_transform jest jednorodny):
-		AP.addObject(plane, self.scale_transform)
-		AP.updateAllViews()
-
-	def onAction_ransac1(self):
-		ref_grid:GridData64 = self.ref_grid
-		grid = ref_grid.m_grid64
-		# h, w = grid.shape
-		
-		# X, Y = np.meshgrid(np.arange(w), np.arange(h))  # współrzędne siatki
-		# points = np.column_stack((X.ravel(), Y.ravel(), grid.ravel()))
-
-		# # Usuwamy punkty, gdzie Z = NaN
-		# mask = ~np.isnan(points[:, 2])
-		# points_clean = points[mask]
-
-
-		h, w = grid.shape
-		cx, cy = w // 2, h // 2   # środek siatki
-		r = 500                   # promień/połowa rozmiaru wycinka w pikselach
-
-		X, Y = np.meshgrid(np.arange(w), np.arange(h))
-		points = np.column_stack((X.ravel(), Y.ravel(), grid.ravel()))
-
-		# maska: brak NaN + ograniczenie do prostokąta wokół środka
-		mask = (
-			~np.isnan(points[:, 2]) &
-			(np.abs(points[:, 0] - cx) < r) &
-			(np.abs(points[:, 1] - cy) < r)
-		)
-
-		points_clean = points[mask]
-
-		Xy = points_clean[:, :2]
-		z  = points_clean[:, 2]
-
-		from sklearn.linear_model import RANSACRegressor, LinearRegression
-
-		ransac = RANSACRegressor(
-			estimator=LinearRegression(),
-			min_samples=3,
-			residual_threshold=50.0,  # próg w jednostkach Z (dobierz do szumu/outlierów)
-			max_trials=1000
-		)
-		ransac.fit(Xy, z)
-
-		a, b = ransac.estimator_.coef_
-		c = ransac.estimator_.intercept_
-
-		print(f"Równanie płaszczyzny: z = {a:.4f} * x + {b:.4f} * y + {c:.4f}")
-
-		normal = np.array([a, b, -1.0])
-		normal /= np.linalg.norm(normal)
-		print("Normalna:", normal)
-
-		from dpVision.annotationPlane import AnnotationPlane
-
-		plane = AnnotationPlane(pC=[0,0,700],pN=normal, size=8000)
-		AP.addObject(plane, self.scale_transform)
-		AP.updateAllViews()
-
 	def onAction_UnLoad(self):
 		print("Akcja menu: Wyładuj plugin")
 		AP.mainApp.unload_plugin(self)
@@ -718,9 +567,6 @@ class Frasta(PluginInterface):
 	def perform_action(self):
 		print("Akcja wykonana przez "+self.plugin_name)
 
-	def on_button1(self):
-		#QMessageBox.information(self.mainWindow, 'Komunikat', 'Akcja wykonana przez '+self.plugin_name)
-		pass
 
 	def test_FrastaViewer(self):
 		def gen_data(height=500, width=500, stepX=10.0, stepY=10.0, offsetX=0.0, offsetY=0.0):
@@ -790,34 +636,38 @@ class Frasta(PluginInterface):
 		dist_map.use_uniform_color = False
 		#dist_map.use_mesh = True
 
-		# płaszczyzna do 3D
-		if self.plane is None:
-			self.plane = AnnotationPlane()
 
-		tr = Transform()
-		tr.setScale(0.02,0.02,0.02)
-		tr.addChild(ref_grid)
-		tr.addChild(adj_grid)
-		tr.addChild(dist_map)
-		tr.addChild(self.plane)
-		AP.addObject(tr)
+		if self.scale_transform is None:
+			self.scale_transform = Transform()
+			self.scale_transform.label = "Frasta scale (0.01x)"
+			self.scale_transform.locked = True
+			self.scale_transform.setScale(0.01, 0.01, 0.01)  # skalowanie skanów
+			AP.addObject(self.scale_transform)
 
-		# --- 2. uruchamiamy okienko ---
-		if getattr(self, "_profile_viewer", None) is None:
-			self._profile_viewer = FrastaViewer(parent=AP.mainWin)
-			self._profile_viewer.profileLineChanged.connect(self.connector.on_profileLineChanged)
+		# if self.adj_transform is None:
+		# 	self.adj_transform = Transform()
+		# 	self.adj_transform.label = "Frasta Adjusted position"
+		# 	self.adj_transform.locked = True
+		# 	AP.addObject(self.adj_transform,self.scale_transform)
 
-		# przekazujemy już gotowe obiekty
-		self._profile_viewer.set_data( dist_map, ref_grid, adj_grid )
+		AP.addObject(dist_map, self.scale_transform)
+		AP.addObject(ref_grid, self.scale_transform)
+		AP.addObject(adj_grid, self.scale_transform)
 
-		self._profile_viewer.show()
-		self._profile_viewer.raise_()
-		self._profile_viewer.activateWindow()
+		self.distance_map = dist_map
+		self.ref_in_plane = ref_grid
+		self.adj_in_plane = adj_grid
 
 
 	def plane_from_profile(self, line:tuple, margin=0.1):
 		"""Zwraca (normal, center, length, height) dla płaszczyzny wyznaczonej przez ROI i oś Z."""
-		x0,y0,x1,y1 = line
+		c0,r0,c1,r1 = line
+
+		# współrzędne w świecie (µm)
+		x0 = c0 * self.distance_map.stepX + self.distance_map.offsetX
+		y0 = r0 * self.distance_map.stepY + self.distance_map.offsetY
+		x1 = c1 * self.distance_map.stepX + self.distance_map.offsetX
+		y1 = r1 * self.distance_map.stepY + self.distance_map.offsetY
 
 		# długość ROI
 		dx, dy = x1 - x0, y1 - y0
@@ -830,7 +680,7 @@ class Frasta(PluginInterface):
 
 		# --- zakres Z z dostępnych siatek ---
 		zs = []
-		for g in (self._profile_viewer.distance_map, self._profile_viewer.grid1, self._profile_viewer.grid2):
+		for g in (self.distance_map, self.ref_in_plane, self.adj_in_plane):
 			if g is not None:
 				zvals = g.m_grid64[np.isfinite(g.m_grid64)]
 				if zvals.size > 0:
@@ -862,3 +712,17 @@ class Frasta(PluginInterface):
 			AP.updateAllViews()
 
 		logger.info(f"ROI length: {length_um:.1f} µm, center: {center}, normal: {n}")
+
+	def on_pointClicked(self, point):
+		print(f"point: {point}")
+
+		col, row, val = point
+		#self.parent.on_profileLineChanged(line)
+				# współrzędne w układzie świata
+		x_world = self.distance_map.offsetX + col * self.distance_map.stepX
+		y_world = self.distance_map.offsetY + row * self.distance_map.stepY
+		z_world = val  # bo profil_ref jest już w µm
+
+		pt = AnnotationPoint([x_world, y_world, z_world])
+		#pt.label = label
+		AP.addObject(pt, self.ref_in_plane)

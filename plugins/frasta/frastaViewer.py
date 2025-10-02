@@ -41,6 +41,8 @@ def plane_from_profile_and_z(x0, y0, x1, y1, z0=0.0):
 
 class FrastaViewer(QtWidgets.QMainWindow):
 	profileLineChanged = QtCore.pyqtSignal(tuple)
+	pointClicked = QtCore.pyqtSignal(tuple)
+
 	def __init__(self, parent=None):
 		super().__init__(parent)
 		self.setWindowTitle("FRASTA analysis")
@@ -336,13 +338,8 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.rr = rr[valid]
 		self.cc = cc[valid]
 
-		# współrzędne w świecie (µm)
-		x0 = c0 * self.distance_map.stepX + self.distance_map.offsetX
-		y0 = r0 * self.distance_map.stepY + self.distance_map.offsetY
-		x1 = c1 * self.distance_map.stepX + self.distance_map.offsetX
-		y1 = r1 * self.distance_map.stepY + self.distance_map.offsetY
-		
-		self.profileLineChanged.emit((x0,y0,x1,y1))
+		result = (c0,r0,c1,r1)
+		self.profileLineChanged.emit(result)
 
 
 	# --- obsługa myszy i adnotacje ---
@@ -392,8 +389,19 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self._save_profile_point(idx)
 
 	def _save_profile_point(self, idx):
-		x_img, y_img = self.numpy_to_view(self.rr[idx], self.cc[idx])
+		row, col = self.rr[idx], self.cc[idx]
 		val = self.reference_profile[idx]
+		self.pointClicked.emit((col, row, val))
+
+		# znacznik w okienku z obrazem binarnym 
+		x_img, y_img = self.numpy_to_view(row, col)
+		marker = pg.ScatterPlotItem([x_img], [y_img], size=12,
+									pen=pg.mkPen('g', width=2),
+									brush=pg.mkBrush(0,255,255,120), symbol='+')
+		self.image_view.getView().addItem(marker)
+		self.saved_point_markers.append(marker)
+
+		# dane do zapisu
 		pos_mm = self.positions_line[idx]
 		label = f"Punkt {len(self.saved_points)}"
 		self.saved_points.append({
@@ -402,23 +410,9 @@ class FrastaViewer(QtWidgets.QMainWindow):
 			'x_img': int(x_img), 'y_img': int(y_img),
 			'x_pos_mm': float(pos_mm), 'val_um': float(val),
 		})
-		marker = pg.ScatterPlotItem([x_img], [y_img], size=12,
-									pen=pg.mkPen('g', width=2),
-									brush=pg.mkBrush(0,255,255,120), symbol='+')
-		self.image_view.getView().addItem(marker)
-		self.saved_point_markers.append(marker)
+
 		logger.debug(f"Saved point: {self.saved_points[-1]}")
-		from dpVision import AnnotationPoint, AP
-		row, col = self.rr[idx], self.cc[idx]
 
-		# współrzędne w układzie świata
-		x_world = self.distance_map.offsetX + col * self.distance_map.stepX
-		y_world = self.distance_map.offsetY + row * self.distance_map.stepY
-		z_world = val  # bo profil_ref jest już w µm
-
-		pt = AnnotationPoint([x_world, y_world, z_world])
-		pt.label = label
-		AP.addObject(pt, self.grid1)
 
 	def _clear_fit_lines(self):
 		vb = self.plot_widget.getPlotItem().vb

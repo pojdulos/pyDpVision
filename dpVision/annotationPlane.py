@@ -9,6 +9,9 @@ from .annotation import Annotation
 from OpenGL.GL import *
 import math
 import numpy as np
+import numbers
+import logging
+logger = logging.getLogger(__name__)
 
 class Vector3d(np.ndarray):
 	"""Prosta klasa wektorowa bazująca na NumPy."""
@@ -33,34 +36,100 @@ class Vector3d(np.ndarray):
 		return Vector3d(*((self.view(np.ndarray)) * scalar))
 
 class AnnotationPlane(Annotation):
-	def __init__(self, pC=[0.0,0.0,0.0], pN=[0.0,0.0,1.0], size=10, parent=None):
+	def __init__(self, pC=(0.0,0.0,0.0), pN=(0.0,0.0,1.0), size=(10,10), parent=None):
 		Annotation.__init__(self, parent)
 		self.m_center = pC
-		self.m_normal = pN
-		self.m_size = size
+		self.normal_vector = pN
+		self.setSize(size)
+
+	@property
+	def normal_vector(self):
+		return self.m_normal
+	
+	@normal_vector.setter
+	def normal_vector(self, _vec):
+		self.m_normal = (0.0, 0.0, 1.0)
+
+		def assign_if_nonzero(vn):
+			if vn.length() != 0:
+				self.m_normal = tuple(vn)
+			else:
+				logger.warning("Normal vector cannot be zero size")
+
+		if isinstance(_vec, Vector3d):
+			assign_if_nonzero(_vec.normalized())
+			return
+
+		if isinstance(_vec, str):
+			logger.warning("Normal vector cannot be a string")
+			return
+
+		try:
+			t = tuple(_vec)
+		except TypeError:
+			logger.warning(f"Normal vector must be iterable of 3 numbers, got: {type(_vec)}")
+			return
+
+		if len(t) != 3:
+			logger.warning(f"Normal vector must have exactly 3 components, got {len(t)}")
+			return
+
+		assign_if_nonzero(Vector3d(*t).normalized())
+	
+
+	def setSize(self, _size):
+		if isinstance(_size, numbers.Number):
+			# skalar -> kwadrat
+			self.m_size = (_size, _size)
+
+		elif isinstance(_size, str):
+			# specjalne traktowanie stringów
+			print("String:", _size)
+
+		else:
+			try:
+				t = tuple(_size)
+				if len(t) == 1:
+					# np. [5] -> (5, 5)
+					self.m_size = (t[0], t[0])
+				elif len(t) >= 2:
+					# bierzemy tylko pierwsze dwie wartości
+					self.m_size = (t[0], t[1])
+				else:
+					raise ValueError("Pusta sekwencja dla rozmiaru!")
+			except TypeError:
+				raise TypeError(f"Nieobsługiwany typ dla setSize: {type(_size)}")
 
 
 	def renderSelf(self):
 		normal = Vector3d(*self.m_normal)
 		center = Vector3d(*self.m_center)
-		size = self.m_size
+		W, H = self.m_size
 
 		if normal.length() > 0.0:
-			# Startowe wartości
-			x, y, z = 1.0, 1.0, 1.0
+			normal = normal.normalized()
 
-			# Wyznaczanie jednego z kierunków zależnie od normalnej
-			if normal[2] != 0.0:
-				z = (normal[0] + normal[1]) / -normal[2]
-			elif normal[1] != 0.0:
-				y = (normal[0] + normal[2]) / -normal[1]
+			# wybierz wektor nie równoległy do normal
+			if abs(normal[0]) < 0.9:
+				tmp = Vector3d(1, 0, 0)
 			else:
-				x = (normal[1] + normal[2]) / -normal[0]
+				tmp = Vector3d(0, 1, 0)
 
-			v1 = Vector3d(x, y, z).normalized() * size
-			v2 = v1.cross(normal).normalized() * size
-			v3 = -v1
-			v4 = -v2
+			# oblicz v1 ortogonalny do normal
+			v1 = tmp - normal * tmp.dot(normal)
+			if v1.length() < 1e-6:
+				# awaryjnie użyj innego wektora
+				tmp = Vector3d(0, 0, 1)
+				v1 = tmp - normal * tmp.dot(normal)
+
+			v1 = v1.normalized() * (W / 2.0)
+			v2 = normal.cross(v1).normalized() * (H / 2.0)
+
+			# rogi prostokąta
+			p1 =  v1 + v2
+			p2 = -v1 + v2
+			p3 = -v1 - v2
+			p4 =  v1 - v2
 
 			glPushMatrix()
 			glPushAttrib(GL_ALL_ATTRIB_BITS)
@@ -80,10 +149,10 @@ class AnnotationPlane(Annotation):
 
 			# Rysowanie kwadratu
 			glBegin(GL_QUADS)
-			glVertex3f(*v1)
-			glVertex3f(*v2)
-			glVertex3f(*v3)
-			glVertex3f(*v4)
+			glVertex3f(*p1)
+			glVertex3f(*p2)
+			glVertex3f(*p3)
+			glVertex3f(*p4)
 			glEnd()
 
 			# Wektor normalny jako linia

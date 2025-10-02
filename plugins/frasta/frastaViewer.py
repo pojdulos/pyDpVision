@@ -13,7 +13,7 @@ from sklearn.linear_model import LinearRegression
 
 #from .grid3DViewer import show_3d_viewer
 from .helpers import remove_relative_offset, remove_relative_tilt
-from dpVision import GridData64
+from dpVision import GridData64, AnnotationPlane, AP
 
 import logging
 logger = logging.getLogger(__name__)
@@ -24,6 +24,21 @@ def create_image_view():
     view.ui.roiBtn.hide()
     view.ui.menuBtn.hide()
     return view
+
+def plane_from_profile_and_z(x0, y0, x1, y1, z0=0.0):
+    # wektor wzdłuż profilu w XY
+    v = np.array([x1 - x0, y1 - y0, 0.0])
+    # oś Z
+    z = np.array([0.0, 0.0, 1.0])
+    # normalna do płaszczyzny
+    n = np.cross(v, z)
+    n /= np.linalg.norm(n)
+
+    # punkt na płaszczyźnie
+    p0 = np.array([x0, y0, z0])
+    
+    # zwróć normalną i punkt
+    return n, p0
 
 class FrastaViewer(QtWidgets.QMainWindow):
 	def __init__(self, parent=None):
@@ -38,55 +53,68 @@ class FrastaViewer(QtWidgets.QMainWindow):
 
 		self.binary_contact = None
 		self.pixel_um = QPointF(1.0, 1.0)
-		self.separation = 0.0
 
 		# --- widżety ---
-		central = QtWidgets.QWidget(); self.setCentralWidget(central)
-		main_layout = QtWidgets.QHBoxLayout(central)
-		layout = QtWidgets.QVBoxLayout()
+		central = QtWidgets.QWidget()
+		self.setCentralWidget(central)
 
-		# wykres profilu
+		# splitter zamiast zwykłego HBoxLayout
+		splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, central)
+
+		# wykres profilu (lewy panel)
 		self.plot_widget = pg.PlotWidget()
-		main_layout.addWidget(self.plot_widget, 2)
-		main_layout.addLayout(layout)
+		splitter.addWidget(self.plot_widget)
 
+		# prawy panel z układem pionowym
+		right_widget = QtWidgets.QWidget()
+		right_layout = QtWidgets.QVBoxLayout(right_widget)
+		right_layout.setContentsMargins(0,0,0,0)
+		
 		# widok obrazu
 		self.image_view = create_image_view()
 		self.image_view.setMinimumWidth(400)
-		layout.addWidget(self.image_view, 3)
+		right_layout.addWidget(self.image_view, 3)
 		self.image_view.getView().sigRangeChanged.connect(self.on_range_changed)
 
 		# separation spinbox
 		sep_layout = QtWidgets.QHBoxLayout()
-		self.spinbox_separation = QtWidgets.QDoubleSpinBox()
-		self.spinbox_separation.setRange(-5000, 5000)
-		self.spinbox_separation.setDecimals(2)
-		self.spinbox_separation.setValue(self.separation)
-		self.spinbox_separation.valueChanged.connect(self.update_plot)
+		self._spinbox_separation = QtWidgets.QSpinBox()
+		self._spinbox_separation.setRange(-5000, 5000)
+		self._spinbox_separation.setValue(0)
+		self._spinbox_separation.valueChanged.connect(self.update_plot)
 		sep_layout.addWidget(QtWidgets.QLabel("Separation [µm]:"))
-		sep_layout.addWidget(self.spinbox_separation)
-		layout.addLayout(sep_layout)
+		sep_layout.addWidget(self._spinbox_separation)
+		right_layout.addLayout(sep_layout)
 
 		# window size dla fit lines
-		self.spinbox_window_mm = QtWidgets.QDoubleSpinBox()
-		self.spinbox_window_mm.setRange(0.001, 5.0)
-		self.spinbox_window_mm.setValue(0.5)
-		self.spinbox_window_mm.setSingleStep(0.001)
-		self.spinbox_window_mm.setDecimals(3)
-		self.spinbox_window_mm.valueChanged.connect(self.update_profile_from_roi)
+		self.spinbox_window_um = QtWidgets.QDoubleSpinBox()
+		self.spinbox_window_um.setRange(1, 5000)       # 1 µm – 5000 µm
+		self.spinbox_window_um.setValue(500)           # domyślnie 500 µm
+		self.spinbox_window_um.setSingleStep(1)
+		self.spinbox_window_um.setDecimals(0)
+		self.spinbox_window_um.valueChanged.connect(self.update_profile_from_roi)
 
 		self.checkbox_snap = QtWidgets.QCheckBox("Snap to plot")
 		self.checkbox_snap.setChecked(True)
 
 		win_layout = QtWidgets.QHBoxLayout()
-		win_layout.addWidget(QtWidgets.QLabel("Window size [mm]:"))
-		win_layout.addWidget(self.spinbox_window_mm)
+		win_layout.addWidget(QtWidgets.QLabel("Window size [µm]:"))
+		win_layout.addWidget(self.spinbox_window_um)
 		win_layout.addWidget(self.checkbox_snap)
-		layout.addLayout(win_layout)
+		right_layout.addLayout(win_layout)
+
+		# dodaj prawy panel do splittera
+		splitter.addWidget(right_widget)
+
+		# ustaw początkowe proporcje (np. 2:1)
+		splitter.setSizes([600, 400])
+
+		# ostateczny layout dla central widget
+		main_layout = QtWidgets.QHBoxLayout(central)
+		main_layout.addWidget(splitter)
 
 		# ROI linia
 		self.line_roi = None
-		# self.image_view.getView().mousePressEvent = self.on_image_click
 
 		# status bar
 		self.progress_bar = QtWidgets.QProgressBar()
@@ -96,6 +124,8 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		# stan
 		self.rr, self.cc = None, None
 		self.positions_line = None
+		self.fit_lines = []   # linie regresji (Ref/Adj/Dist)
+		self.h_line = None    # pozioma linia kursora
 		self.reference_profile = None  # = profile mapy odległości
 		self.cursor_lines = []
 		self.annotations = []
@@ -107,6 +137,18 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		# sygnały myszy
 		self.plot_widget.scene().sigMouseMoved.connect(self.on_mouse_move)
 		self.plot_widget.scene().sigMouseClicked.connect(self.on_plot_click)
+
+		# płaszczyzna do 3D
+		self.plane = AnnotationPlane()
+		self.plane.setSize((2000,2000))
+
+	@property
+	def separation(self):
+		return self._spinbox_separation.value()
+	
+	@separation.setter
+	def separation(self, _sep):
+		self._spinbox_separation.setValue(_sep)
 
 	# --- API ---
 
@@ -129,11 +171,11 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.redraw_roi()
 		self.update_plot()
 
+		AP.addObject(self.plane, self.grid1.parent)
 
 	# --- logika ---
 	def update_plot(self):
 		"""Odśwież widok binarny na podstawie separacji."""
-		self.separation = self.spinbox_separation.value()
 		dist = self.distance_map.m_grid64
 		valid = np.isfinite(dist)
 		binary_contact = (dist > self.separation) & valid
@@ -250,6 +292,48 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		r1, c1 = self.view_to_numpy(pt1.x(), pt1.y())
 		return (r0, c0), (r1, c1)
 
+	def plane_from_roi_points(self, r0, c0, r1, c1, margin=0.1):
+		"""Zwraca (normal, center, length, height) dla płaszczyzny wyznaczonej przez ROI i oś Z."""
+
+		# współrzędne w świecie (µm)
+		x0 = c0 * self.distance_map.stepX + self.distance_map.offsetX
+		y0 = r0 * self.distance_map.stepY + self.distance_map.offsetY
+		x1 = c1 * self.distance_map.stepX + self.distance_map.offsetX
+		y1 = r1 * self.distance_map.stepY + self.distance_map.offsetY
+
+		# długość ROI
+		dx, dy = x1 - x0, y1 - y0
+		length_um = np.sqrt(dx*dx + dy*dy)
+
+		# normalna
+		v = np.array([dx, dy, 0.0])
+		n = np.cross(v, [0, 0, 1])
+		n = n / np.linalg.norm(n)
+
+		# --- zakres Z z dostępnych siatek ---
+		zs = []
+		for g in (self.distance_map, self.grid1, self.grid2):
+			if g is not None:
+				zvals = g.m_grid64[np.isfinite(g.m_grid64)]
+				if zvals.size > 0:
+					zs.append((zvals.min(), zvals.max()))
+
+		if zs:
+			zmin = min(z[0] for z in zs)
+			zmax = max(z[1] for z in zs)
+			dz = zmax - zmin
+			zmin -= margin * dz
+			zmax += margin * dz
+			height_um = zmax - zmin
+		else:
+			height_um = 2000.0  # fallback
+
+		# środek
+		center = np.array([(x0 + x1)/2.0, (y0 + y1)/2.0, zmin + height_um/2.0])
+
+		return n, center, length_um, height_um
+
+
 	def update_profile_from_roi(self):
 		self.clamp_roi_to_image()
 		if self.line_roi is None: 
@@ -279,30 +363,55 @@ class FrastaViewer(QtWidgets.QMainWindow):
 			profiles.append(("Ref", prof1[valid], pg.mkPen('g', width=2)))
 			profiles.append(("Adj", prof2[valid], pg.mkPen('b', width=2)))
 
-		positions_line = np.arange(len(rr))[valid] * (self.distance_map.stepX / 1000.0)
+		positions_line = np.arange(len(rr))[valid] * self.distance_map.stepX
 		prof_dist = prof_dist[valid]
 
 		self.plot_widget.clear()
 		for name, prof, pen in profiles:
 			self.plot_widget.plot(positions_line, prof, pen=pen, name=name)
-		#self.plot_widget.plot(positions_line, prof_dist, pen=pg.mkPen('r', width=2), name="Dist")
+		self.plot_widget.plot(positions_line,
+							prof_dist + self.separation,
+							pen=pg.mkPen('r', width=2),
+							name="Dist")
 
 		# zapamiętaj
-		self.positions_line   = positions_line
+		self.positions_line    = positions_line
 		self.reference_profile = profiles[0][1] if profiles else None
 		self.adjusted_profile  = profiles[1][1] if profiles else None
-		#self.distance_profile  = prof_dist
+		self.distance_profile  = prof_dist
 		self.rr = rr[valid]
 		self.cc = cc[valid]
+
+		# --- wyznacz płaszczyznę dla 3D ---
+		n, center, length_um, height_um = self.plane_from_roi_points(r0, c0, r1, c1, margin=0.5)
+
+		if hasattr(self, "plane"):
+			self.plane.normal_vector = n
+			self.plane.m_center = center
+			self.plane.setSize((length_um, height_um))
+			AP.updateAllViews()
+
+
+		logger.info(f"ROI length: {length_um:.1f} µm, center: {center}, normal: {n}")
 
 
 	# --- obsługa myszy i adnotacje ---
 	def on_mouse_move(self, pos):
-		if not self.plot_widget.sceneBoundingRect().contains(pos): return
+		if not self.plot_widget.sceneBoundingRect().contains(pos):
+			return
 		mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
 		x_pos = mouse_point.x()
+		y_pos = mouse_point.y()
+		self._update_hline(y_pos)
+
 		self._clear_cursor_and_annotations()
-		self._draw_cursor_line(x_pos)
+
+		# pionowa linia (już było)
+		self._draw_cursor_line(x_pos, angle=90, color='r')
+
+		# nowa: pozioma linia
+		self._draw_cursor_line(y_pos, angle=0, color='b')
+
 		if self.positions_line is not None and len(self.positions_line) > 0:
 			if self.positions_line[0] <= x_pos <= self.positions_line[-1]:
 				idx = np.argmin(np.abs(self.positions_line - x_pos))
@@ -314,6 +423,12 @@ class FrastaViewer(QtWidgets.QMainWindow):
 	def on_plot_click(self, event):
 		if event.modifiers() == QtCore.Qt.ControlModifier:
 			self._handle_ctrl_click(event)
+
+	def _update_hline(self, y_pos):
+		if self.h_line is None:
+			self.h_line = pg.InfiniteLine(angle=0, pen=pg.mkPen('r', width=1, style=QtCore.Qt.DashLine))
+			self.plot_widget.addItem(self.h_line)
+		self.h_line.setPos(y_pos)
 
 	def _handle_ctrl_click(self, event):
 		pos = event.scenePos()
@@ -328,7 +443,9 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		x_img, y_img = self.numpy_to_view(self.rr[idx], self.cc[idx])
 		val = self.reference_profile[idx]
 		pos_mm = self.positions_line[idx]
+		label = f"Punkt {len(self.saved_points)}"
 		self.saved_points.append({
+			'label': label,
 			'profile_idx': idx,
 			'x_img': int(x_img), 'y_img': int(y_img),
 			'x_pos_mm': float(pos_mm), 'val_um': float(val),
@@ -338,33 +455,125 @@ class FrastaViewer(QtWidgets.QMainWindow):
 									brush=pg.mkBrush(0,255,255,120), symbol='+')
 		self.image_view.getView().addItem(marker)
 		self.saved_point_markers.append(marker)
-		logger.debug("Saved point:", self.saved_points[-1])
+		logger.debug(f"Saved point: {self.saved_points[-1]}")
+		from dpVision import AnnotationPoint, AP
+		row, col = self.rr[idx], self.cc[idx]
+
+		# współrzędne w układzie świata
+		x_world = self.distance_map.offsetX + col * self.distance_map.stepX
+		y_world = self.distance_map.offsetY + row * self.distance_map.stepY
+		z_world = val  # bo profil_ref jest już w µm
+
+		pt = AnnotationPoint([x_world, y_world, z_world])
+		pt.label = label
+		AP.addObject(pt, self.grid1)
+
+	def _clear_fit_lines(self):
+		vb = self.plot_widget.getPlotItem().vb
+		for it in self.fit_lines:
+			try:
+				vb.removeItem(it)
+			except Exception:
+				pass
+		self.fit_lines = []
 
 	# --- fit lines i kąty (na jednej krzywej) ---
 	def _draw_annotations_and_fit_lines(self, x_pos, idx):
-		val = self.reference_profile[idx]
-		window_mm = self.spinbox_window_mm.value()
-		pixel_size_mm = self.pixel_um.x() / 1000.0
-		window_size = max(1, int(round(window_mm / pixel_size_mm)))
+		# wyczyść poprzednie linie dopasowań
+		self._clear_fit_lines()
+
+		# window_um = self.spinbox_window_um.value()
+		# pixel_size_um = self.pixel_um.x()
+		# window_size = max(1, int(round(window_um / pixel_size_um)))
+		window_um = self.spinbox_window_um.value()
+		step_um = self.distance_map.stepX
+		window_size = max(1, int(round(window_um / step_um)))
+		#logger.debug(f"window_um={window_um}, step_um={step_um}, window_size={window_size}, n_points={len(self.positions_line)}")
+
+
 		start = max(0, idx - window_size)
-		end = min(len(self.positions_line), idx + window_size + 1)
+		end   = min(len(self.positions_line), idx + window_size + 1)
 
-		slope, angle, reg = self._fit_profile(self.positions_line[start:end],
-											self.reference_profile[start:end])
+		vb = self.plot_widget.getPlotItem().vb
+		x_min, x_max = vb.viewRange()[0]
+		y_min, y_max = vb.viewRange()[1]
+		offset_y = 0.05 * (y_max - y_min)
+		y_text   = y_max - offset_y
 
-		# adnotacja wartości i kąta
-		self._draw_diff_and_angle_text(val, angle)
+		have_ref = self.reference_profile is not None and len(self.reference_profile) > 0
+		have_adj = self.adjusted_profile  is not None and len(self.adjusted_profile)  > 0
+		have_dist= self.distance_profile  is not None and len(self.distance_profile)  > 0
 
-		# fit line
-		self._draw_fit_line(x_pos, slope, reg, idx, window_mm)
+		# --- CASE 1: Ref + Adj ---
+		if have_ref and have_adj:
+			# regresje
+			slope_ref, angle_ref, reg_ref = self._fit_profile(
+				self.positions_line[start:end], self.reference_profile[start:end]
+			)
+			slope_adj, angle_adj, reg_adj = self._fit_profile(
+				self.positions_line[start:end], self.adjusted_profile[start:end]
+			)
 
-	def _fit_profile(self, x, y):
-		x_fit = x.reshape(-1, 1)
-		y_fit = y.reshape(-1, 1) / 1000.0  # mm
-		reg = LinearRegression().fit(x_fit, y_fit)
-		slope = reg.coef_[0][0]
-		angle = degrees(atan(slope))
+			# wartości w punkcie kursora
+			val_ref = float(self.reference_profile[idx])
+			val_adj = float(self.adjusted_profile[idx])
+			dh      = val_ref - val_adj           # Δ wysokości (µm)
+			dtheta  = angle_adj - angle_ref       # Δ kątów (°)
+
+			# adnotacje
+			t_ref  = pg.TextItem(f"Ref: {val_ref:.1f} µm, {angle_ref:.1f}°", color='g', anchor=(0, 1))
+			t_adj  = pg.TextItem(f"Adj: {val_adj:.1f} µm, {angle_adj:.1f}°", color='b', anchor=(0, 1))
+			t_diff = pg.TextItem(f"Δh: {dh:.1f} µm   Δθ: {dtheta:.1f}°",     color='y', anchor=(0, 1))
+			for t in (t_ref, t_adj, t_diff):
+				t.setPos(x_min + 0.02*(x_max - x_min), y_text)
+				self.plot_widget.addItem(t); self.annotations.append(t)
+				y_text -= offset_y
+
+			# linie dopasowania (osobno kolory)
+			self._draw_fit_line(x_pos, slope_ref, reg_ref, idx, window_um, color='g')
+			self._draw_fit_line(x_pos, slope_adj, reg_adj, idx, window_um, color='b')
+
+		# --- CASE 2: tylko Dist ---
+		elif have_dist:
+			slope_d, angle_d, reg_d = self._fit_profile(
+				self.positions_line[start:end], self.distance_profile[start:end]
+			)
+			val_d = float(self.distance_profile[idx])
+			t_d   = pg.TextItem(f"Dist: {val_d:.1f} µm, {angle_d:.1f}°", color='r', anchor=(0, 1))
+			t_d.setPos(x_min + 0.02*(x_max - x_min), y_text)
+			self.plot_widget.addItem(t_d); self.annotations.append(t_d)
+
+			self._draw_fit_line(x_pos, slope_d, reg_d, idx, window_um, color='r')
+
+
+	def _draw_fit_line(self, x_pos_um, slope, reg, idx, window_um, color='y'):
+		vb = self.plot_widget.getPlotItem().vb
+		half = window_um / 2.0
+		x0, x1 = x_pos_um - half, x_pos_um + half
+
+		if self.checkbox_snap.isChecked():
+			y_at_cursor_um = self.reference_profile[idx]
+			b = y_at_cursor_um - slope * x_pos_um
+		else:
+			b = reg.intercept_[0]
+
+		y0_um = slope * x0 + b
+		y1_um = slope * x1 + b
+
+		line = pg.PlotDataItem([x0, x1], [y0_um, y1_um],
+							pen=pg.mkPen(color, width=2))
+		vb.addItem(line, ignoreBounds=True)
+		self.fit_lines.append(line)
+
+
+	def _fit_profile(self, x_um, y_um):
+		X = x_um.reshape(-1, 1)   # µm
+		Y = y_um.reshape(-1, 1)   # µm
+		reg = LinearRegression().fit(X, Y)
+		slope = reg.coef_[0][0]   # jednostki: µm/µm = bezwymiarowe
+		angle = degrees(atan(slope))  
 		return slope, angle, reg
+
 
 	def _draw_diff_and_angle_text(self, val, angle):
 		vb = self.plot_widget.getPlotItem().vb
@@ -377,34 +586,20 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		text2.setPos(x_min+0.02*(x_max-x_min), y_max-0.2*(y_max-y_min))
 		self.plot_widget.addItem(text2); self.annotations.append(text2)
 
-	def _draw_fit_line(self, x_pos, slope, reg, idx, window_mm):
-		vb = self.plot_widget.getPlotItem().vb
-		line_half_width_mm = window_mm / 2.0
-		x0, x1 = x_pos - line_half_width_mm, x_pos + line_half_width_mm
-		if self.checkbox_snap.isChecked():
-			y_at_cursor = self.reference_profile[idx] / 1000.0
-			b = y_at_cursor - slope * x_pos
-		else:
-			b = reg.intercept_[0]
-		y0, y1 = slope * x0 + b, slope * x1 + b
-		for item in self.mytest: vb.removeItem(item)
-		self.mytest.clear()
-		line = pg.PlotDataItem([x0, x1], [y0*1000, y1*1000],
-							pen=pg.mkPen('y', width=2))
-		vb.addItem(line, ignoreBounds=True)
-		self.annotations.append(line); self.mytest.append(line)
-
 	# --- helpers ---
 	def _clear_cursor_and_annotations(self):
 		for item in self.cursor_lines + self.annotations:
 			self.plot_widget.removeItem(item)
 		self.cursor_lines.clear(); self.annotations.clear()
 
-	def _draw_cursor_line(self, x_pos):
-		vline = pg.InfiniteLine(pos=x_pos, angle=90,
-								pen=pg.mkPen('r', width=1,
-											style=QtCore.Qt.DashLine))
-		self.plot_widget.addItem(vline); self.cursor_lines.append(vline)
+	def _draw_cursor_line(self, pos, angle=90, color='r'):
+		line = pg.InfiniteLine(
+			pos=pos,
+			angle=angle,
+			pen=pg.mkPen(color, width=1, style=QtCore.Qt.DashLine)
+		)
+		self.plot_widget.addItem(line)
+		self.cursor_lines.append(line)
 
 	def _shape_np(self):
 		h, w = self.distance_map.m_grid64.shape

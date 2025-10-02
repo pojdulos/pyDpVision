@@ -17,7 +17,6 @@ from .. import AP
 class PropBaseObject(PropWidget):
 	def __init__(self, _obj, parent=None):
 		super( PropBaseObject, self ).__init__( parent )
-		#uic.loadUi('dpVision/gui/forms/propBaseObject.ui', self)
 		AP.loadUi('propBaseObject.ui', self)
 		self.obj_ref = weakref.ref(_obj)
 

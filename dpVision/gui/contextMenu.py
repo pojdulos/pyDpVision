@@ -19,6 +19,10 @@ class ContextMenu(QMenu):
 		super( ContextMenu, self ).__init__( parent )
 		self.m_obj = obj
 
+		action = QAction("Create plane", self)
+		action.triggered.connect(self.slot_create_plane)
+		self.addAction(action)
+
 		if self.m_obj is None:
 			action = QAction("Create empty model", self)
 			action.triggered.connect(self.slotCreateEmptyModel)
@@ -179,6 +183,11 @@ class ContextMenu(QMenu):
 	@pyqtSlot()
 	def slotCreateEmptyModel(self):
 		AP.addObject(Transform(), self.m_obj)
+
+	@pyqtSlot()
+	def slot_create_plane(self):
+		from .. import AnnotationPlane
+		AP.addObject(AnnotationPlane(), self.m_obj)
 
 	@pyqtSlot()
 	def move_to(self):

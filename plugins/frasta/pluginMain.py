@@ -368,10 +368,7 @@ class Frasta(PluginInterface):
 			self.adj_in_plane
 		)
 
-		# ustaw wstępny separation, np. z transformacji
-		self._profile_viewer.spinbox_separation.setValue(
-			float(self.adj_transform.getTranslation()[2])
-		)
+		#self._profile_viewer.separation = int(self.adj_transform.getTranslation()[2])
 
 		self._profile_viewer.show()
 		self._profile_viewer.raise_()
@@ -407,7 +404,7 @@ class Frasta(PluginInterface):
 			self.adj_grid.stepX, self.adj_grid.stepY
 		)
 
-		#self._profile_viewer.spinbox_separation.setValue(int(self.adj_transform.getTranslation()[2]))
+		#self._profile_viewer.separation = int(self.adj_transform.getTranslation()[2])
 
 		self._profile_viewer.show()
 		self._profile_viewer.raise_()
@@ -770,6 +767,13 @@ class Frasta(PluginInterface):
 
 		# --- 1. generujemy dane ---
 		dist_map, ref_grid, adj_grid = gen_data(offsetX=None, offsetY=None)
+
+		ref_grid.uniform_color = [0.0,1.0,0.0]
+		#ref_grid.use_mesh = True
+		adj_grid.uniform_color = [0.0,0.0,1.0]
+		#adj_grid.use_mesh = True
+		dist_map.use_uniform_color = False
+		#dist_map.use_mesh = True
 
 		tr = Transform()
 		tr.setScale(0.02,0.02,0.02)

@@ -10,8 +10,13 @@ def set_logger():
     import logging
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            # logging.FileHandler("pyDpVision.log", mode="w", encoding="utf-8"), # logi do pliku
+            logging.StreamHandler()              # logi na konsolę
+        ]
     )
+    logging.getLogger("frasta").setLevel(logging.DEBUG)
 
 set_logger()
 

@@ -43,11 +43,14 @@ class PropAnnotationPoint(PropWidget):
 		self.pointY.setValue(ctr[1])
 		self.pointZ.setValue(ctr[2])
 		
-		vec = obj.m_vector
+		vec = obj.m_vector if obj.m_vector is not None else [0.0,0.0,1.0]
 		self.vecX.setValue(vec[0])
 		self.vecY.setValue(vec[1])
 		self.vecZ.setValue(vec[2])
 		
+		self.vecX.setEnabled(obj.m_showVector)
+		self.vecY.setEnabled(obj.m_showVector)
+		self.vecZ.setEnabled(obj.m_showVector)
 		self.showVec.setChecked(obj.m_showVector)
 
 		for i in w:
@@ -93,4 +96,9 @@ class PropAnnotationPoint(PropWidget):
 	def onShowVec(self, b):
 		obj = self.obj_ref()
 		obj.m_showVector = b
+
+		self.vecX.setEnabled(obj.m_showVector)
+		self.vecY.setEnabled(obj.m_showVector)
+		self.vecZ.setEnabled(obj.m_showVector)
+
 		AP.updateAllViews()

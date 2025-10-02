@@ -18,8 +18,10 @@ from .propMesh import PropMesh
 from .propNDimCloud import PropNDimCloud
 from .propTransform import PropTransform
 from .propAnnotation import PropAnnotation
+from .propAnnotationPlane import PropAnnotationPlane
 from .propAnnotationPoint import PropAnnotationPoint
 from .propAnnotationSphere import PropAnnotationSphere
+from .propGridData64 import PropGridData64
 
 from .. import BaseObject, Object, Annotation, AP
 
@@ -50,12 +52,14 @@ class DockWidgetProperties(QDockWidget):
 				'Transform': PropTransform,
 				'Mesh' : PropMesh,
 				#'PointCloud' : PropMesh,
+				'GridData64' : PropGridData64,
 				'NDimCloud': PropNDimCloud,
 				'Motion': PropMotion,
 				'Volumetric': PropVolumetric,
 				'default': PropBaseObject,
 			},
 			Annotation: {
+				'AnnotationPlane': PropAnnotationPlane,
 				'AnnotationPoint': PropAnnotationPoint,
 				'AnnotationSphere': PropAnnotationSphere,
 				'default': PropAnnotation,

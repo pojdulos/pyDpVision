@@ -4,7 +4,6 @@ import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 from skimage.draw import line
-from PyQt5.QtCore import QPointF
 from math import atan, degrees
 import numpy as np
 #import h5py
@@ -41,6 +40,7 @@ def plane_from_profile_and_z(x0, y0, x1, y1, z0=0.0):
     return n, p0
 
 class FrastaViewer(QtWidgets.QMainWindow):
+	profileLineChanged = QtCore.pyqtSignal(tuple)
 	def __init__(self, parent=None):
 		super().__init__(parent)
 		self.setWindowTitle("FRASTA analysis")
@@ -52,7 +52,7 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.grid2 = None
 
 		self.binary_contact = None
-		self.pixel_um = QPointF(1.0, 1.0)
+		self.pixel_um = QtCore.QPointF(1.0, 1.0)
 
 		# --- widżety ---
 		central = QtWidgets.QWidget()
@@ -138,9 +138,6 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.plot_widget.scene().sigMouseMoved.connect(self.on_mouse_move)
 		self.plot_widget.scene().sigMouseClicked.connect(self.on_plot_click)
 
-		# płaszczyzna do 3D
-		self.plane = AnnotationPlane()
-		self.plane.setSize((2000,2000))
 
 	@property
 	def separation(self):
@@ -170,8 +167,6 @@ class FrastaViewer(QtWidgets.QMainWindow):
 
 		self.redraw_roi()
 		self.update_plot()
-
-		AP.addObject(self.plane, self.grid1.parent)
 
 	# --- logika ---
 	def update_plot(self):
@@ -292,47 +287,6 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		r1, c1 = self.view_to_numpy(pt1.x(), pt1.y())
 		return (r0, c0), (r1, c1)
 
-	def plane_from_roi_points(self, r0, c0, r1, c1, margin=0.1):
-		"""Zwraca (normal, center, length, height) dla płaszczyzny wyznaczonej przez ROI i oś Z."""
-
-		# współrzędne w świecie (µm)
-		x0 = c0 * self.distance_map.stepX + self.distance_map.offsetX
-		y0 = r0 * self.distance_map.stepY + self.distance_map.offsetY
-		x1 = c1 * self.distance_map.stepX + self.distance_map.offsetX
-		y1 = r1 * self.distance_map.stepY + self.distance_map.offsetY
-
-		# długość ROI
-		dx, dy = x1 - x0, y1 - y0
-		length_um = np.sqrt(dx*dx + dy*dy)
-
-		# normalna
-		v = np.array([dx, dy, 0.0])
-		n = np.cross(v, [0, 0, 1])
-		n = n / np.linalg.norm(n)
-
-		# --- zakres Z z dostępnych siatek ---
-		zs = []
-		for g in (self.distance_map, self.grid1, self.grid2):
-			if g is not None:
-				zvals = g.m_grid64[np.isfinite(g.m_grid64)]
-				if zvals.size > 0:
-					zs.append((zvals.min(), zvals.max()))
-
-		if zs:
-			zmin = min(z[0] for z in zs)
-			zmax = max(z[1] for z in zs)
-			dz = zmax - zmin
-			zmin -= margin * dz
-			zmax += margin * dz
-			height_um = zmax - zmin
-		else:
-			height_um = 2000.0  # fallback
-
-		# środek
-		center = np.array([(x0 + x1)/2.0, (y0 + y1)/2.0, zmin + height_um/2.0])
-
-		return n, center, length_um, height_um
-
 
 	def update_profile_from_roi(self):
 		self.clamp_roi_to_image()
@@ -382,17 +336,13 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.rr = rr[valid]
 		self.cc = cc[valid]
 
-		# --- wyznacz płaszczyznę dla 3D ---
-		n, center, length_um, height_um = self.plane_from_roi_points(r0, c0, r1, c1, margin=0.5)
-
-		if hasattr(self, "plane"):
-			self.plane.normal_vector = n
-			self.plane.m_center = center
-			self.plane.setSize((length_um, height_um))
-			AP.updateAllViews()
-
-
-		logger.info(f"ROI length: {length_um:.1f} µm, center: {center}, normal: {n}")
+		# współrzędne w świecie (µm)
+		x0 = c0 * self.distance_map.stepX + self.distance_map.offsetX
+		y0 = r0 * self.distance_map.stepY + self.distance_map.offsetY
+		x1 = c1 * self.distance_map.stepX + self.distance_map.offsetX
+		y1 = r1 * self.distance_map.stepY + self.distance_map.offsetY
+		
+		self.profileLineChanged.emit((x0,y0,x1,y1))
 
 
 	# --- obsługa myszy i adnotacje ---
@@ -420,15 +370,17 @@ class FrastaViewer(QtWidgets.QMainWindow):
 			else:
 				self._clear_marker()
 
-	def on_plot_click(self, event):
-		if event.modifiers() == QtCore.Qt.ControlModifier:
-			self._handle_ctrl_click(event)
-
 	def _update_hline(self, y_pos):
 		if self.h_line is None:
 			self.h_line = pg.InfiniteLine(angle=0, pen=pg.mkPen('r', width=1, style=QtCore.Qt.DashLine))
 			self.plot_widget.addItem(self.h_line)
 		self.h_line.setPos(y_pos)
+
+
+
+	def on_plot_click(self, event):
+		if event.modifiers() == QtCore.Qt.ControlModifier:
+			self._handle_ctrl_click(event)
 
 	def _handle_ctrl_click(self, event):
 		pos = event.scenePos()

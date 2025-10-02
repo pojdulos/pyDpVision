@@ -20,9 +20,23 @@ import numpy as np
 
 from .mappings import *
 
+import logging
+logger = logging.getLogger(__name__)
+
+class PluginQtConnector(QObject):
+	def __init__(self, parent):
+		QObject.__init__(self)
+		self.parent = parent
+
+	@pyqtSlot(tuple)
+	def on_profileLineChanged(self, line):
+		self.parent.on_profileLineChanged(line)
+
 class Frasta(PluginInterface):
 	def __init__(self):
 		self.plugin_name = '(dp) Frasta'
+		self.connector = PluginQtConnector(self)
+
 		self.panel = None
 		self.scale_transform = None
 		self.adj_transform = None
@@ -31,6 +45,7 @@ class Frasta(PluginInterface):
 		self.ref_abc = None
 		self.ref_plane = AnnotationPlane()
 		self.distance_map = None
+		self.plane = None
 
 	def on_load(self):
 		print( f"plugin {self.plugin_name} loaded.")
@@ -50,12 +65,6 @@ class Frasta(PluginInterface):
 
 		self.selref = QComboBox()
 		self.seladj = QComboBox()
-		# self.edit1.setMaximum(16)
-		# self.edit1.setValue(4)
-		# self.edit2 = QSpinBox()
-		# self.edit2.setMinimum(1)
-		# self.edit2.setMaximum(16)
-		# self.edit2.setValue(4)
 
 		# śledzimy stary wybór
 		self._old_ref = None
@@ -358,8 +367,14 @@ class Frasta(PluginInterface):
 			)
 			return
 
+		# płaszczyzna do 3D
+		if self.plane is None:
+			self.plane = AnnotationPlane()
+		AP.addObject(self.plane, self.scale_transform)
+		
 		if getattr(self, "_profile_viewer", None) is None:
 			self._profile_viewer = FrastaViewer(parent=AP.mainWin)
+			self._profile_viewer.profileLineChanged.connect(self.on_profileLineChanged)
 
 		# przekazujemy już gotowe obiekty
 		self._profile_viewer.set_data(
@@ -775,16 +790,22 @@ class Frasta(PluginInterface):
 		dist_map.use_uniform_color = False
 		#dist_map.use_mesh = True
 
+		# płaszczyzna do 3D
+		if self.plane is None:
+			self.plane = AnnotationPlane()
+
 		tr = Transform()
 		tr.setScale(0.02,0.02,0.02)
 		tr.addChild(ref_grid)
 		tr.addChild(adj_grid)
 		tr.addChild(dist_map)
+		tr.addChild(self.plane)
 		AP.addObject(tr)
 
 		# --- 2. uruchamiamy okienko ---
 		if getattr(self, "_profile_viewer", None) is None:
 			self._profile_viewer = FrastaViewer(parent=AP.mainWin)
+			self._profile_viewer.profileLineChanged.connect(self.connector.on_profileLineChanged)
 
 		# przekazujemy już gotowe obiekty
 		self._profile_viewer.set_data( dist_map, ref_grid, adj_grid )
@@ -792,3 +813,52 @@ class Frasta(PluginInterface):
 		self._profile_viewer.show()
 		self._profile_viewer.raise_()
 		self._profile_viewer.activateWindow()
+
+
+	def plane_from_profile(self, line:tuple, margin=0.1):
+		"""Zwraca (normal, center, length, height) dla płaszczyzny wyznaczonej przez ROI i oś Z."""
+		x0,y0,x1,y1 = line
+
+		# długość ROI
+		dx, dy = x1 - x0, y1 - y0
+		length_um = np.sqrt(dx*dx + dy*dy)
+
+		# normalna
+		v = np.array([dx, dy, 0.0])
+		n = np.cross(v, [0, 0, 1])
+		n = n / np.linalg.norm(n)
+
+		# --- zakres Z z dostępnych siatek ---
+		zs = []
+		for g in (self._profile_viewer.distance_map, self._profile_viewer.grid1, self._profile_viewer.grid2):
+			if g is not None:
+				zvals = g.m_grid64[np.isfinite(g.m_grid64)]
+				if zvals.size > 0:
+					zs.append((zvals.min(), zvals.max()))
+
+		if zs:
+			zmin = min(z[0] for z in zs)
+			zmax = max(z[1] for z in zs)
+			dz = zmax - zmin
+			zmin -= margin * dz
+			zmax += margin * dz
+			height_um = zmax - zmin
+		else:
+			height_um = 2000.0  # fallback
+
+		# środek
+		center = np.array([(x0 + x1)/2.0, (y0 + y1)/2.0, zmin + height_um/2.0])
+
+		return n, center, length_um, height_um
+
+	def on_profileLineChanged(self, line:tuple):
+		# --- wyznacz płaszczyznę dla 3D ---
+		n, center, length_um, height_um = self.plane_from_profile(line, margin=0.5)
+
+		if hasattr(self, "plane"):
+			self.plane.normal_vector = n
+			self.plane.m_center = center
+			self.plane.setSize((length_um, height_um))
+			AP.updateAllViews()
+
+		logger.info(f"ROI length: {length_um:.1f} µm, center: {center}, normal: {n}")

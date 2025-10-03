@@ -15,6 +15,7 @@ from .propWidget import PropWidget
 import weakref
 from .. import GridData64, AP
 from .multiSpinBox import MultiSpinBox
+import numpy as np
 
 import logging
 logger = logging.getLogger(__name__)
@@ -33,17 +34,20 @@ class PropGridData64(PropWidget):
 		#self.grid_steps.setFlat(True)
 		self.grid_steps.setStyleSheet("border:none")
 		self.use_colormap = QCheckBox()
+		self.colormap_range = MultiSpinBox(count=2, labels=("min: ","max: "))
 		self.uniform_color = MultiSpinBox(count=3, labels=("R=","G=","B="))
 		self.uniform_color.setStyleSheet("border:none")
 		self.use_mesh = QCheckBox()
 		layout.addRow("grid steps [um]:", self.grid_steps)
 		layout.addRow("use colormap", self.use_colormap)
+		layout.addRow("colormap range", self.colormap_range)
 		layout.addRow("uniform color", self.uniform_color)
 		layout.addRow("draw as surface", self.use_mesh)
 		self.setLayout(layout)
 
 		self.grid_steps.valueChanged.connect(self.on_grid_steps_valueChanged)
 		self.use_colormap.toggled.connect(self.on_use_colormap_toggled)
+		self.colormap_range.valueChanged.connect(self.on_colormap_range_valueChanged)
 		self.uniform_color.valueChanged.connect(self.on_uniform_color_valueChanged)
 		self.use_mesh.toggled.connect(self.on_use_mesh_toggled)
 
@@ -65,6 +69,8 @@ class PropGridData64(PropWidget):
 
 		self.grid_steps.setValue((obj.stepX, obj.stepY))
 		self.use_colormap.setChecked(not obj.use_uniform_color)
+		self.colormap_range.setValue(obj.get_colormap_range())
+		self.colormap_range.setEnabled(not obj.use_uniform_color)
 		self.uniform_color.setValue(obj.uniform_color)
 		self.uniform_color.setEnabled(obj.use_uniform_color)
 		self.use_mesh.setChecked(obj.use_mesh)
@@ -80,7 +86,16 @@ class PropGridData64(PropWidget):
 
 		obj.use_uniform_color = not b
 		self.uniform_color.setEnabled(obj.use_uniform_color)
+		self.colormap_range.setEnabled(not obj.use_uniform_color)
 
+		AP.updateAllViews()
+
+	@pyqtSlot(tuple)
+	def on_colormap_range_valueChanged(self, vals):
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		obj.m_minZ, obj.m_maxZ = vals
 		AP.updateAllViews()
 
 	@pyqtSlot(tuple)

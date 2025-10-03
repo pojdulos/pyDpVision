@@ -39,9 +39,10 @@ def plane_from_profile_and_z(x0, y0, x1, y1, z0=0.0):
     # zwróć normalną i punkt
     return n, p0
 
-class FrastaViewer(QtWidgets.QMainWindow):
+class FrastaViewer(QtWidgets.QDockWidget):
 	profileLineChanged = QtCore.pyqtSignal(tuple)
 	pointClicked = QtCore.pyqtSignal(tuple)
+	quickMessage	= QtCore.pyqtSignal(str)
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -58,7 +59,8 @@ class FrastaViewer(QtWidgets.QMainWindow):
 
 		# --- widżety ---
 		central = QtWidgets.QWidget()
-		self.setCentralWidget(central)
+		# self.setCentralWidget(central)
+		self.setWidget(central)
 
 		# splitter zamiast zwykłego HBoxLayout
 		splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, central)
@@ -119,9 +121,9 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		self.line_roi = None
 
 		# status bar
-		self.progress_bar = QtWidgets.QProgressBar()
-		self.progress_bar.setVisible(False)
-		self.statusBar().addPermanentWidget(self.progress_bar)
+		# self.progress_bar = QtWidgets.QProgressBar()
+		# self.progress_bar.setVisible(False)
+		# self.statusBar().addPermanentWidget(self.progress_bar)
 
 		# stan
 		self.rr, self.cc = None, None
@@ -551,12 +553,13 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		h, w = self.distance_map.m_grid64.shape
 		return h, w
 
-	def view_to_numpy(self, x_view, y_view):
+	def view_to_numpy(self, x_view, y_view, clip_to_shape=True):
 		h, w = self._shape_np()  # h = rows, w = cols w oryginalnym numpy
 		col = int(round(x_view))           # pozioma
 		row = h - 1 - int(round(y_view))   # pionowa odwrócona
-		row = int(np.clip(row, 0, h-1))
-		col = int(np.clip(col, 0, w-1))
+		if clip_to_shape:
+			row = int(np.clip(row, 0, h-1))
+			col = int(np.clip(col, 0, w-1))
 		return row, col
 
 	def numpy_to_view(self, row, col):
@@ -611,10 +614,11 @@ class FrastaViewer(QtWidgets.QMainWindow):
 		diff_masked = np.where(fragment, diff, 0)
 		volume_um3 = np.abs(np.sum(diff_masked)) * pixel_area_um2
 		volume_mm3 = volume_um3 * 1e-9
-		self.statusBar().showMessage(
+		my_message = ( 
 			f"Białe pola: {white_count}, area: {white_area_um2:.2f}µm² ({white_area_mm2:.4f}mm²), "
 			f"volume: {volume_um3:.2f}µm³ ({volume_mm3:.4f}mm³)"
 		)
+		self.quickMessage.emit(my_message)
 
 	def get_viewbox_ranges_int(self, shape=None, overflow=False):
 		vb = self.image_view.getView()

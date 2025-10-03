@@ -36,6 +36,13 @@ class PluginQtConnector(QObject):
 	def on_pointClicked(self, point):
 		self.parent.on_pointClicked(point)
 
+	def on_pointSelected(self, r, c, v):
+		self.parent.on_pointSelected(r, c, v)
+
+	@pyqtSlot(str)
+	def on_quickMessage(self, txt):
+		self.parent.on_quickMessage(txt)
+
 
 class Frasta(PluginInterface):
 	def __init__(self):
@@ -378,24 +385,44 @@ class Frasta(PluginInterface):
 			self.plane.setColor(r=255,g=255,b=255,a=192)
 			AP.addObject(self.plane, self.scale_transform)
 		
-		if getattr(self, "_profile_viewer", None) is None:
-			self._profile_viewer = FrastaViewer(parent=AP.mainWin)
-			self._profile_viewer.profileLineChanged.connect(self.connector.on_profileLineChanged)
-			self._profile_viewer.pointClicked.connect(self.connector.on_pointClicked)
+		if 0:
+			if getattr(self, "_profile_viewer", None) is None:
+				self._profile_viewer = FrastaViewer(parent=AP.mainWin)
+				AP.mainWin.addDockWidget(Qt.RightDockWidgetArea, self._profile_viewer)
+				self._profile_viewer.setFloating(True)
+				self._profile_viewer.profileLineChanged.connect(self.connector.on_profileLineChanged)
+				self._profile_viewer.pointClicked.connect(self.connector.on_pointClicked)
+				self._profile_viewer.quickMessage.connect(self.connector.on_quickMessage)
 
-		# przekazujemy już gotowe obiekty
-		self._profile_viewer.set_data(
-			self.distance_map,
-			self.ref_in_plane,
-			self.adj_in_plane
-		)
+			# przekazujemy już gotowe obiekty
+			self._profile_viewer.set_data(
+				self.distance_map,
+				self.ref_in_plane,
+				self.adj_in_plane
+			)
 
-		#self._profile_viewer.separation = int(self.adj_transform.getTranslation()[2])
+			#self._profile_viewer.separation = int(self.adj_transform.getTranslation()[2])
 
-		self._profile_viewer.show()
-		self._profile_viewer.raise_()
-		self._profile_viewer.activateWindow()
+			self._profile_viewer.show()
+			self._profile_viewer.raise_()
+			self._profile_viewer.activateWindow()
+		else:
+			from .frastaController import FrastaController
+			self.controller = FrastaController()
+			
+			self.controller.set_data(self.distance_map, self.ref_in_plane, self.adj_in_plane)
 
+			self.controller.binary_dock.profileLineChanged.connect(self.connector.on_profileLineChanged)
+			self.controller.pointSelected.connect(self.connector.on_pointSelected)
+			#self.controller.profile_dock.quickMessage.connect(self.connector.on_quickMessage)
+
+			# wstaw docki do głównego okna
+			mainWin = AP.mainWin
+			mainWin.addDockWidget(Qt.LeftDockWidgetArea, self.controller.profile_dock)
+			mainWin.addDockWidget(Qt.LeftDockWidgetArea, self.controller.binary_dock)
+
+			self.controller.binary_dock.setFloating(True)
+			self.controller.profile_dock.setFloating(True)
 
 
 	def onAction_RotY(self):
@@ -713,7 +740,7 @@ class Frasta(PluginInterface):
 
 		logger.info(f"ROI length: {length_um:.1f} µm, center: {center}, normal: {n}")
 
-	def on_pointClicked(self, point):
+	def on_pointClicked(self, point:tuple):
 		print(f"point: {point}")
 
 		col, row, val = point
@@ -726,3 +753,22 @@ class Frasta(PluginInterface):
 		pt = AnnotationPoint([x_world, y_world, z_world])
 		#pt.label = label
 		AP.addObject(pt, self.ref_in_plane)
+
+	def on_pointSelected(self, r, c, v):
+		row, col, val = r, c, v
+
+		# współrzędne w układzie świata
+		x_world = self.distance_map.offsetX + col * self.distance_map.stepX
+		y_world = self.distance_map.offsetY + row * self.distance_map.stepY
+		# z_world = val  # bo profil_ref jest już w µm
+		z_world = self.ref_in_plane.m_grid64[row,col]
+
+		logger.info(f"on_PointSelected {[x_world, y_world, z_world]}")
+
+		pt = AnnotationPoint([x_world, y_world, z_world])
+		#pt.label = label
+		AP.addObject(pt, self.ref_in_plane)
+
+
+	def on_quickMessage(self, txt):
+		AP.mainWin.statusBar.showMessage( txt )

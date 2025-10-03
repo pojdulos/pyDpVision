@@ -69,7 +69,14 @@ class GridData64(Object):
 			self.shader_program = create_program(
 				vertex_shader_name='gridDataAsCloud.vert',
 				fragment_shader_name='gridDataAsCloud.frag' )
-			 
+
+	def get_colormap_range(self):
+		if not hasattr(self, "m_minZ") or not hasattr(self, "m_maxZ"):
+			z_values = self.m_grid64[np.isfinite(self.m_grid64)]
+			self.m_minZ = float(np.min(z_values))
+			self.m_maxZ = float(np.max(z_values))
+		return (self.m_minZ, self.m_maxZ)
+	
 	def renderSelf(self):
 		if self.shader_program is None:
 			self.initializeGL()
@@ -104,8 +111,7 @@ class GridData64(Object):
 			glUniform3fv(glGetUniformLocation(self.shader_program, "u_uniformColor"), 1, self.uniform_color)
 
 		# min/max Z dla colormapy
-		z_values = self.m_grid64[np.isfinite(self.m_grid64)]
-		minZ, maxZ = float(np.min(z_values)), float(np.max(z_values))
+		minZ, maxZ = self.get_colormap_range()
 		glUniform1f(glGetUniformLocation(self.shader_program, "u_minZ"), minZ)
 		glUniform1f(glGetUniformLocation(self.shader_program, "u_maxZ"), maxZ)
 

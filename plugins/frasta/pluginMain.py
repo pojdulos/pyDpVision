@@ -414,7 +414,7 @@ class Frasta(PluginInterface):
 
 			self.controller.binary_dock.profileLineChanged.connect(self.connector.on_profileLineChanged)
 			self.controller.pointSelected.connect(self.connector.on_pointSelected)
-			#self.controller.profile_dock.quickMessage.connect(self.connector.on_quickMessage)
+			self.controller.binary_dock.quickMessage.connect(self.connector.on_quickMessage)
 
 			# wstaw docki do głównego okna
 			mainWin = AP.mainWin
@@ -771,4 +771,5 @@ class Frasta(PluginInterface):
 
 
 	def on_quickMessage(self, txt):
+		logger.debug(f"message: {txt}")
 		AP.mainWin.statusBar.showMessage( txt )

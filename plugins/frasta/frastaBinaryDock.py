@@ -66,6 +66,7 @@ def cohen_sutherland_clip(x0, y0, x1, y1, w, h):
 class FrastaBinaryDock(QtWidgets.QDockWidget):
 	profileLineChanged = QtCore.pyqtSignal(tuple)  # (c0, r0, c1, r1)
 	quickMessage = QtCore.pyqtSignal(str)
+	separationChanged = QtCore.pyqtSignal(int)
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -174,6 +175,7 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 
 		self.binary_contact = binary_contact
 		self.update_volume_info()
+		self.separationChanged.emit(self.separation)
 
 	def redraw_roi(self):
 		if self.line_roi is not None:
@@ -200,15 +202,6 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 			return
 		
 		r0, c0, r1, c1 = self.get_roi_coords()
-		# handles = self.line_roi.getHandles()
-		# pt0 = self.line_roi.mapToParent(handles[0].pos())
-		# pt1 = self.line_roi.mapToParent(handles[1].pos())
-
-		# # konwersja do numpy
-		# r0, c0 = self.view_to_numpy(pt0.x(), pt0.y(), clip_to_shape=False)
-		# r1, c1 = self.view_to_numpy(pt1.x(), pt1.y(), clip_to_shape=False)
-
-		# emit w konwencji numpy (col,row)
 		self.profileLineChanged.emit((c0, r0, c1, r1))
 
 	def on_range_changed(self, viewbox, ranges):
@@ -217,17 +210,40 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 	def update_volume_info(self):
 		if self.binary_contact is None:
 			return
-		x_min, x_max, y_min, y_max = 0, self.binary_contact.shape[1]-1, 0, self.binary_contact.shape[0]-1
+
+		# --- pobierz widoczny zakres z ViewBox ---
+		vb = self.image_view.getView()
+		(x0, x1), (y0, y1) = vb.viewRange()
+
+		# współrzędne w widoku → współrzędne numpy
+		r0, c0 = self.view_to_numpy(x0, y0)
+		r1, c1 = self.view_to_numpy(x1, y1)
+
+		# upewnij się, że min/max są poprawnie uporządkowane
+		r_min, r_max = sorted((r0, r1))
+		c_min, c_max = sorted((c0, c1))
+
+		# przytnij do wymiarów
+		h, w = self.binary_contact.shape
+		r_min = np.clip(r_min, 0, h - 1)
+		r_max = np.clip(r_max, 0, h - 1)
+		c_min = np.clip(c_min, 0, w - 1)
+		c_max = np.clip(c_max, 0, w - 1)
+
+		# --- obliczenia jak wcześniej ---
 		px_um, py_um = self.pixel_um.x(), self.pixel_um.y()
 		pixel_area_um2 = px_um * py_um
-		fragment = self.binary_contact[y_min:y_max+1, x_min:x_max+1]
+
+		fragment = self.binary_contact[r_min:r_max+1, c_min:c_max+1]
 		white_count = np.count_nonzero(fragment)
 		white_area_um2 = pixel_area_um2 * white_count
 		white_area_mm2 = white_area_um2 * 1e-6
-		diff = self.distance_map.m_grid64[y_min:y_max+1, x_min:x_max+1] - self.separation
+
+		diff = self.distance_map.m_grid64[r_min:r_max+1, c_min:c_max+1] - self.separation
 		diff_masked = np.where(fragment, diff, 0)
 		volume_um3 = np.abs(np.sum(diff_masked)) * pixel_area_um2
 		volume_mm3 = volume_um3 * 1e-9
+
 		msg = (f"Białe pola: {white_count}, area: {white_area_um2:.2f}µm² ({white_area_mm2:.4f}mm²), "
 			f"volume: {volume_um3:.2f}µm³ ({volume_mm3:.4f}mm³)")
 		self.quickMessage.emit(msg)

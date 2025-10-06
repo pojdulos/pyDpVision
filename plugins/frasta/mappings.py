@@ -47,9 +47,12 @@ def resample_grids_to_plane(ref_grid: GridData64, adj_grid: GridData64,
 		X, Y = np.meshgrid(xs, ys)
 		Z = grid.m_grid64
 		pts = np.stack([X.ravel(), Y.ravel(), Z.ravel(), np.ones_like(Z).ravel()], axis=1)
+
 		T_total = T_world_to_plane
 		if T_extra is not None:
-			T_total = T_world_to_plane @ np.linalg.inv(T_extra)
+			# UWAGA: zakładamy, że T_final: adj_local -> ref_world
+			T_total = T_world_to_plane @ T_extra
+
 		pts_plane = (T_total @ pts.T).T
 		return pts_plane[:, 0], pts_plane[:, 1]
 
@@ -74,25 +77,57 @@ def resample_grids_to_plane(ref_grid: GridData64, adj_grid: GridData64,
 
 	# --- 3. funkcja pomocnicza: próbkowanie siatki ---
 	def sample_grid(grid, T_extra=None):
+		# punkty w układzie płaszczyzny (Z=0)
 		pts_plane = np.stack([Xp.ravel(), Yp.ravel(),
 							np.zeros_like(Xp).ravel(),
 							np.ones(Xp.size)], axis=1)
 
-		T_total = np.linalg.inv(T_world_to_plane)
+		# płaszczyzna -> świat(ref)
+		T_plane_to_world = np.linalg.inv(T_world_to_plane)
+
+		# dla adj_grid: płaszczyzna -> świat(ref) -> lokalny adj  (czyli inv(T_final))
 		if T_extra is not None:
-			T_total = T_extra @ T_total
+			T_world_ref_to_adj_local = np.linalg.inv(T_extra)
+			T_for_sampling = T_world_ref_to_adj_local @ T_plane_to_world
+		else:
+			# dla ref_grid: płaszczyzna -> świat(ref) == lokalny ref
+			T_for_sampling = T_plane_to_world
 
-		pts_world = (T_total @ pts_plane.T).T
-		xw, yw, zw = pts_world[:, 0], pts_world[:, 1], pts_world[:, 2]
+		# współrzędne XY w lokalnym układzie danej siatki (na płaszczyźnie Z=0)
+		pts_local_on_plane = (T_for_sampling @ pts_plane.T).T
+		x_loc = pts_local_on_plane[:, 0]
+		y_loc = pts_local_on_plane[:, 1]
 
-		gx = (xw - grid.offsetX) / grid.stepX
-		gy = (yw - grid.offsetY) / grid.stepY
+		# zamiana na indeksy w rastrze siatki
+		gx = (x_loc - grid.offsetX) / grid.stepX
+		gy = (y_loc - grid.offsetY) / grid.stepY
 
 		coords = np.vstack([gy, gx])
-		Zs = map_coordinates(grid.m_grid64, coords,
-							order=(1 if mode == "bilinear" else 0),
-							mode='nearest').reshape(h, w)
-		return Zs
+		z_local = map_coordinates(
+			grid.m_grid64, coords,
+			order=(1 if mode == "bilinear" else 0),
+			mode='nearest'
+		).reshape(h, w)
+
+		# złożenie pełnych punktów lokalnych na powierzchni
+		pts_local_surface = np.stack(
+			[x_loc.reshape(h, w), y_loc.reshape(h, w), z_local, np.ones((h, w))],
+			axis=-1
+		).reshape(-1, 4)
+
+		# lokalny -> świat(ref)
+		if T_extra is not None:
+			pts_world_surface = (T_extra @ pts_local_surface.T).T
+		else:
+			# ref_grid jest już w świecie referencyjnym
+			pts_world_surface = pts_local_surface
+
+		# świat(ref) -> układ płaszczyzny
+		pts_plane_surface = (T_world_to_plane @ pts_world_surface.T).T
+
+		# wysokość NAD PŁASZCZYZNĄ (to chcemy zwrócić)
+		Zs_plane = pts_plane_surface[:, 2].reshape(h, w)
+		return Zs_plane
 
 	# --- 4. przekształcamy obie siatki ---
 	ref_in_plane = sample_grid(ref_grid)
@@ -295,7 +330,6 @@ def make_distance_map_plane(grid1: GridData64, grid2: GridData64, transform: np.
 
 	xs = grid1.offsetX + np.arange(w) * stepX
 	ys = grid1.offsetY + np.arange(h) * stepY
-	# ys = grid1.offsetY + (h - 1 - np.arange(h)) * stepY
 
 	X, Y = np.meshgrid(xs, ys)
 	Z = grid1.m_grid64
@@ -365,9 +399,38 @@ def make_distance_map_plane(grid1: GridData64, grid2: GridData64, transform: np.
 		mask = np.abs(dist) > max_dist
 		dist[mask] = np.nan
 
-	dist_map = GridData64(dist, stepX=stepX_plane, stepY=stepY_plane)
-	new_ref  = GridData64(ref_in_plane, stepX=stepX_plane, stepY=stepY_plane)
-	new_adj  = GridData64(adj_in_plane, stepX=stepX_plane, stepY=stepY_plane)
+	# dist_map = GridData64(dist, stepX=stepX_plane, stepY=stepY_plane)
+	# new_ref  = GridData64(ref_in_plane, stepX=stepX_plane, stepY=stepY_plane)
+	# new_adj  = GridData64(adj_in_plane, stepX=stepX_plane, stepY=stepY_plane)
+
+	if np.any(valid):
+		y_idx, x_idx = np.where(np.isfinite(dist))
+		if len(x_idx) > 0 and len(y_idx) > 0:
+			ymin, ymax = y_idx.min(), y_idx.max()
+			xmin, xmax = x_idx.min(), x_idx.max()
+
+			# przycięcie tablic
+			ref_in_plane = ref_in_plane[ymin:ymax+1, xmin:xmax+1]
+			adj_in_plane = adj_in_plane[ymin:ymax+1, xmin:xmax+1]
+			dist         = dist[ymin:ymax+1, xmin:xmax+1]
+
+			# przesunięcie offsetów, żeby nie przesunąć siatki względem świata
+			new_offsetX = grid1.offsetX + xmin * stepX_plane
+			new_offsetY = grid1.offsetY + ymin * stepY_plane
+		else:
+			new_offsetX, new_offsetY = grid1.offsetX, grid1.offsetY
+	else:
+		new_offsetX, new_offsetY = grid1.offsetX, grid1.offsetY
+
+	# --- tworzenie przyciętych GridData64 ---
+	dist_map = GridData64(dist, stepX=stepX_plane, stepY=stepY_plane,
+						offsetX=new_offsetX, offsetY=new_offsetY)
+	new_ref  = GridData64(ref_in_plane, stepX=stepX_plane, stepY=stepY_plane,
+						offsetX=new_offsetX, offsetY=new_offsetY)
+	new_adj  = GridData64(adj_in_plane, stepX=stepX_plane, stepY=stepY_plane,
+						offsetX=new_offsetX, offsetY=new_offsetY)
+
+	print(f"shapes: {dist.shape}, {ref_in_plane.shape}, {adj_in_plane.shape}")
 
 	return new_ref, new_adj, dist_map
 

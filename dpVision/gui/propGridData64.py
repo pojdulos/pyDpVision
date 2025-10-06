@@ -38,11 +38,16 @@ class PropGridData64(PropWidget):
 		self.uniform_color = MultiSpinBox(count=3, labels=("R=","G=","B="))
 		self.uniform_color.setStyleSheet("border:none")
 		self.use_mesh = QCheckBox()
+
+		self.z_filter = QDoubleSpinBox()
+		self.z_filter.setValue(0.0)
+
 		layout.addRow("grid steps [um]:", self.grid_steps)
 		layout.addRow("use colormap", self.use_colormap)
 		layout.addRow("colormap range", self.colormap_range)
 		layout.addRow("uniform color", self.uniform_color)
 		layout.addRow("draw as surface", self.use_mesh)
+		layout.addRow("Z filter", self.z_filter)
 		self.setLayout(layout)
 
 		self.grid_steps.valueChanged.connect(self.on_grid_steps_valueChanged)
@@ -50,6 +55,7 @@ class PropGridData64(PropWidget):
 		self.colormap_range.valueChanged.connect(self.on_colormap_range_valueChanged)
 		self.uniform_color.valueChanged.connect(self.on_uniform_color_valueChanged)
 		self.use_mesh.toggled.connect(self.on_use_mesh_toggled)
+		self.z_filter.valueChanged.connect(self.on_z_filter_valueChanged)
 
 
 	@staticmethod
@@ -74,6 +80,7 @@ class PropGridData64(PropWidget):
 		self.uniform_color.setValue(obj.uniform_color)
 		self.uniform_color.setEnabled(obj.use_uniform_color)
 		self.use_mesh.setChecked(obj.use_mesh)
+		self.z_filter.setValue(obj.z_filter)
 
 		for i in w:	i.blockSignals(False)
 		self.update()
@@ -124,6 +131,13 @@ class PropGridData64(PropWidget):
 
 		AP.updateAllViews()
 
+	@pyqtSlot(float)
+	def on_z_filter_valueChanged(self, v):
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		obj.z_filter = v
+		AP.updateAllViews()
 
 	# def on_plane_changed(self, plane, idx, val):
 	# 	obj = self.obj_ref()

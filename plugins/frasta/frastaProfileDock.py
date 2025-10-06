@@ -8,12 +8,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 class FrastaProfileDock(QtWidgets.QDockWidget):
-	pointClicked = QtCore.pyqtSignal(int)  # (col, row, value)
+	profilePointSelected = QtCore.pyqtSignal(int)  # (col, row, value)
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
 		self.setWindowTitle("FRASTA Profile")
-		self.setFloating(True)
+		#self.setFloating(True)
 
 		central = QtWidgets.QWidget()
 		self.setWidget(central)
@@ -37,6 +37,7 @@ class FrastaProfileDock(QtWidgets.QDockWidget):
 		win_layout.addWidget(self.checkbox_snap)
 		layout.addLayout(win_layout)
 
+		self.separation_line = None
 		self.positions_line = None
 		self.reference_profile = None
 		self.adjusted_profile = None
@@ -50,16 +51,26 @@ class FrastaProfileDock(QtWidgets.QDockWidget):
 		self.plot_widget.scene().sigMouseMoved.connect(self.on_mouse_move)
 		self.plot_widget.scene().sigMouseClicked.connect(self.on_plot_click)
 
-	def set_profiles(self, positions, profiles, dist):
+	def draw_separation_line(self, separation):
+		if self.separation_line is not None:
+			self.plot_widget.removeItem(self.separation_line)
+		self.separation_line = pg.InfiniteLine(angle=0,	pen=pg.mkPen('#800', width=1, style=QtCore.Qt.DashLine))
+		self.plot_widget.addItem(self.separation_line)
+		self.separation_line.setPos(separation)
+
+	def set_profiles(self, positions, profiles, dist, separation=0):
 		self.plot_widget.clear()
 		for name, prof, pen in profiles:
 			self.plot_widget.plot(positions, prof, pen=pen, name=name)
+		
+		self.draw_separation_line(separation)
 		self.plot_widget.plot(positions, dist, pen=pg.mkPen('r', width=2), name="Dist")
 
 		self.positions_line = positions
 		self.reference_profile = profiles[0][1] if profiles else None
 		self.adjusted_profile = profiles[1][1] if len(profiles) > 1 else None
 		self.distance_profile = dist
+
 
 	def on_mouse_move(self, pos):
 		if not self.plot_widget.sceneBoundingRect().contains(pos):
@@ -89,7 +100,7 @@ class FrastaProfileDock(QtWidgets.QDockWidget):
 
 	def _save_profile_point(self, idx):
 		val = self.reference_profile[idx] if self.reference_profile is not None else None
-		self.pointClicked.emit(idx)
+		self.profilePointSelected.emit(idx)
 
 	def _clear_cursor_and_annotations(self):
 		for item in self.cursor_lines + self.annotations:

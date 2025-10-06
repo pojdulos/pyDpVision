@@ -22,6 +22,7 @@ class GridData64(Object):
 		self.use_uniform_color = True
 		self.uniform_color = [0.6,0.6,0.6]
 		self.use_mesh = False
+		self.z_filter = 0.0
 		
 		# GPU tekstura tworzona później
 		self.shader_program = None

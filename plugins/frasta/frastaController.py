@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class FrastaController(QtCore.QObject):
-	pointSelected = QtCore.pyqtSignal(int, int, float)
+	pointSelected = QtCore.pyqtSignal(int, int)
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -19,12 +19,43 @@ class FrastaController(QtCore.QObject):
 
 		# sygnały
 		self.binary_dock.profileLineChanged.connect(self.on_profileLineChanged)
-		self.profile_dock.pointClicked.connect(self.on_profile_point_clicked)
-		
-		self.pointSelected.connect(self.binary_dock.on_profile_point_selected)
+		self.binary_dock.separationChanged.connect(self.on_binary_separation_valueChanged)
 
+		self.profile_dock.profilePointSelected.connect(self.on_profilePointSelected)
+		
+		self.pointSelected.connect(self.binary_dock.on_pointSelected)
+		
 	def set_data(self, distance_map: GridData64, grid1: GridData64=None, grid2: GridData64=None):
 		self.binary_dock.set_data(distance_map, grid1, grid2)
+
+
+	def set_profile(self):
+		prof_dist = self.binary_dock.distance_map.m_grid64[self.current_rr, self.current_cc]
+		valid = np.isfinite(prof_dist)
+
+		profiles = []
+		if self.binary_dock.grid1 is not None and self.binary_dock.grid2 is not None:
+			prof1 = self.binary_dock.grid1.m_grid64[self.current_rr, self.current_cc]
+			prof2 = self.binary_dock.grid2.m_grid64[self.current_rr, self.current_cc] + self.binary_dock.separation
+			valid &= np.isfinite(prof1) & np.isfinite(prof2)
+			profiles.append(("Ref", prof1[valid], pg.mkPen('g', width=2)))
+			profiles.append(("Adj", prof2[valid], pg.mkPen('b', width=2)))
+
+		# współrzędne w przestrzeni
+		xs = self.current_rr * self.binary_dock.distance_map.stepY + self.binary_dock.distance_map.offsetY
+		ys = self.current_cc * self.binary_dock.distance_map.stepX + self.binary_dock.distance_map.offsetX
+
+		# zastosowanie maski
+		xs, ys = xs[valid], ys[valid]
+
+		# odległości wzdłuż linii
+		positions_line = np.hypot(xs - xs[0], ys - ys[0])
+		prof_dist = prof_dist[valid]
+
+		assert len(positions_line) == len(prof_dist)
+
+		self.profile_dock.set_profiles(positions_line, profiles, prof_dist,
+									separation=self.binary_dock.separation)
 
 	@QtCore.pyqtSlot(tuple)
 	def on_profileLineChanged(self, krotka):
@@ -36,47 +67,24 @@ class FrastaController(QtCore.QObject):
 		from skimage.draw import line
 		rr, cc = line(r0, c0, r1, c1)
 
-		# rr, cc = np.linspace(r0, r1, num=200, dtype=int), np.linspace(c0, c1, num=200, dtype=int)
-
 		self.current_rr = rr
 		self.current_cc = cc
 
-		prof_dist = self.binary_dock.distance_map.m_grid64[rr, cc]
-		valid = np.isfinite(prof_dist)
-		profiles = []
-		if self.binary_dock.grid1 is not None and self.binary_dock.grid2 is not None:
-			prof1 = self.binary_dock.grid1.m_grid64[rr, cc]
-			prof2 = self.binary_dock.grid2.m_grid64[rr, cc] + self.binary_dock.separation
-			valid &= np.isfinite(prof1) & np.isfinite(prof2)
-			profiles.append(("Ref", prof1[valid], pg.mkPen('g', width=2)))
-			profiles.append(("Adj", prof2[valid], pg.mkPen('b', width=2)))
-
-		# positions_line = np.arange(len(rr))[valid] * self.binary_dock.distance_map.stepX
-		xs = rr * self.binary_dock.distance_map.stepY + self.binary_dock.distance_map.offsetY
-		ys = cc * self.binary_dock.distance_map.stepX + self.binary_dock.distance_map.offsetX
-		# odległości wzdłuż linii
-		positions_line = np.hypot(xs - xs[0], ys - ys[0])
-
-		prof_dist = prof_dist[valid]
-		self.profile_dock.set_profiles(positions_line, profiles, prof_dist)
+		self.set_profile()
 
 
-
-	def on_profile_point_clicked(self, idx:int):
-		"""Obsługa kliknięcia punktu na wykresie."""
+	def on_profilePointSelected(self, idx:int):
+		""" Obsługa kliknięcia punktu na wykresie.
+			Zamienia indeks punktu na profilu na współrzedne
+			w układzie siatki i emituje sygnał z tymi współrzednymi """
 		if self.current_rr is None or self.current_cc is None:
 			return
-
 		if idx < 0 or idx >= len(self.current_rr):
 			return
-
-		# numpy indices
 		r, c = int(self.current_rr[idx]), int(self.current_cc[idx])
+		# logger.debug(f"Wybrano punkt: row={r}, col={c}")
+		self.pointSelected.emit(r, c)
 
-		# wartość z mapy odległości (albo Ref/Adj jak wolisz)
-		val = float(self.binary_dock.distance_map.m_grid64[r, c])
 
-		# emit spójnych współrzędnych w numpy
-		self.pointSelected.emit(r, c, val)
-
-		logger.debug(f"Wybrano punkt: row={r}, col={c}, val={val:.2f}")
+	def on_binary_separation_valueChanged(self, v):
+		self.set_profile()

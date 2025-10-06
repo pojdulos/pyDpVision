@@ -36,8 +36,9 @@ class PluginQtConnector(QObject):
 	def on_pointClicked(self, point):
 		self.parent.on_pointClicked(point)
 
-	def on_pointSelected(self, r, c, v):
-		self.parent.on_pointSelected(r, c, v)
+	@pyqtSlot(int,int)
+	def on_pointSelected(self, r, c):
+		self.parent.on_pointSelected(r, c)
 
 	@pyqtSlot(str)
 	def on_quickMessage(self, txt):
@@ -52,10 +53,20 @@ class Frasta(PluginInterface):
 		self.panel = None
 		self.scale_transform = None
 		self.adj_transform = None
+		
+
+		self.ref_data = {
+			'orginal_grid': None,
+			'plane_abc' : None,
+			'grid_in_plane': None
+		}
+
 		self.ref_grid = None
-		self.adj_grid = None
 		self.ref_abc = None
 		self.ref_plane = AnnotationPlane()
+
+		self.adj_grid = None
+
 		self.distance_map = None
 		self.plane = None
 
@@ -412,8 +423,9 @@ class Frasta(PluginInterface):
 			
 			self.controller.set_data(self.distance_map, self.ref_in_plane, self.adj_in_plane)
 
-			self.controller.binary_dock.profileLineChanged.connect(self.connector.on_profileLineChanged)
 			self.controller.pointSelected.connect(self.connector.on_pointSelected)
+
+			self.controller.binary_dock.profileLineChanged.connect(self.connector.on_profileLineChanged)
 			self.controller.binary_dock.quickMessage.connect(self.connector.on_quickMessage)
 
 			# wstaw docki do głównego okna
@@ -441,19 +453,13 @@ class Frasta(PluginInterface):
 	def onAction_test_map(self):
 		T_final = self.adj_transform.toNumPy()  # pełna macierz dopasowania adj→ref
 
-		#ref_plane = self.ref_plane    # z calc_ransac
-		# ref_in_plane, adj_in_plane, dist_map = resample_grids_to_plane(
-		# 	self.ref_grid, self.adj_grid,
-		# 	ref_plane, T_final,
-		# 	mode="bilinear", max_dist=None
-		# )
-		# ref_in_plane.offsetX == adj_in_plane.offsetX == dist_map.offsetX
-		# ref_in_plane.offsetY == adj_in_plane.offsetY == dist_map.offsetY
+		# ref_in_plane, adj_in_plane, dist_map = make_distance_map_plane(self.ref_grid, self.adj_grid,
+		# 	T_final, self.ref_abc, mode="bilinear", max_dist=None)
+		
 
-		
-		ref_in_plane, adj_in_plane, dist_map = make_distance_map_plane(self.ref_grid, self.adj_grid,
-			T_final, self.ref_abc, mode="bilinear", max_dist=None)
-		
+		ref_in_plane, adj_in_plane, dist_map = resample_grids_to_plane(self.ref_grid, self.adj_grid,
+							self.ref_plane, T_final, stepX=None, stepY=None, mode="bilinear", max_dist=None)
+
 		dist_map.label = "dist_map"
 		dist_map.use_uniform_color = False
 
@@ -738,7 +744,7 @@ class Frasta(PluginInterface):
 			self.plane.setSize((length_um, height_um))
 			AP.updateAllViews()
 
-		logger.info(f"ROI length: {length_um:.1f} µm, center: {center}, normal: {n}")
+		# logger.debug(f"ROI length: {length_um:.1f} µm, center: {center}, normal: {n}")
 
 	def on_pointClicked(self, point:tuple):
 		print(f"point: {point}")
@@ -754,8 +760,8 @@ class Frasta(PluginInterface):
 		#pt.label = label
 		AP.addObject(pt, self.ref_in_plane)
 
-	def on_pointSelected(self, r, c, v):
-		row, col, val = r, c, v
+	def on_pointSelected(self, r, c):
+		row, col = r, c
 
 		# współrzędne w układzie świata
 		x_world = self.distance_map.offsetX + col * self.distance_map.stepX
@@ -763,7 +769,7 @@ class Frasta(PluginInterface):
 		# z_world = val  # bo profil_ref jest już w µm
 		z_world = self.ref_in_plane.m_grid64[row,col]
 
-		logger.info(f"on_PointSelected {[x_world, y_world, z_world]}")
+		logger.info(f"on_pointSelected {[x_world, y_world, z_world]}")
 
 		pt = AnnotationPoint([x_world, y_world, z_world])
 		#pt.label = label
@@ -771,5 +777,5 @@ class Frasta(PluginInterface):
 
 
 	def on_quickMessage(self, txt):
-		logger.debug(f"message: {txt}")
+		# logger.debug(f"message: {txt}")
 		AP.mainWin.statusBar.showMessage( txt )

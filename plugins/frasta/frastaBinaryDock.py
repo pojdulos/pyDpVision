@@ -71,7 +71,8 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 	def __init__(self, parent=None):
 		super().__init__(parent)
 		self.setWindowTitle("FRASTA Binary")
-		self.setFloating(True)
+		#self.setFloating(True)
+		self.resize(600,400)
 
 		self.distance_map: GridData64 = None
 		self.grid1: GridData64 = None
@@ -92,7 +93,7 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 		self._spinbox_separation = QtWidgets.QSpinBox()
 		self._spinbox_separation.setRange(-5000, 5000)
 		self._spinbox_separation.setValue(0)
-		self._spinbox_separation.valueChanged.connect(self.update_plot)
+		self._spinbox_separation.valueChanged.connect(self.on_separation_valueChanged)
 		sep_layout.addWidget(QtWidgets.QLabel("Separation [µm]:"))
 		sep_layout.addWidget(self._spinbox_separation)
 		layout.addLayout(sep_layout)
@@ -164,6 +165,10 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 		self.redraw_roi()
 		self.update_plot()
 
+	def on_separation_valueChanged(self, v):
+		self.separationChanged.emit(v)
+		self.update_plot()
+
 	def update_plot(self):
 		dist = self.distance_map.m_grid64
 		valid = np.isfinite(dist)
@@ -175,7 +180,7 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 
 		self.binary_contact = binary_contact
 		self.update_volume_info()
-		self.separationChanged.emit(self.separation)
+		
 
 	def redraw_roi(self):
 		if self.line_roi is not None:
@@ -204,16 +209,19 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 		r0, c0, r1, c1 = self.get_roi_coords()
 		self.profileLineChanged.emit((c0, r0, c1, r1))
 
-	def on_range_changed(self, viewbox, ranges):
-		self.update_volume_info()
+	def on_range_changed(self, viewbox, range):
+		self.update_volume_info(range=range)
 
-	def update_volume_info(self):
+	def update_volume_info(self, range=None):
 		if self.binary_contact is None:
 			return
 
-		# --- pobierz widoczny zakres z ViewBox ---
-		vb = self.image_view.getView()
-		(x0, x1), (y0, y1) = vb.viewRange()
+		if range is None:
+			# --- pobierz widoczny zakres z ViewBox ---
+			vb = self.image_view.getView()
+			(x0, x1), (y0, y1) = vb.viewRange()
+		else:
+			(x0, x1), (y0, y1) = range
 
 		# współrzędne w widoku → współrzędne numpy
 		r0, c0 = self.view_to_numpy(x0, y0)
@@ -253,8 +261,8 @@ class FrastaBinaryDock(QtWidgets.QDockWidget):
 			self.image_view.getView().removeItem(m)
 		self.saved_point_markers = []
 
-
-	def on_profile_point_selected(self, row, col, val):
+	@QtCore.pyqtSlot(int,int)
+	def on_pointSelected(self, row, col):
 		x_img, y_img = self.numpy_to_view(row, col)
 		marker = pg.ScatterPlotItem([x_img], [y_img], size=12,
 									pen=pg.mkPen('g', width=2),

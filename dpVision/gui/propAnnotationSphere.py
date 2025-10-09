@@ -36,11 +36,11 @@ class PropAnnotationSphere(PropWidget):
 		for i in w:
 			i.blockSignals(True)
 
-		ctr = obj.getCenter()
+		ctr = obj.position
 		self.ctrX.setValue(ctr[0])
 		self.ctrY.setValue(ctr[1])
 		self.ctrZ.setValue(ctr[2])
-		self.radius.setValue(obj.getRadius())
+		self.radius.setValue(obj.radius)
 
 		for i in w:
 			i.blockSignals(False)
@@ -48,29 +48,29 @@ class PropAnnotationSphere(PropWidget):
 	@pyqtSlot(float)
 	def changedCtrX(self, x):
 		obj = self.obj_ref()
-		ctr = obj.getCenter()
+		ctr = obj.position
 		ctr[0] = x
-		obj.setCenter(ctr)
+		obj.position = ctr
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def changedCtrY(self, y):
 		obj = self.obj_ref()
-		ctr = obj.getCenter()
+		ctr = obj.position
 		ctr[1] = y
-		obj.setCenter(ctr)
+		obj.position = ctr
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def changedCtrZ(self, z):
 		obj = self.obj_ref()
-		ctr = obj.getCenter()
+		ctr = obj.position
 		ctr[2] = z
-		obj.setCenter(ctr)
+		obj.position = ctr
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
 	def changedRadius(self, r):
 		obj = self.obj_ref()
-		obj.setRadius(r)
+		obj.radius = r
 		AP.updateAllViews()

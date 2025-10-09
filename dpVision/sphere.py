@@ -10,16 +10,32 @@ class Sphere:
 		self.m_c = [0.0,0.0,0.0]
 		self.m_r = 1.0
 	
-	def setRadius(self, r):
-		self.m_r = r
+	@property
+	def position(self):
+		return self.m_c
 	
-	def getRadius(self):
+	@position.setter
+	def position(self, _ctr):
+		self.m_c = _ctr
+
+	@property
+	def radius(self):
 		return self.m_r
 	
-	def setCenter(self, point):
-		self.m_c = point
+	@radius.setter
+	def radius(self, radius):
+		self.m_r = radius
 
-	def getCenter(self):
-		return self.m_c
+	# def setRadius(self, r):
+	# 	self.m_r = r
+	
+	# def getRadius(self):
+	# 	return self.m_r
+	
+	# def setCenter(self, point):
+	# 	self.m_c = point
+
+	# def getCenter(self):
+	# 	return self.m_c
 	
 	

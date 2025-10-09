@@ -21,7 +21,7 @@ class PropViewer(PropWidget):
 		super( PropViewer, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/propViewer.ui', self)
 		AP.loadUi('propViewer.ui', self)
-		
+		self.spinOrthoViewSize.setRange(0,180)
 		self.rot = _viewer.transform.getEulerAnglesDeg()
 		self.tra = _viewer.transform.getTranslation()
 		self.obj_ref = weakref.ref(_viewer)

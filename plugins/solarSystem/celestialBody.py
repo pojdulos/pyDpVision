@@ -53,7 +53,7 @@ class CelestialBody:
         self.name = name
         self.color = color
         self.size = size  # rozmiar wizualny (piksele, nie fizyczny)
-        self.parent = parent
+        self.parent:CelestialBody = parent
         self.children = []
 
         # Zapisz wszystkie dodatkowe parametry (masa, promień itd.)

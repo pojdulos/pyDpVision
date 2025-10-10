@@ -9,9 +9,10 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from dpVision import AP, PluginInterface, AnnotationSphere, AnnotationPath
+from dpVision import AP, PluginInterface, AnnotationSphere, AnnotationPath, Transform
 from .celestialBody import CelestialBody, Planet, Moon, years_since_j2000, rotate_z_x
 from .planets_data import planets_data, sun_data
+import numpy as np
 
 position_gain = 100.0
 size_gain = 2.0
@@ -29,54 +30,8 @@ class SolarSystem(PluginInterface):
 		self.create_panel(AP.mainWin)
 
 		self.use_compression = True
+		self.create_solar_system()
 
-		# ================== budowa układu ==================
-		# --- tworzymy Słońce jako główny obiekt ---
-		self.sun = CelestialBody(**sun_data)
-		self.sunanno = AnnotationSphere()
-		self.sunanno.position = self.sun.position(0.0) * position_gain
-		self.sunanno.radius = self.sun.size * size_gain
-		self.sunanno.m_color = QColor(self.sun.color)
-		self.sunanno.label = self.sun.name
-		AP.addObject(self.sunanno)
-
-		self.solar_system = [Planet(parent=self.sun, **p) for p in planets_data]
-		self.anno = dict()
-		self.path = dict()
-		self.moonanno = dict()
-		for planet in self.solar_system:
-			points = [pt * position_gain for pt in planet.orbit_points()]
-			self.path[planet.name] = AnnotationPath(points)
-			self.path[planet.name].label = f"{planet.name} (orbita)"
-			AP.addObject(self.path[planet.name])#, self.sunanno)
-			
-			self.anno[planet.name] = AnnotationSphere()
-			planet_pos = planet.visual_position(0.0, position_gain)
-			self.anno[planet.name].position = planet_pos
-			self.anno[planet.name].radius = planet.size * size_gain
-			self.anno[planet.name].m_color = QColor(planet.color)
-			self.anno[planet.name].label = planet.name
-			AP.addObject(self.anno[planet.name])#, self.sunanno)
-			# if planet.name == "Ziemia":
-			for moon in planet.moons:
-				self.moonanno[moon.name] = AnnotationSphere()
-
-				if planet.name == "Mars":
-					moon_orbit_gain = position_gain * size_gain * 10.0 #1000.0
-				elif planet.name == "Ziemia":
-					moon_orbit_gain = position_gain * size_gain * 0.5 #50.0
-				else:
-					moon_orbit_gain = position_gain * size_gain * 0.5 #100.0
-
-				moon_pos = moon.visual_position(0.0, position_gain, moon_orbit_gain)
-				self.moonanno[moon.name].position = moon_pos
-
-				self.moonanno[moon.name].radius = moon.size * size_gain
-				self.moonanno[moon.name].m_color = QColor(moon.color)
-				self.moonanno[moon.name].label = moon.name
-				print(f"{planet.name}: dodaję {moon.name}")
-				AP.addObject(self.moonanno[moon.name])#,self.anno[planet.name])
-			# 	print(f"   {moon.name:8s}: {moon.position(t)}")
 
 
 	def create_panel(self, parent):
@@ -142,7 +97,123 @@ class SolarSystem(PluginInterface):
 	def perform_action(self):
 		print("Akcja wykonana przez "+self.plugin_name)
 
+	# def get_moon_orbit_gain(self, moon:Moon):
+	# 	planet_name = moon.parent.name
+	# 	if planet_name == "Mars":
+	# 		moon_orbit_gain = position_gain * size_gain * 10.0 #1000.0
+	# 	elif planet_name == "Ziemia":
+	# 		moon_orbit_gain = position_gain * size_gain * 0.5 #50.0
+	# 	else:
+	# 		moon_orbit_gain = position_gain * size_gain * 0.5 #100.0
+	# 	return moon_orbit_gain
+
+	# def get_moon_pos(self, moon:Moon, delta_years=0.0):
+	# 	pos_rel = moon.position_relative(delta_years)
+	# 	moon_orbit_gain = self.get_moon_orbit_gain(moon)
+	# 	moon_pos = pos_rel * moon_orbit_gain * position_gain
+	# 	return moon_pos
+
+	def get_moon_pos(self, moon: Moon, delta_years=0.0):
+		"""
+		Zwraca pozycję księżyca w układzie planety (AU → jednostki sceny).
+		Uwzględnia przesunięcie nad powierzchnią planety i globalne skalowanie.
+		"""
+		# Pozycja księżyca względem planety w jednostkach AU
+		pos_rel = moon.position_relative(delta_years)
+
+		# Stałe przeliczniki (można ewentualnie regulować)
+		moon_orbit_gain = size_gain * 0.5
+		offset = moon.parent.size * size_gain * 2.0 / position_gain  # odsunięcie orbity od powierzchni planety
+
+		# Korekta pozycji o offset w kierunku promienia orbity
+		direction = pos_rel / np.linalg.norm(pos_rel)
+		pos_rel = pos_rel + direction * offset
+
+		# Przeliczenie do jednostek sceny
+		return pos_rel * position_gain * moon_orbit_gain
+
+
+	def move_planet(self, planet:Planet, delta_years):
+		planet_transform = self.visual_objects[planet.name][0]
+		moons_dict = self.visual_objects[planet.name][2]
+		
+		planet_pos = planet.visual_position(delta_years, position_gain)
+		planet_transform.setTranslation(*planet_pos)
+		
+		for moon in planet.moons:
+			moon_pos = self.get_moon_pos(moon, delta_years=delta_years)
+			moons_dict[moon.name].setTranslation(*moon_pos)
+
+	def create_moon(self, moon:Moon):
+		moon_sphere = AnnotationSphere()
+		moon_sphere.radius = moon.size * size_gain
+		moon_sphere.m_color = QColor(moon.color)
+		moon_sphere.label = f"sfera ({moon.name})"
+
+		moon_transform = Transform()
+
+		moon_pos = self.get_moon_pos(moon)
+		moon_transform.setTranslation(*moon_pos)
+
+		moon_transform.addChild(moon_sphere)
+		moon_transform.label = moon.name
+		moon_transform.locked = True
+		return moon_transform
+
+	def create_planet(self, planet:Planet):
+		planet_sphere = AnnotationSphere()
+		planet_sphere.radius = planet.size * size_gain
+		planet_sphere.m_color = QColor(planet.color)
+		planet_sphere.label = f"sfera ({planet.name})"
+
+		planet_transform = Transform()
+		planet_transform.label = planet.name
+		planet_transform.locked = True
+		
+		planet_pos = planet.visual_position(0.0, position_gain)
+		planet_transform.setTranslation(*planet_pos)
+
+		planet_transform.addChild(planet_sphere)
+
+		points = [pt * position_gain for pt in planet.orbit_points()]
+		planet_path = AnnotationPath(points)
+		planet_path.label = f"orbita ({planet.name})"
+
+		moons = dict()
+		for moon in planet.moons:
+			moon_transform = self.create_moon(moon)
+
+			print(f"{planet.name}: dodaję {moon.name}")
 			
+			moons[moon.name] = moon_transform
+			planet_transform.addChild(moon_transform)
+
+		return (planet_transform, planet_path, moons)
+
+	def create_solar_system(self):
+		# ================== budowa układu ==================
+		# --- tworzymy Słońce jako główny obiekt ---
+		self.sun = CelestialBody(**sun_data)
+
+		sun_sphere = AnnotationSphere()
+		sun_sphere.position = self.sun.position(0.0) * position_gain
+		sun_sphere.radius = self.sun.size * size_gain
+		sun_sphere.m_color = QColor(self.sun.color)
+		sun_sphere.label = self.sun.name
+
+		AP.addObject(sun_sphere)
+
+		self.visual_objects = dict()
+		self.solar_system = [Planet(parent=self.sun, **p) for p in planets_data]
+		for planet in self.solar_system:
+			planet_transform, planet_path, moons = self.create_planet(planet)
+			
+			self.visual_objects[planet.name] = (planet_transform, planet_path, moons)
+
+			AP.addObject(planet_transform)
+			AP.addObject(planet_path)
+
+
 	def on_button1(self):
 		from datetime import datetime, timedelta
 		J2000 = datetime(2000, 1, 1, 12)
@@ -151,33 +222,17 @@ class SolarSystem(PluginInterface):
 			if not hasattr(onTimeout, "date"):
 				onTimeout.date = J2000
 			else:
-				onTimeout.date += timedelta(hours=2)
+				onTimeout.date += timedelta(hours=6)
 
 			delta_days = (onTimeout.date - J2000).total_seconds() / 86400.0
 			delta_years = delta_days / 365.25
 
 			self.date_label.setText(onTimeout.date.strftime("%Y-%m-%d"))
-			#self.panel.update()
 
 			for planet in self.solar_system:
-				planet_pos = planet.visual_position(delta_years, position_gain)
-				self.anno[planet.name].position = planet_pos
-
-				if planet.name == "Mars":
-					moon_orbit_gain = position_gain * size_gain * 10.0 #1000.0
-				elif planet.name == "Ziemia":
-					moon_orbit_gain = position_gain * size_gain * 0.5 #50.0
-				else:
-					moon_orbit_gain = position_gain * size_gain * 0.5 #100.0
-
-				for moon in planet.moons:
-					moon_pos = moon.visual_position(delta_years, position_gain, moon_orbit_gain)
-					self.moonanno[moon.name].position = moon_pos
+				self.move_planet(planet, delta_years)
 
 			AP.updateAllViews()
-			#print(f"step: {onTimeout.date}, delta = {delta_years:.2f} years")
-
-		print("start timer")
 
 		self.timer = QTimer()
 		self.timer.timeout.connect(onTimeout)

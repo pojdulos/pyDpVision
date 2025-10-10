@@ -473,8 +473,8 @@ class ParserATMDL(Parser):
 			radius = float(opis["radius"])
 
 		obj = AnnotationSphere()
-		obj.m_c = coords
-		obj.m_r = radius
+		obj.position = coords
+		obj.radius = radius
 
 		if not obj is None:
 			obj.m_lats = 32

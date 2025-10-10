@@ -14,7 +14,7 @@ from .celestialBody import CelestialBody, Planet, Moon, years_since_j2000, rotat
 from .planets_data import planets_data, sun_data
 
 position_gain = 100.0
-size_gain = 1.0
+size_gain = 2.0
 
 class SolarSystem(PluginInterface):
 	def __init__(self):
@@ -48,7 +48,7 @@ class SolarSystem(PluginInterface):
 			points = [pt * position_gain for pt in planet.orbit_points()]
 			self.path[planet.name] = AnnotationPath(points)
 			self.path[planet.name].label = f"{planet.name} (orbita)"
-			AP.addObject(self.path[planet.name])
+			AP.addObject(self.path[planet.name])#, self.sunanno)
 			
 			self.anno[planet.name] = AnnotationSphere()
 			planet_pos = planet.visual_position(0.0, position_gain)
@@ -56,12 +56,18 @@ class SolarSystem(PluginInterface):
 			self.anno[planet.name].radius = planet.size * size_gain
 			self.anno[planet.name].m_color = QColor(planet.color)
 			self.anno[planet.name].label = planet.name
-			AP.addObject(self.anno[planet.name])
+			AP.addObject(self.anno[planet.name])#, self.sunanno)
 			# if planet.name == "Ziemia":
 			for moon in planet.moons:
 				self.moonanno[moon.name] = AnnotationSphere()
 
-				moon_orbit_gain = 1000.0 if planet.name == "Mars" else 100.0
+				if planet.name == "Mars":
+					moon_orbit_gain = position_gain * size_gain * 10.0 #1000.0
+				elif planet.name == "Ziemia":
+					moon_orbit_gain = position_gain * size_gain * 0.5 #50.0
+				else:
+					moon_orbit_gain = position_gain * size_gain * 0.5 #100.0
+
 				moon_pos = moon.visual_position(0.0, position_gain, moon_orbit_gain)
 				self.moonanno[moon.name].position = moon_pos
 
@@ -69,7 +75,7 @@ class SolarSystem(PluginInterface):
 				self.moonanno[moon.name].m_color = QColor(moon.color)
 				self.moonanno[moon.name].label = moon.name
 				print(f"{planet.name}: dodaję {moon.name}")
-				AP.addObject(self.moonanno[moon.name])
+				AP.addObject(self.moonanno[moon.name])#,self.anno[planet.name])
 			# 	print(f"   {moon.name:8s}: {moon.position(t)}")
 
 
@@ -156,7 +162,14 @@ class SolarSystem(PluginInterface):
 			for planet in self.solar_system:
 				planet_pos = planet.visual_position(delta_years, position_gain)
 				self.anno[planet.name].position = planet_pos
-				moon_orbit_gain = 1000.0 if planet.name == "Mars" else 100.0
+
+				if planet.name == "Mars":
+					moon_orbit_gain = position_gain * size_gain * 10.0 #1000.0
+				elif planet.name == "Ziemia":
+					moon_orbit_gain = position_gain * size_gain * 0.5 #50.0
+				else:
+					moon_orbit_gain = position_gain * size_gain * 0.5 #100.0
+
 				for moon in planet.moons:
 					moon_pos = moon.visual_position(delta_years, position_gain, moon_orbit_gain)
 					self.moonanno[moon.name].position = moon_pos

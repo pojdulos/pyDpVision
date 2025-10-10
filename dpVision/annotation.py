@@ -7,6 +7,7 @@ Created on Sat Nov 25 13:15:53 2023
 
 from PyQt5.QtGui import *
 from .baseObject import BaseObject
+from .object import Object
 
 class Annotation(BaseObject):
 	def __init__(self, parent=None):

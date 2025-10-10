@@ -278,3 +278,4 @@ class Moon(CelestialBody):
         rel = self.position_relative(t)
 
         return (planet_pos + rel * moon_orbit_gain) * position_gain
+    

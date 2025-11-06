@@ -45,7 +45,7 @@ class MainApplication(QApplication):
 
     def load_plugin(self, package_name, path):
         module_name = f'{package_name}.{os.path.basename(path)[:-3]}'
-        print(module_name)
+        print(f"module_name: {module_name}, path: {path}")
         module = importlib.import_module(module_name)
 
         for attribute_name in dir(module):

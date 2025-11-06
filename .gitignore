@@ -2,5 +2,5 @@ __pycache__/
 data/
 build/
 dist/
-plugins/quantum/
+plugins/*/quantum
 .venv/

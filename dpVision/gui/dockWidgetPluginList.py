@@ -5,7 +5,7 @@ Created on Thu Nov 23 13:51:54 2023
 
 @author: pojdulos
 """
-import os
+import os, sys
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -35,7 +35,14 @@ class DockWidgetPluginList(QDockWidget):
 				"Main plugin file (PluginMain.py)" )[0]
 		
 		fileName = QDir.toNativeSeparators( fileName )
-		AP.mainApp.load_plugin( fileName );    
+
+		dirName = os.path.dirname( fileName )
+		baseDirName = os.path.basename(dirName)
+
+		plugins_root = QDir.toNativeSeparators(os.path.dirname(dirName))
+		if plugins_root not in sys.path:
+			sys.path.append(plugins_root)
+		AP.mainApp.load_plugin( baseDirName, fileName );    
 
 	def runSelectedPlugin(self):
 		pass

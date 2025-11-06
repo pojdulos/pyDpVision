@@ -1,6 +1,7 @@
-import numpy as np
 from datetime import datetime
-from celestialBody import CelestialBody, Planet, Moon, years_since_j2000, rotate_z_x
+from celestialBody import CelestialBody, years_since_j2000
+from planet import Planet
+from moon import Moon
 from planets_data import planets_data, sun_data
 
 # ================== budowa układu ==================

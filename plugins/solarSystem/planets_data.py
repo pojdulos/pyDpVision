@@ -25,25 +25,40 @@ planets_data = [
     'radius_km':2439.7, 'radius_rel_sun':0.0035, 'radius_AU':1.63e-5,
     'mass_kg':3.3011e23, 'density':5.43,
     'a':0.387, 'e':0.206, 'p':0.241, 'inc':7.00,
-    'argPeri':29.124, 'meanAnomaly0':174.796, 'Omega':48.331 },
+    'argPeri':29.124, 'meanAnomaly0':174.796, 'Omega':48.331,
+	  'obliquity_deg': 0.0,
+	  'spin_node_deg': 0.0
+	},
 
   { 'name':"Wenus", 'color':"#d8a866", 'size':4.2,
     'radius_km':6051.8, 'radius_rel_sun':0.0087, 'radius_AU':4.05e-5,
     'mass_kg':4.8675e24, 'density':5.24,
     'a':0.723, 'e':0.007, 'p':0.615, 'inc':3.39,
-    'argPeri':54.884, 'meanAnomaly0':50.115, 'Omega':76.680 },
+    'argPeri':54.884, 'meanAnomaly0':50.115, 'Omega':76.680,
+	  'obliquity_deg': 177.36,  # Wenus ma oś "do góry nogami"
+	  'spin_node_deg': 0.0
+	},
 
   { 'name':"Ziemia", 'color':"#3a7bff", 'size':4.8,
     'radius_km':6371.0, 'radius_rel_sun':0.0092, 'radius_AU':4.26e-5,
     'mass_kg':5.9724e24, 'density':5.51,
     'a':1.000, 'e':0.017, 'p':1.000, 'inc':0.00,
     'argPeri':102.937, 'meanAnomaly0':357.517, 'Omega':-11.260,
+    'obliquity_deg': 23.44,
+	  'spin_node_deg': 0.0,
     'moons':[
       { 'name':"Księżyc", 'color':"#dddddd", 'size':1.3,
         'radius_km':1737.1, 'radius_rel_sun':0.0025, 'radius_AU':1.16e-5,
         'mass_kg':7.3477e22, 'density':3.34,
         'd':0.00257,  # średnia odległość od Ziemi [AU]
-        'p':0.0748 }  # okres orbitalny [lata ziemskie]
+        'p':0.0748,  # okres orbitalny [lata ziemskie]
+		    
+        # REALISTYCZNE parametry orbity Księżyca (J2000.0)
+        'eccentricity': 0.0549,
+        'incl_eq_deg': 5.145,     # nachylenie orbity Księżyca względem równika Ziemi
+        'node_eq_deg': 347.75,    # węzeł wstępujący orbity księżyca (J2000)
+        'phase_deg': 125.0,        # faza początkowa – ustawiona tak, żeby nie zaczynał za planetą
+      }
     ]},
 
   { 'name':"Mars", 'color':"#d45f36", 'size':3.8,
@@ -51,6 +66,8 @@ planets_data = [
     'mass_kg':6.4171e23, 'density':3.93,
     'a':1.524, 'e':0.093, 'p':1.881, 'inc':1.85,
     'argPeri':336.040, 'meanAnomaly0':19.373, 'Omega':49.558,
+	  'obliquity_deg': 25.19,
+	  'spin_node_deg': 0.0,
     'moons':[
       { 'name':"Phobos", 'color':"#bfa89a", 'size':0.9,
         'radius_km':11.3, 'radius_rel_sun':1.6e-5, 'radius_AU':7.6e-8,
@@ -67,6 +84,8 @@ planets_data = [
     'mass_kg':1.8982e27, 'density':1.33,
     'a':5.203, 'e':0.049, 'p':11.86, 'inc':1.31,
     'argPeri':14.753, 'meanAnomaly0':20.020, 'Omega':100.464,
+    'obliquity_deg': 3.13,
+    'spin_node_deg': 0.0,
     'moons':[
       { 'name':"Io", 'color':"#e6d7a6", 'size':1.3,
         'radius_km':1821.6, 'radius_rel_sun':0.0026, 'radius_AU':1.22e-5,
@@ -91,6 +110,8 @@ planets_data = [
     'mass_kg':5.6834e26, 'density':0.69,
     'a':9.537, 'e':0.057, 'p':29.46, 'inc':2.49,
     'argPeri':92.431, 'meanAnomaly0':317.020, 'Omega':113.665,
+    'obliquity_deg': 26.73,
+    'spin_node_deg': 0.0,
     'moons':[
       { 'name':"Tytan", 'color':"#e4b36b", 'size':1.4,
         'radius_km':2574.7, 'radius_rel_sun':0.0037, 'radius_AU':1.72e-5,
@@ -106,13 +127,19 @@ planets_data = [
     'radius_km':25362, 'radius_rel_sun':0.054, 'radius_AU':1.70e-4,
     'mass_kg':8.6810e25, 'density':1.27,
     'a':19.19, 'e':0.046, 'p':84.0, 'inc':0.77,
-    'argPeri':170.964, 'meanAnomaly0':142.238, 'Omega':74.006 },
+    'argPeri':170.964, 'meanAnomaly0':142.238, 'Omega':74.006,
+	  'obliquity_deg': 97.77,
+	  'spin_node_deg': 0.0
+  },
 
   { 'name':"Neptun", 'color':"#4a7fff", 'size':6.2,
     'radius_km':24622, 'radius_rel_sun':0.052, 'radius_AU':1.64e-4,
     'mass_kg':1.02413e26, 'density':1.64,
     'a':30.07, 'e':0.009, 'p':164.8, 'inc':1.77,
-    'argPeri':44.971, 'meanAnomaly0':256.228, 'Omega':131.784 }
+    'argPeri':44.971, 'meanAnomaly0':256.228, 'Omega':131.784,
+	  'obliquity_deg': 28.32,
+	  'spin_node_deg': 0.0 
+  }
 ]
 
 # ==================== DANE SŁOŃCA ====================

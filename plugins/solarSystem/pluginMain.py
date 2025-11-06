@@ -10,12 +10,11 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 from dpVision import AP, PluginInterface, AnnotationSphere, AnnotationPath, Transform
-from .celestialBody import CelestialBody, Planet, Moon, years_since_j2000, rotate_z_x
+from .celestialBody import CelestialBody
+from .planet import Planet
+from .moon import Moon
 from .planets_data import planets_data, sun_data
 import numpy as np
-
-position_gain = 100.0
-size_gain = 2.0
 
 class SolarSystem(PluginInterface):
 	def __init__(self):
@@ -119,34 +118,46 @@ class SolarSystem(PluginInterface):
 		Uwzględnia przesunięcie nad powierzchnią planety i globalne skalowanie.
 		"""
 		# Pozycja księżyca względem planety w jednostkach AU
-		pos_rel = moon.position_relative(delta_years)
+		pos_rel = moon.position_visual_relative(delta_years)
 
 		# Stałe przeliczniki (można ewentualnie regulować)
-		moon_orbit_gain = size_gain * 0.5
-		offset = moon.parent.size * size_gain * 2.0 / position_gain  # odsunięcie orbity od powierzchni planety
+		moon_orbit_gain = 0.5
+		offset = moon.parent.size * 2.0  # odsunięcie orbity od powierzchni planety
 
 		# Korekta pozycji o offset w kierunku promienia orbity
 		direction = pos_rel / np.linalg.norm(pos_rel)
 		pos_rel = pos_rel + direction * offset
 
 		# Przeliczenie do jednostek sceny
-		return pos_rel * position_gain * moon_orbit_gain
+		return pos_rel * moon_orbit_gain
 
 
-	def move_planet(self, planet:Planet, delta_years):
-		planet_transform = self.visual_objects[planet.name][0]
-		moons_dict = self.visual_objects[planet.name][2]
+	# def move_planet(self, planet:Planet, delta_years):
+	# 	planet_transform = self.visual_objects[planet.name][0]
+	# 	moons_dict = self.visual_objects[planet.name][2]
 		
-		planet_pos = planet.visual_position(delta_years, position_gain)
+	# 	planet_pos = planet.visual_position(delta_years)
+	# 	planet_transform.setTranslation(*planet_pos)
+		
+	# 	for moon in planet.moons:
+	# 		moon_pos = self.get_moon_pos(moon, delta_years=delta_years)
+	# 		moons_dict[moon.name].setTranslation(*moon_pos)
+
+	def move_planet(self, planet, delta_years):
+		planet_transform, _, moons = self.visual_objects[planet.name]
+
+		# Planeta
+		planet_pos = planet.visual_position(delta_years)
 		planet_transform.setTranslation(*planet_pos)
-		
+
+		# Księżyce (względem planety)
 		for moon in planet.moons:
-			moon_pos = self.get_moon_pos(moon, delta_years=delta_years)
-			moons_dict[moon.name].setTranslation(*moon_pos)
+			moon_rel = moon.position_visual_relative(delta_years)
+			moons[moon.name].setTranslation(*moon_rel)
 
 	def create_moon(self, moon:Moon):
 		moon_sphere = AnnotationSphere()
-		moon_sphere.radius = moon.size * size_gain
+		moon_sphere.radius = moon.size
 		moon_sphere.m_color = QColor(moon.color)
 		moon_sphere.label = f"sfera ({moon.name})"
 
@@ -162,7 +173,7 @@ class SolarSystem(PluginInterface):
 
 	def create_planet(self, planet:Planet):
 		planet_sphere = AnnotationSphere()
-		planet_sphere.radius = planet.size * size_gain
+		planet_sphere.radius = planet.size
 		planet_sphere.m_color = QColor(planet.color)
 		planet_sphere.label = f"sfera ({planet.name})"
 
@@ -170,12 +181,12 @@ class SolarSystem(PluginInterface):
 		planet_transform.label = planet.name
 		planet_transform.locked = True
 		
-		planet_pos = planet.visual_position(0.0, position_gain)
+		planet_pos = planet.visual_position(0.0)
 		planet_transform.setTranslation(*planet_pos)
 
 		planet_transform.addChild(planet_sphere)
 
-		points = [pt * position_gain for pt in planet.orbit_points()]
+		points = [pt for pt in planet.orbit_points()]
 		planet_path = AnnotationPath(points)
 		planet_path.label = f"orbita ({planet.name})"
 
@@ -196,8 +207,8 @@ class SolarSystem(PluginInterface):
 		self.sun = CelestialBody(**sun_data)
 
 		sun_sphere = AnnotationSphere()
-		sun_sphere.position = self.sun.position(0.0) * position_gain
-		sun_sphere.radius = self.sun.size * size_gain
+		sun_sphere.position = self.sun.position(0.0)
+		sun_sphere.radius = self.sun.size
 		sun_sphere.m_color = QColor(self.sun.color)
 		sun_sphere.label = self.sun.name
 

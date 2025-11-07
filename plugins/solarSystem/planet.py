@@ -28,32 +28,49 @@ class Planet(CelestialBody):
 	"""
 	def __init__(self, name, color, size, a, e, p, inc, argPeri,
 				meanAnomaly0=0.0, Omega=0.0, epoch=2000.0,
-				moons=None, parent=None, **kwargs):
+				moons=None, parent=None, body_type='planet', **kwargs):
+
+		kwargs.setdefault('body_type', 'planet')
+
 		super().__init__(name, color, size, parent,
 						a=a, e=e, p=p, inc=inc, argPeri=argPeri,
 						meanAnomaly0=meanAnomaly0, Omega=Omega,
 						epoch=epoch, **kwargs)
 
-		if REAL_SIZE:
-			self.size = kwargs['radius_AU'] * PLANET_SIZE_SCALE
-		else:
-			self.size = size  # rozmiar wizualny (piksele, nie fizyczny)
-
-
-		self.a = a        # półoś wielka [AU]
-		self.e = e        # mimośród
-		self.p = p        # okres orbitalny [lata]
-		self.inc = inc    # inklinacja [°]
+		self.a = a
+		self.e = e
+		self.p = p
+		self.inc = inc
 		self.argPeri = argPeri
 		self.meanAnomaly0 = meanAnomaly0
 		self.Omega = Omega
 		self.epoch = epoch
 
+		self.ring_inner_visual = getattr(self, "ring_inner_AU", None)
+		self.ring_outer_visual = getattr(self, "ring_outer_AU", None)
+
+		if REAL_SIZE and self.ring_inner_visual is not None and self.ring_outer_visual is not None:
+			self.ring_inner_visual *= PLANET_SIZE_SCALE
+			self.ring_outer_visual *= PLANET_SIZE_SCALE
+
+		# księżyce
 		self.moons = []
 		if moons:
 			for i, m in enumerate(moons):
-				m.setdefault('phase_deg', i * (360.0 / max(1, len(moons))))
+				# bazowy niewielki wzrost od planety
+				base = 0.5 * i
+
+				# losowy jitter
+				jitter = np.random.uniform(-0.15, 0.15)
+
+				m['incl_eq_deg'] = m.get('incl_eq_deg', 0.0) + base + jitter
+
+				# dodatkowo przesuwamy fazę, aby orbity się nie pokrywały
+				m['phase_deg'] = m.get('phase_deg', 0.0) + np.random.uniform(-10, 10)
+
 				self.moons.append(Moon(parent=self, **m))
+		# najmniejsza półoś orbity księżyca (w AU)
+		self.moon_min_d = min((m.d for m in self.moons), default=None)
 
 	def position(self, t):
 		"""

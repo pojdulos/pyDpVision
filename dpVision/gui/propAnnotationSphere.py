@@ -73,4 +73,5 @@ class PropAnnotationSphere(PropWidget):
 	def changedRadius(self, r):
 		obj = self.obj_ref()
 		obj.radius = r
+		obj._is_initialized = False
 		AP.updateAllViews()

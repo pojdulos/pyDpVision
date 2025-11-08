@@ -29,6 +29,7 @@ def anim_2d(system, scale):
 
 	def update(frame):
 		system.step()
+		print(f"dt = {system.dt:.3f}, total energy = {system.total_energy():.6e} J")
 		for b in system.bodies:
 			artists[b.name][0].set_data([b.r[0]], [b.r[1]])
 			trail = np.array(b.trail[-1000:])  # ogranicz długość ścieżki
@@ -118,6 +119,15 @@ class SystemSimulator:
 	def add_body(self, name, mass, r, v, color='white', size=4):
 		self.bodies.append(Body(name, mass, r, v, color, size))
 
+	def total_energy(self):
+		KE = sum(0.5*b.mass*np.dot(b.v,b.v) for b in self.bodies)
+		PE = 0.0
+		for i in range(len(self.bodies)):
+			for j in range(i+1, len(self.bodies)):
+				r = np.linalg.norm(self.bodies[i].r - self.bodies[j].r)
+				PE -= G * self.bodies[i].mass * self.bodies[j].mass / r
+		return KE + PE
+
 	def compute_accelerations(self):
 		n = len(self.bodies)
 		a = [np.zeros(3) for _ in range(n)]
@@ -131,34 +141,55 @@ class SystemSimulator:
 		return a
 
 	def step(self):
-		dt = self.dt
+		# --- oblicz aktualne przyspieszenia ---
 		a = self.compute_accelerations()
-		new_acc = []
-		# velocity-verlet integrator
+
+		# --- adaptacyjny krok czasowy ---
+		max_a = max(np.linalg.norm(ai) for ai in a)
+		if max_a > 0:
+			# typowy czas reakcji dynamiki układu (czas charakterystyczny)
+			t_dyn = np.sqrt(1.0 / max_a)
+
+			# współczynnik bezpieczeństwa
+			eta = 100.0   # im większy, tym dłuższe kroki (skalowanie dla SI)
+			dt_new = eta * t_dyn
+		else:
+			dt_new = self.dt
+
+		# ograniczenie zmian (żeby dt nie skakał gwałtownie)
+		dt_new = np.clip(dt_new, self.dt * 0.5, self.dt * 1.5)
+
+		# fizyczne granice kroków czasowych (0.001 s–50 s)
+		self.dt = float(np.clip(dt_new, 0.001, 3600.0))
+
+		# --- velocity-verlet integrator ---
+		dt = self.dt
+		new_r = []
 		for i, body in enumerate(self.bodies):
 			r_new = body.r + body.v * dt + 0.5 * a[i] * dt**2
 			body.trail.append(body.r.copy())
-			new_acc.append(r_new)
-		# now recompute accelerations using new positions
+			new_r.append(r_new)
+
 		for i, body in enumerate(self.bodies):
-			body.r = new_acc[i]
+			body.r = new_r[i]
+
 		a2 = self.compute_accelerations()
 		for i, body in enumerate(self.bodies):
 			body.v += 0.5 * (a[i] + a2[i]) * dt
 
 def pulsar_system():
-	system = SystemSimulator(dt=10)  # krok 10 sekund!
+	system = SystemSimulator(dt=50)  # krok 10 sekund!
 
 	M_A = 1.989e30 # mniej wiecej masa Słońca
-	M_B = 1.989e30 #* 0.9 # nieco mniejsza masa
+	M_B = 1.989e30 * 0.8 # nieco mniejsza masa
 	r_sep = 1e9  # 1 mln km
 	v_A = np.sqrt(G * M_A / (4 * r_sep))  # ~1.82e5 m/s dla masy równej masie Słońca
 	v_B = np.sqrt(G * M_B / (4 * r_sep))  # odpowiednio dla masy Pulsara B
 
-	system.add_body("Pulsar A", M_A, [-0.5*r_sep, 0, 0], [0,  v_A, 0], color='yellow', size=15)
+	system.add_body("Pulsar A", M_A, [-0.5*r_sep, 0, 0], [0,  v_A, 0], color='yellow', size=12)
 	system.add_body("Pulsar B", M_B, [ 0.5*r_sep, 0, 0], [0, -v_B, 0], color='red', size=12)
 
-	#system.add_body("Earth", 5.972e24, [2e9, 0, 0], [-100000, 400000, 0], color='white', size=8)
+	system.add_body("Earth", 5.972e24, [2e9, 0, 0], [-100000, 400000, 0], color='white', size=8)
 
 	system.stabilize_barycenter()
 

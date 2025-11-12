@@ -115,7 +115,7 @@ class Moon(CelestialBody):
 			"Ziemia":1.1,
 			"Mars":1.1, 
 			"Jowisz":1.1, 
-			"Saturn":1.1,
+			"Saturn":0.8,
 			"Uran":1.1,
 			"Neptun":1.1,
 			"Pluton":1.1

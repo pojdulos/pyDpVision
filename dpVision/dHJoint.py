@@ -1,22 +1,23 @@
 import math
 import numpy as np
 from scipy.spatial.transform import Rotation
+from OpenGL import GL as gl
 from .transform import Transform
 
 def Rz_mat_rad(theta_rad):
     c = math.cos(theta_rad); s = math.sin(theta_rad)
     M = np.eye(4, dtype=np.float64)
     M[:3,:3] = np.array([[c, -s, 0.],
-                         [s,  c, 0.],
-                         [0., 0., 1.]])
+                        [s,  c, 0.],
+                        [0., 0., 1.]])
     return M
 
 def Rx_mat_rad(alpha_rad):
     c = math.cos(alpha_rad); s = math.sin(alpha_rad)
     M = np.eye(4, dtype=np.float64)
     M[:3,:3] = np.array([[1., 0.,  0.],
-                         [0., c, -s],
-                         [0., s,  c]])
+                        [0., c, -s],
+                        [0., s,  c]])
     return M
 
 def Tz_mat(d):
@@ -32,16 +33,14 @@ def Tx_mat(a):
 class DHJoint(Transform):
     """
     Joint opisany parametrami DH (classical):
-      local = Rz(theta) @ Tz(d) @ Tx(a) @ Rx(alpha)
+    local = Rz(theta) @ Tz(d) @ Tx(a) @ Rx(alpha)
 
     Domyślnie theta i d mogą być zmienne (sterowane).
     """
 
     def __init__(self, theta_deg=0.0, d=0.0, a=0.0, alpha_deg=0.0,
-                 theta_variable=True, d_variable=False,
-                 parent=None, name=None):
-        # zainicjuj Transform bez macierzy; Transform.__init__ ustawi identity
-        super().__init__(matrix=None, parent=parent)
+                theta_variable=True, d_variable=False,
+                parent=None, name=None):
 
         # przechowuj wewnętrznie w radianach
         self.theta = math.radians(theta_deg)
@@ -60,6 +59,8 @@ class DHJoint(Transform):
 
         # ustaw macierz lokalną zgodnie z DH
         self.updateMatrix()
+        # zainicjuj Transform bez macierzy; Transform.__init__ ustawi identity
+        super().__init__(matrix=None, parent=parent)
 
     # nadpisujemy updateMatrix tak, by ustawić macierz zgodnie z DH
     def updateMatrix(self):
@@ -70,6 +71,48 @@ class DHJoint(Transform):
         self.fromNumPy(M)
         # nie wywołujemy Transform.updateMatrix(), bo tam budowane jest T*R*S z pól TRS (a my mamy już macierz)
         # jeśli chcesz wymusić odświeżenie potomków, możesz (w zależności od Object/scene) wysłać sygnał lub nie
+
+    def renderArm(self):
+        gl.glPushMatrix()
+        gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+
+        gl.glDisable(gl.GL_TEXTURE_2D)
+        gl.glEnable(gl.GL_COLOR_MATERIAL)
+        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
+
+        # OBLICZ p2 - przekształcony punkt (wyciągamy translację)
+        # jeśli self.matrix jest 4x4 i translacja jest w ostatniej kolumnie:
+        p2 = np.array(self.matrix[:3, 3], dtype=np.float32)
+
+        # alternatywnie:
+        # v = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        # p2_h = v @ self.matrix.T   # p2_h ma 4 elementy
+        # p2 = p2_h[:3]
+
+        gl.glColor4ub(255, 0, 0, 255)
+        gl.glEnable(gl.GL_LINE_SMOOTH)
+        gl.glLineWidth(3.0)
+        gl.glBegin(gl.GL_LINES)
+        gl.glVertex3f(0.0, 0.0, 0.0)
+        gl.glVertex3f(float(p2[0]), float(p2[1]), float(p2[2]))
+        gl.glEnd()
+        gl.glDisable(gl.GL_LINE_SMOOTH)
+
+        # punkt w (0,0,0)
+        gl.glColor4ub(255, 255, 0, 255)
+        gl.glEnable(gl.GL_POINT_SMOOTH)
+        gl.glPointSize(9)
+        gl.glBegin(gl.GL_POINTS)
+        gl.glVertex3f(0.0, 0.0, 0.0)
+        gl.glEnd()
+        gl.glDisable(gl.GL_POINT_SMOOTH)
+
+        gl.glPopAttrib()
+        gl.glPopMatrix()
+
+    def renderSelf(self):
+        self.renderArm()                    # <- !!! wywołanie z nawiasami
+        Transform.renderSelf(self)
 
     # settery/utility
     def set_theta_deg(self, val_deg):

@@ -42,6 +42,11 @@ class DHJoint(Transform):
                 theta_variable=True, d_variable=False,
                 parent=None, name=None):
 
+        self.alpha_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
+        self.theta_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
+        self.a_limits = [0.0, 100.0]         # domyślne ograniczenia długości w jednostkach
+        self.d_limits = [0.0, 100.0]         # domyślne ograniczenia długości w jednostkach
+
         # przechowuj wewnętrznie w radianach
         self.theta = math.radians(theta_deg)
         self.d = float(d)
@@ -51,16 +56,18 @@ class DHJoint(Transform):
         self.theta_variable = bool(theta_variable)
         self.d_variable = bool(d_variable)
 
+        # zainicjuj Transform bez macierzy; Transform.__init__ ustawi identity
+        super().__init__(matrix=None, parent=parent)
+
         if name is not None:
             try:
                 self.name = name
+                self.label = name
             except Exception:
                 pass
 
         # ustaw macierz lokalną zgodnie z DH
         self.updateMatrix()
-        # zainicjuj Transform bez macierzy; Transform.__init__ ustawi identity
-        super().__init__(matrix=None, parent=parent)
 
     # nadpisujemy updateMatrix tak, by ustawić macierz zgodnie z DH
     def updateMatrix(self):
@@ -71,6 +78,52 @@ class DHJoint(Transform):
         self.fromNumPy(M)
         # nie wywołujemy Transform.updateMatrix(), bo tam budowane jest T*R*S z pól TRS (a my mamy już macierz)
         # jeśli chcesz wymusić odświeżenie potomków, możesz (w zależności od Object/scene) wysłać sygnał lub nie
+
+    def renderAxes(self):
+        gl.glPushMatrix()
+        gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+
+        gl.glDisable(gl.GL_TEXTURE_2D)
+        gl.glEnable(gl.GL_COLOR_MATERIAL)
+        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
+
+        # OBLICZ p2 - przekształcony punkt (wyciągamy translację)
+        # jeśli self.matrix jest 4x4 i translacja jest w ostatniej kolumnie:
+        a0 = np.array(self.matrix[:3, 3], dtype=np.float32)
+
+        asize = 5.0  # długość osi
+
+        aX = np.array([asize, 0.0, 0.0, 1.0], dtype=np.float32)
+        aX = aX @ self.matrix.T
+
+        aY = np.array([0.0, asize, 0.0, 1.0], dtype=np.float32)
+        aY = aY @ self.matrix.T
+
+        aZ = np.array([0.0, 0.0, asize, 1.0], dtype=np.float32)
+        aZ = aZ @ self.matrix.T
+
+        gl.glEnable(gl.GL_LINE_SMOOTH)
+        gl.glLineWidth(1.0)
+        gl.glColor4ub(255, 0, 0, 255)
+        gl.glBegin(gl.GL_LINES)
+        gl.glVertex3f(float(a0[0]), float(a0[1]), float(a0[2]))
+        gl.glVertex3f(float(aX[0]), float(aX[1]), float(aX[2]))
+        # gl.glEnd()
+        gl.glColor4ub(0, 255, 0, 255)
+        # gl.glBegin(gl.GL_LINES)
+        gl.glVertex3f(float(a0[0]), float(a0[1]), float(a0[2]))
+        gl.glVertex3f(float(aY[0]), float(aY[1]), float(aY[2]))
+        # gl.glEnd()
+        gl.glColor4ub(0, 0, 255, 255)
+        # gl.glBegin(gl.GL_LINES)
+        gl.glVertex3f(float(a0[0]), float(a0[1]), float(a0[2]))
+        gl.glVertex3f(float(aZ[0]), float(aZ[1]), float(aZ[2]))
+        gl.glEnd()
+        gl.glDisable(gl.GL_LINE_SMOOTH)
+
+        gl.glPopAttrib()
+        gl.glPopMatrix()
+
 
     def renderArm(self):
         gl.glPushMatrix()
@@ -112,31 +165,36 @@ class DHJoint(Transform):
 
     def renderSelf(self):
         self.renderArm()                    # <- !!! wywołanie z nawiasami
+        self.renderAxes()
         Transform.renderSelf(self)
 
     # settery/utility
     def set_theta_deg(self, val_deg):
-        self.theta = math.radians(float(val_deg))
+        val = max( self.theta_limits[0], min( self.theta_limits[1], float(val_deg) ) )
+        self.theta = math.radians(float(val))
         self.updateMatrix()
 
     def set_theta_rad(self, val_rad):
-        self.theta = float(val_rad)
+        val = max( math.radians(self.theta_limits[0]), min( math.radians(self.theta_limits[1]), float(val_rad) ) )
+        self.theta = float(val)
         self.updateMatrix()
 
     def set_d(self, val):
-        self.d = float(val)
+        self.d = max( self.d_limits[0], min( self.d_limits[1], float(val) ) )
         self.updateMatrix()
 
     def set_a(self, val):
-        self.a = float(val)
+        self.a = max( self.a_limits[0], min( self.a_limits[1], float(val) ) )
         self.updateMatrix()
 
     def set_alpha_deg(self, val_deg):
-        self.alpha = math.radians(float(val_deg))
+        val = max( self.alpha_limits[0], min( self.alpha_limits[1], float(val_deg) ) )
+        self.alpha = math.radians(float(val))
         self.updateMatrix()
 
     def set_alpha_rad(self, val_rad):
-        self.alpha = float(val_rad)
+        val = max( math.radians(self.alpha_limits[0]), min( math.radians(self.alpha_limits[1]), float(val_rad) ) )
+        self.alpha = float(val)
         self.updateMatrix()
 
     def get_theta_deg(self):

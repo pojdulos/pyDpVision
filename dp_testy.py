@@ -278,25 +278,9 @@ def testNd():
 
 # AP.addObject(tra2)
 
-from dpVision.dHJoint import DHJoint
-def test_dh():
-	joint1 = DHJoint(theta_deg=45.0, d=10.0, a=5.0, alpha_deg=30.0,
-	                 theta_variable=True, d_variable=False,
-	                 name="joint1")
-	AP.addObject(joint1)
+from hand_demo import poses, build_scene_from_dh_dictionary, prepare_animation, create_hand_animation_demo
+#timer = create_hand_animation_demo()
+joints = build_scene_from_dh_dictionary()
+# timer = prepare_animation(joints, poses, duration_ms=700, fps=30, loop=True)
+# timer.start()
 
-	joint2 = DHJoint(theta_deg=30.0, d=15.0, a=10.0, alpha_deg=45.0,
-	                 theta_variable=True, d_variable=False,
-	                 parent=joint1,
-	                 name="joint2")
-	AP.addObject(joint2, joint1)
-
-	test_point = AnnotationSphere()
-	test_point.radius = 3.0
-	test_point.setColor(255,0,0,255)
-	#joint2.addChild(test_point)
-	AP.addObject(test_point, joint2)
-
-	AP.updateAllViews()
-
-test_dh()

@@ -279,8 +279,10 @@ def testNd():
 # AP.addObject(tra2)
 
 from hand_demo import poses, build_scene_from_dh_dictionary, prepare_animation, create_hand_animation_demo
+from hand_model import hand_model
+
 #timer = create_hand_animation_demo()
-joints = build_scene_from_dh_dictionary()
+joints = build_scene_from_dh_dictionary(hand_model)
 # timer = prepare_animation(joints, poses, duration_ms=700, fps=30, loop=True)
 # timer.start()
 

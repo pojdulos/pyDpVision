@@ -44,8 +44,8 @@ class DHJoint(Transform):
 
         self.alpha_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
         self.theta_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
-        self.a_limits = [0.0, 100.0]         # domyślne ograniczenia długości w jednostkach
-        self.d_limits = [0.0, 100.0]         # domyślne ograniczenia długości w jednostkach
+        self.a_limits = [-100.0, 100.0]         # domyślne ograniczenia długości w jednostkach
+        self.d_limits = [-100.0, 100.0]         # domyślne ograniczenia długości w jednostkach
 
         # przechowuj wewnętrznie w radianach
         self.theta = math.radians(theta_deg)
@@ -80,91 +80,65 @@ class DHJoint(Transform):
         # jeśli chcesz wymusić odświeżenie potomków, możesz (w zależności od Object/scene) wysłać sygnał lub nie
 
     def renderAxes(self):
-        gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+        gl.glDisable(gl.GL_LIGHTING)
 
-        gl.glDisable(gl.GL_TEXTURE_2D)
-        gl.glEnable(gl.GL_COLOR_MATERIAL)
-        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
+        asize = 7.0  # długość osi
 
-        # OBLICZ p2 - przekształcony punkt (wyciągamy translację)
-        # jeśli self.matrix jest 4x4 i translacja jest w ostatniej kolumnie:
-        a0 = np.array(self.matrix[:3, 3], dtype=np.float32)
-
-        asize = 5.0  # długość osi
-
-        aX = np.array([asize, 0.0, 0.0, 1.0], dtype=np.float32)
-        aX = aX @ self.matrix.T
-
-        aY = np.array([0.0, asize, 0.0, 1.0], dtype=np.float32)
-        aY = aY @ self.matrix.T
-
-        aZ = np.array([0.0, 0.0, asize, 1.0], dtype=np.float32)
-        aZ = aZ @ self.matrix.T
+        a0XYZ = np.array([
+            [0.0, 0.0, 0.0, 1.0],       # punkt origin
+            [asize, 0.0, 0.0, 1.0],     # oś X
+            [0.0, asize, 0.0, 1.0],     # oś Y
+            [0.0, 0.0, asize, 1.0],     # oś Z 
+        ], dtype=np.float32)
+        
+        a0XYZ = a0XYZ @ self.matrix.T
+        a0, aX, aY, aZ = a0XYZ[:, :3]
 
         gl.glEnable(gl.GL_LINE_SMOOTH)
         gl.glLineWidth(1.0)
-        gl.glColor4ub(255, 0, 0, 255)
         gl.glBegin(gl.GL_LINES)
-        gl.glVertex3f(float(a0[0]), float(a0[1]), float(a0[2]))
-        gl.glVertex3f(float(aX[0]), float(aX[1]), float(aX[2]))
-        # gl.glEnd()
+        gl.glColor4ub(255, 0, 0, 255)
+        gl.glVertex3f(*a0); gl.glVertex3f(*aX)
         gl.glColor4ub(0, 255, 0, 255)
-        # gl.glBegin(gl.GL_LINES)
-        gl.glVertex3f(float(a0[0]), float(a0[1]), float(a0[2]))
-        gl.glVertex3f(float(aY[0]), float(aY[1]), float(aY[2]))
-        # gl.glEnd()
+        gl.glVertex3f(*a0); gl.glVertex3f(*aY)
         gl.glColor4ub(0, 0, 255, 255)
-        # gl.glBegin(gl.GL_LINES)
-        gl.glVertex3f(float(a0[0]), float(a0[1]), float(a0[2]))
-        gl.glVertex3f(float(aZ[0]), float(aZ[1]), float(aZ[2]))
+        gl.glVertex3f(*a0); gl.glVertex3f(*aZ)
         gl.glEnd()
         gl.glDisable(gl.GL_LINE_SMOOTH)
 
         gl.glPopAttrib()
-        gl.glPopMatrix()
 
 
     def renderArm(self):
-        gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+        gl.glDisable(gl.GL_LIGHTING)
 
-        gl.glDisable(gl.GL_TEXTURE_2D)
-        gl.glEnable(gl.GL_COLOR_MATERIAL)
-        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
-
-        # OBLICZ p2 - przekształcony punkt (wyciągamy translację)
-        # jeśli self.matrix jest 4x4 i translacja jest w ostatniej kolumnie:
-        p2 = np.array(self.matrix[:3, 3], dtype=np.float32)
-
-        # alternatywnie:
-        # v = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
-        # p2_h = v @ self.matrix.T   # p2_h ma 4 elementy
-        # p2 = p2_h[:3]
-
-        gl.glColor4ub(255, 0, 0, 255)
+        p0 = [0.0, 0.0, 0.0]
+        p1 = np.array(self.matrix[:3, 3], dtype=np.float32)
+        
         gl.glEnable(gl.GL_LINE_SMOOTH)
         gl.glLineWidth(3.0)
         gl.glBegin(gl.GL_LINES)
-        gl.glVertex3f(0.0, 0.0, 0.0)
-        gl.glVertex3f(float(p2[0]), float(p2[1]), float(p2[2]))
+        gl.glColor4ub(255, 0, 0, 255)
+        gl.glVertex3f(*p0); gl.glVertex3f(*p1)
         gl.glEnd()
         gl.glDisable(gl.GL_LINE_SMOOTH)
 
         # punkt w (0,0,0)
-        gl.glColor4ub(255, 255, 0, 255)
+        
         gl.glEnable(gl.GL_POINT_SMOOTH)
-        gl.glPointSize(9)
+        gl.glPointSize(7)
         gl.glBegin(gl.GL_POINTS)
+        gl.glColor4ub(255, 255, 0, 255)
         gl.glVertex3f(0.0, 0.0, 0.0)
         gl.glEnd()
         gl.glDisable(gl.GL_POINT_SMOOTH)
 
         gl.glPopAttrib()
-        gl.glPopMatrix()
 
     def renderSelf(self):
-        self.renderArm()                    # <- !!! wywołanie z nawiasami
+        self.renderArm()
         self.renderAxes()
         Transform.renderSelf(self)
 

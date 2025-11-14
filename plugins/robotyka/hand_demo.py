@@ -177,6 +177,7 @@ def prepare_animation(joints, poses, duration_ms=800, fps=30, loop=True):
         # odśwież widoki
         try:
             AP.updateAllViews()
+            AP.updateProperties()
         except Exception:
             pass
 
@@ -189,7 +190,6 @@ def prepare_animation(joints, poses, duration_ms=800, fps=30, loop=True):
 
 # poses: lista keyframe'ów; wartości kątów w stopniach (theta). 
 # Dla każdego palca ustawiamy prox/middle/distal (jeśli istnieją).
-# Wartości przykładowe — możesz je dopracować pod swój model / ograniczenia.
 
 poses = []
 
@@ -292,9 +292,9 @@ poses.append({
 })
 
 
-from hand_model import hand_model
+# from hand_model import hand_model
 
-def create_hand_animation_demo():
-	joints = build_scene_from_dh_dictionary(hand_model)
-	timer = prepare_animation(joints, poses, duration_ms=700, fps=30, loop=True)
-	return timer
+# def create_hand_animation_demo():
+# 	joints = build_scene_from_dh_dictionary(hand_model)
+# 	timer = prepare_animation(joints, poses, duration_ms=700, fps=30, loop=True)
+# 	return timer

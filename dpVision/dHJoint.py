@@ -44,8 +44,8 @@ class DHJoint(Transform):
 
         self.alpha_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
         self.theta_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
-        self.a_limits = [-100.0, 100.0]         # domyślne ograniczenia długości w jednostkach
-        self.d_limits = [-100.0, 100.0]         # domyślne ograniczenia długości w jednostkach
+        self.a_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
+        self.d_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
 
         # przechowuj wewnętrznie w radianach
         self.theta = math.radians(theta_deg)
@@ -56,18 +56,34 @@ class DHJoint(Transform):
         self.theta_variable = bool(theta_variable)
         self.d_variable = bool(d_variable)
 
-        # zainicjuj Transform bez macierzy; Transform.__init__ ustawi identity
+        self.joint_type = 'R' if self.theta_variable else 'P' if self.d_variable else 'F'
+        self.view_as_vector = True  # czy renderować joint jako wektor (linia od origin do pozycji jointu)
+
+        # dopiero tutaj, bo Transform.__init__ wywoła self.updateMatrix()
+        # z tej klasy więc musimy mieć najpierw ustawione parametry DH
         super().__init__(matrix=None, parent=parent)
 
         if name is not None:
             try:
-                self.name = name
                 self.label = name
             except Exception:
                 pass
 
         # ustaw macierz lokalną zgodnie z DH
-        self.updateMatrix()
+        #self.updateMatrix()
+        # niepotrzebne bo konstruktor Transform wywołał updateMatrix()
+
+    def create(self, type='R'):
+        joint = DHJoint()
+        joint.d_variable = (type == 'P')
+        joint.theta_variable = (type == 'R')
+        joint.joint_type = type
+        return joint
+
+    def set_type(self, type='R'):
+        self.d_variable = (type == 'P')
+        self.theta_variable = (type == 'R')
+        self.joint_type = type
 
     # nadpisujemy updateMatrix tak, by ustawić macierz zgodnie z DH
     def updateMatrix(self):
@@ -76,8 +92,19 @@ class DHJoint(Transform):
         # korzystamy z fromNumPy, aby w Transform poprawnie rozbić translację/rotację/skale
         # fromNumPy ustawi self.matrix, self.m_translation, self.m_rotation, self.m_scale
         self.fromNumPy(M)
-        # nie wywołujemy Transform.updateMatrix(), bo tam budowane jest T*R*S z pól TRS (a my mamy już macierz)
-        # jeśli chcesz wymusić odświeżenie potomków, możesz (w zależności od Object/scene) wysłać sygnał lub nie
+
+        m0 = np.eye(4, dtype=np.float64)
+        m1 = self.toNumPy()
+        if self._parent is not None:
+            parent = self._parent()
+            if parent is not None:
+                m0 = parent.getGlobalTransformation()
+                m1 = m0 @ self.toNumPy()
+        p0 = m0[:3, 3]
+        p1 = m1[:3, 3]
+
+        self.description = f"begin: [{p0[0]:.2f}, {p0[1]:.2f}, {p0[2]:.2f}]\n end: [{p1[0]:.2f}, {p1[1]:.2f}, {p1[2]:.2f}]"
+        print(self.description)
 
     def renderAxes(self):
         gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
@@ -115,23 +142,43 @@ class DHJoint(Transform):
         gl.glDisable(gl.GL_LIGHTING)
 
         p0 = [0.0, 0.0, 0.0]
-        p1 = np.array(self.matrix[:3, 3], dtype=np.float32)
+        p1 = None
+        p2 = np.array(self.matrix[:3, 3], dtype=np.float32)
+        c2 = [0,0,255,255]      # zasadniczy segment
+        c1 = [128,128,128,255]  # offset od poprzedniego jointu
+        c0 = [255,255,0,255]    # kropka w węźle
+
+        if not self.view_as_vector:
+            if self.joint_type == 'R':
+                p1 = [0.0, 0.0, p2[2]]
+            elif self.joint_type == 'P':
+                p1 = [p2[0], 0.0, 0.0]
+        
+        if self.joint_type == 'F':
+            c2 = c1
+
         
         gl.glEnable(gl.GL_LINE_SMOOTH)
         gl.glLineWidth(3.0)
         gl.glBegin(gl.GL_LINES)
-        gl.glColor4ub(255, 0, 0, 255)
-        gl.glVertex3f(*p0); gl.glVertex3f(*p1)
+        if p1:
+            gl.glColor4ub(*c1)
+            gl.glVertex3f(*p0); gl.glVertex3f(*p1)
+            gl.glColor4ub(*c2)
+            gl.glVertex3f(*p1); gl.glVertex3f(*p2)
+        else:
+            gl.glColor4ub(*c2)
+            gl.glVertex3f(*p0); gl.glVertex3f(*p2)
         gl.glEnd()
         gl.glDisable(gl.GL_LINE_SMOOTH)
 
         # punkt w (0,0,0)
         
         gl.glEnable(gl.GL_POINT_SMOOTH)
-        gl.glPointSize(7)
+        gl.glPointSize(9)
         gl.glBegin(gl.GL_POINTS)
-        gl.glColor4ub(255, 255, 0, 255)
-        gl.glVertex3f(0.0, 0.0, 0.0)
+        gl.glColor4ub(*c0)
+        gl.glVertex3f(*p0)
         gl.glEnd()
         gl.glDisable(gl.GL_POINT_SMOOTH)
 

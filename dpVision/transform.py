@@ -29,8 +29,8 @@ class Transform(Object):
 			self.updateMatrix()
 
 	def getGlobalTransformation(self):
-		if self.__parent is not None:
-			parent = self.__parent()
+		if self._parent is not None:
+			parent = self._parent()
 			if parent is not None:
 				return parent.getGlobalTransformation() @ self.matrix
 		return self.matrix

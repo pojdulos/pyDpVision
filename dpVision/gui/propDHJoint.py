@@ -117,7 +117,7 @@ class PropDHJoint(PropWidget):
 		# if not isinstance(self.sender(), QDoubleSpinBox):
 		# 	return
 
-		print(f"spinbox changed, theta= {value}")
+		#print(f"spinbox changed, theta= {value}")
 		m_trans.set_theta_deg(value)
 		
 		self.updateMatrix(m_trans)
@@ -128,7 +128,7 @@ class PropDHJoint(PropWidget):
 		# if not isinstance(self.sender(), QDoubleSpinBox):
 		# 	return
 
-		print(f"spinbox changed, d= {value}")
+		#print(f"spinbox changed, d= {value}")
 		m_trans.set_d(value)
 		
 		self.updateMatrix(m_trans)
@@ -139,7 +139,7 @@ class PropDHJoint(PropWidget):
 		# if not isinstance(self.sender(), QDoubleSpinBox):
 		# 	return
 
-		print(f"spinbox changed, a= {value}")
+		#print(f"spinbox changed, a= {value}")
 		m_trans.set_a(value)
 		
 		self.updateMatrix(m_trans)
@@ -150,7 +150,7 @@ class PropDHJoint(PropWidget):
 		# if not isinstance(self.sender(), QDoubleSpinBox):
 		# 	return
 
-		print(f"spinbox changed, alpha= {value}")
+		#print(f"spinbox changed, alpha= {value}")
 		m_trans.set_alpha_deg(value)
 		
 		self.updateMatrix(m_trans)

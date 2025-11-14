@@ -87,6 +87,25 @@ class BaseObject(QObject):
 	def modified(self, b):
 		self._modified = b
 	
+	def move_to(self, target=None, in_place=False):
+		newParent = target
+		oldParent = self.parent
+
+		if oldParent:
+			oldParent.removeChild(self)
+		if newParent:
+			newParent.addChild(self)
+
+		# if in_place:
+		# 	_m0 = oldParent.getGlobalTransformation() if oldParent else np.eye(4, dtype=np.float64)
+		# 	_m1 = newParent.getGlobalTransformation() if newParent else np.eye(4, dtype=np.float64)
+		# 	newModel = Transform()
+		# 	newModel.matrix = Transform.fromTo(m0 = _m0, m1 = _m1)
+		# 	newParent.addChild(newModel)
+		# AP.addObject(child=self.m_obj, parent=newModel)
+		# AP.removeObject(child=self.m_obj, parent=oldParent)
+		# AP.updateAllViews()
+
 	def setSelfVisibility(self, b):
 		self.m_showSelf = b
 
@@ -204,8 +223,8 @@ class BaseObject(QObject):
 		gl.glPopMatrix()
 
 	def getGlobalTransformation(self):
-		if self.__parent is not None:
-			parent = self.__parent()
+		if self._parent is not None:
+			parent = self._parent()
 			if parent is not None:
 				return parent.getGlobalTransformation()
 		return np.eye(4, dtype=np.float64)

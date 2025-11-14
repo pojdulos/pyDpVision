@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import *
 from .dialogSiftParameters import DialogSiftParameters
 from .dialogVolumetricMetadata import DialogVolumetricMetadata
 
+import numpy as np
+
 from .. import AP, Transform
 
 class ContextMenu(QMenu):
@@ -43,11 +45,84 @@ class ContextMenu(QMenu):
 			elif self.m_obj.hasType('Volumetric'):
 				self.addSeparator()
 				self.addMenu(self.create_volumetric_menu())
+			elif self.m_obj.hasType('DHJoint'):
+				self.addSeparator()
+				self.addMenu(self.create_dhjoint_menu())
 
 		self.addSeparator()
 		action = QAction("Refresh tree", self)
 		action.triggered.connect(self.refreshTree)
 		self.addAction(action)
+
+	def create_dhjoint_menu(self):
+		menu = QMenu("dh joint...", self)
+		action = QAction("view as vector", self)
+		action.triggered.connect(
+			lambda: (
+				setattr(self.m_obj, 'view_as_vector', True), 
+				AP.updateAllViews(), 
+				AP.updateProperties()
+			)
+		)
+		menu.addAction(action)
+		action = QAction("view as arm", self)
+		action.triggered.connect(
+			lambda: (
+				setattr(self.m_obj, 'view_as_vector', False),
+				AP.updateAllViews(), 
+				AP.updateProperties()
+			)
+		)
+		menu.addAction(action)
+		menu.addSeparator()
+		set_menu = QMenu("set as...", self)
+		menu.addMenu(set_menu)
+		action = QAction("revolute", self)
+		action.triggered.connect(
+			lambda: (
+				self.m_obj.set_type(type='R'), 
+				AP.updateAllViews(), 
+				AP.updateProperties()
+			))
+		set_menu.addAction(action)
+		action = QAction("prismatic", self)
+		action.triggered.connect(
+			lambda: (
+				self.m_obj.set_type(type='P'), 
+				AP.updateAllViews(), 
+				AP.updateProperties()
+			))
+		set_menu.addAction(action)
+		action = QAction("fixed", self)
+		action.triggered.connect(
+			lambda: (
+				self.m_obj.set_type(type='F'), 
+				AP.updateAllViews(), 
+				AP.updateProperties()
+			))
+		set_menu.addAction(action)
+
+		add_menu = QMenu("add segment...", self)
+		menu.addMenu(add_menu)
+		action = QAction("revolute", self)
+		action.triggered.connect(
+			lambda: 
+				self.dhjoint_add_segment(type='R')
+			)
+		add_menu.addAction(action)
+		action = QAction("prismatic", self)
+		action.triggered.connect(
+			lambda: 
+				self.dhjoint_add_segment(type='P')
+			)
+		add_menu.addAction(action)
+		action = QAction("fixed", self)
+		action.triggered.connect(
+			lambda: 
+				self.dhjoint_add_segment(type='F')
+			)
+		add_menu.addAction(action)
+		return menu
 
 	def create_point_cloud_menu(self):
 		menu = QMenu("point cloud...", self)
@@ -111,6 +186,12 @@ class ContextMenu(QMenu):
 				else:
 					menu2.addMenu( self.create_move_submenu(m.label, m) )
 		return menu2
+
+	@pyqtSlot()
+	def dhjoint_add_segment(self, type='R'):
+		child = self.m_obj.create(type=type)
+		AP.addObject( child, self.m_obj )
+		AP.updateAllViews()
 
 	@pyqtSlot()
 	def point_cloud_export_as_obj(self):
@@ -197,8 +278,8 @@ class ContextMenu(QMenu):
 		newParent = action.data()
 		oldParent = self.m_obj.parent
 
-		_m0 = oldParent.getGlobalTransformation() if oldParent else QMatrix4x4()
-		_m1 = newParent.getGlobalTransformation() if newParent else QMatrix4x4()
+		_m0 = oldParent.getGlobalTransformation() if oldParent else np.eye(4, dtype=np.float64)
+		_m1 = newParent.getGlobalTransformation() if newParent else np.eye(4, dtype=np.float64)
 
 		newModel = Transform()
 		newModel.matrix = Transform.fromTo(m0 = _m0, m1 = _m1)

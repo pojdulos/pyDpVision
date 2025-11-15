@@ -4,10 +4,10 @@ def build_scene_from_dh_dictionary(hand_model):
 	joints = {}
 	for joint_name, params in hand_model.items():
 		joint = DHJoint(
-			theta_deg = params['theta_deg'],
+			theta = params['theta_deg'],
 			d = params['d'],
 			a = params['a'],
-			alpha_deg = params['alpha_deg'],
+			alpha = params['alpha_deg'],
 			theta_variable = params['theta_variable'],
 			d_variable = params['d_variable'],
 			name = joint_name

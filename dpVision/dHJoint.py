@@ -1,4 +1,5 @@
 import math
+from operator import ior
 import numpy as np
 from scipy.spatial.transform import Rotation
 from OpenGL import GL as gl
@@ -38,8 +39,8 @@ class DHJoint(Transform):
     Domyślnie theta i d mogą być zmienne (sterowane).
     """
 
-    def __init__(self, theta_deg=0.0, d=0.0, a=0.0, alpha_deg=0.0,
-                theta_variable=True, d_variable=False,
+    def __init__(self, angle_unit='deg', theta=0.0, d=0.0, a=0.0, alpha=0.0,
+                joint_type='R', theta_variable=True, d_variable=False,
                 parent=None, name=None):
 
         self.alpha_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
@@ -48,15 +49,20 @@ class DHJoint(Transform):
         self.d_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
 
         # przechowuj wewnętrznie w radianach
-        self.theta = math.radians(theta_deg)
+        self.theta = math.radians(theta) if angle_unit == 'deg' else float(theta)
         self.d = float(d)
         self.a = float(a)
-        self.alpha = math.radians(alpha_deg)
+        self.alpha = math.radians(alpha) if angle_unit == 'deg' else float(alpha)
 
-        self.theta_variable = bool(theta_variable)
-        self.d_variable = bool(d_variable)
+        if joint_type and joint_type in ('R','P','F'):
+            self.joint_type = joint_type
+            self.theta_variable = (joint_type=='R')
+            self.d_variable = (joint_type=='P') 
+        else:
+            self.theta_variable = bool(theta_variable) if theta_variable is not None else True
+            self.d_variable = bool(d_variable) if d_variable is not None else False
+            self.joint_type = 'R' if self.theta_variable else 'P' if self.d_variable else 'F'
 
-        self.joint_type = 'R' if self.theta_variable else 'P' if self.d_variable else 'F'
         self.view_as_vector = True  # czy renderować joint jako wektor (linia od origin do pozycji jointu)
 
         # dopiero tutaj, bo Transform.__init__ wywoła self.updateMatrix()
@@ -74,16 +80,13 @@ class DHJoint(Transform):
         # niepotrzebne bo konstruktor Transform wywołał updateMatrix()
 
     def create(self, type='R'):
-        joint = DHJoint()
-        joint.d_variable = (type == 'P')
-        joint.theta_variable = (type == 'R')
-        joint.joint_type = type
+        joint = DHJoint( joint_type = type if type in ('R','P','F') else 'R' )
         return joint
 
     def set_type(self, type='R'):
-        self.d_variable = (type == 'P')
-        self.theta_variable = (type == 'R')
-        self.joint_type = type
+        self.joint_type = type if type in ('R','P','F') else 'R'
+        self.d_variable = (self.joint_type == 'P')
+        self.theta_variable = (self.joint_type == 'R')
 
     # nadpisujemy updateMatrix tak, by ustawić macierz zgodnie z DH
     def updateMatrix(self):

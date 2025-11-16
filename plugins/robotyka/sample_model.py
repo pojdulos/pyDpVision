@@ -1,8 +1,22 @@
-{
-  "meta": {"convention":"classical","angle_unit":"deg","length_unit":"mm","version":"1.0"},
-  "joints": [
-    {"name":"j1","parent_joint": null,"type":"revolute","a":100.0,"alpha":0.0,"d":0.0,"theta":0.0,"limits":[-180,180]},
-    {"name":"j2","parent_joint":"j1","type":"revolute","a":80.0,"alpha":0.0,"d":20.0,"theta":30.0,"limits":[-90,90],"mesh_visual":"meshes/arm2.glb"},
-    {"name":"j3","parent_joint":"j1","type":"revolute","a":50.0,"alpha":90.0,"d":0.0,"theta":-45.0,"limits":[-120,120]}
-  ]
-}
+import json
+import os
+def get_sample_model(filename):
+	try:
+		model = open(filename).read()
+	except FileNotFoundError:
+		script_dir = os.path.dirname(os.path.abspath(__file__))
+		try:
+			model = open(os.path.join(script_dir, filename)).read()
+		except FileNotFoundError:
+			raise FileNotFoundError(f"File {filename} not found in the current directory or script directory.")
+	return json.loads(model)
+
+if __name__ == "__main__":
+	m = get_sample_model('sample_model.json')
+	
+	for key, value in m['meta'].items():
+		print(f"{key}: {value}")
+
+	for j in m['joints']:
+		print(f"Joint {j['name']}: parent={j['parent_joint']}, a={j['a']}, alpha={j['alpha']}, d={j['d']}, theta={j['theta']}")
+

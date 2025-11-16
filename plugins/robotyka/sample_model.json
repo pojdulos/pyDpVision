@@ -1,0 +1,41 @@
+{ 
+	"meta": {
+		"convention":"classical",
+		"angle_unit":"deg",
+		"length_unit":"mm",
+		"version":"1.0"
+	},
+	"joints": [
+    {
+		  "name":"j1",
+	    "parent_joint": null,
+	    "type":"revolute",
+	    "a":100.0,
+	    "alpha":0.0,
+	    "d":0.0,
+	    "theta":0.0,
+	    "limits":[-180,180]
+	},
+	{
+		"name":"j2",
+		"parent_joint":"j1",
+		"type":"revolute",
+		"a":80.0,
+		"alpha":0.0,
+		"d":20.0,
+		"theta":30.0,
+		"limits":[-90,90],
+		"mesh_visual":"meshes/arm2.glb"
+	},
+    {
+		  "name":"j3",
+	    "parent_joint":"j1",
+	    "type":"revolute",
+	    "a":50.0,
+	    "alpha":90.0,
+	    "d":0.0,
+	    "theta":-45.0,
+	    "limits":[-120,120]
+	  }
+  ]
+}

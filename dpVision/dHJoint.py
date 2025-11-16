@@ -107,7 +107,7 @@ class DHJoint(Transform):
         p1 = m1[:3, 3]
 
         self.description = f"begin: [{p0[0]:.2f}, {p0[1]:.2f}, {p0[2]:.2f}]\n end: [{p1[0]:.2f}, {p1[1]:.2f}, {p1[2]:.2f}]"
-        print(self.description)
+        # print(self.description)
 
     def renderAxes(self):
         gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)

@@ -48,36 +48,38 @@ class PropDHJoint(PropWidget):
 		self.dh_alpha_spinbox.blockSignals(True)
 		self.dh_alpha_slider.blockSignals(True)
 
-		self.dh_theta_spinbox.setMinimum(m_trans.theta_limits[0])
-		self.dh_theta_spinbox.setMaximum(m_trans.theta_limits[1])
+		self.dh_theta_spinbox.setMinimum(m_trans.theta_limits[0] if m_trans.theta_limits else -180.0)
+		self.dh_theta_spinbox.setMaximum(m_trans.theta_limits[1] if m_trans.theta_limits else 180.0)
 		self.dh_theta_spinbox.setValue(np.degrees(m_trans.theta))
 
-		self.dh_theta_slider.setMinimum(int(m_trans.theta_limits[0]*1000))
-		self.dh_theta_slider.setMaximum(int(m_trans.theta_limits[1]*1000))
+		self.dh_theta_slider.setMinimum(int(m_trans.theta_limits[0]*1000) if m_trans.theta_limits else -180000)
+		self.dh_theta_slider.setMaximum(int(m_trans.theta_limits[1]*1000) if m_trans.theta_limits else 180000)
 		self.dh_theta_slider.setValue(int(np.degrees(m_trans.theta)*1000))
 
-		self.dh_a_spinbox.setMinimum(m_trans.a_limits[0])
-		self.dh_a_spinbox.setMaximum(m_trans.a_limits[1])
+		default_a_limits = [0.0, 100.0]
+		self.dh_a_spinbox.setMinimum(m_trans.a_limits[0] if m_trans.a_limits else default_a_limits[0])
+		self.dh_a_spinbox.setMaximum(m_trans.a_limits[1] if m_trans.a_limits else default_a_limits[1])
 		self.dh_a_spinbox.setValue(m_trans.a)
 
-		self.dh_a_slider.setMinimum(int(m_trans.a_limits[0]*1000))
-		self.dh_a_slider.setMaximum(int(m_trans.a_limits[1]*1000))
+		self.dh_a_slider.setMinimum(int(m_trans.a_limits[0]*1000) if m_trans.a_limits else int(default_a_limits[0]*1000))
+		self.dh_a_slider.setMaximum(int(m_trans.a_limits[1]*1000) if m_trans.a_limits else int(default_a_limits[1]*1000))
 		self.dh_a_slider.setValue(int(m_trans.a * 1000))
 
-		self.dh_d_spinbox.setMinimum(m_trans.d_limits[0])
-		self.dh_d_spinbox.setMaximum(m_trans.d_limits[1])
+		default_d_limits = [-100.0, 100.0]	
+		self.dh_d_spinbox.setMinimum(m_trans.d_limits[0] if m_trans.d_limits else default_d_limits[0])
+		self.dh_d_spinbox.setMaximum(m_trans.d_limits[1] if m_trans.d_limits else default_d_limits[1])
 		self.dh_d_spinbox.setValue(m_trans.d)
 
-		self.dh_d_slider.setMinimum(int(m_trans.d_limits[0]*1000))
-		self.dh_d_slider.setMaximum(int(m_trans.d_limits[1]*1000))
+		self.dh_d_slider.setMinimum(int(m_trans.d_limits[0]*1000) if m_trans.d_limits else int(default_d_limits[0]*1000))
+		self.dh_d_slider.setMaximum(int(m_trans.d_limits[1]*1000) if m_trans.d_limits else int(default_d_limits[1]*1000))
 		self.dh_d_slider.setValue(int(m_trans.d * 1000))
 
-		self.dh_alpha_spinbox.setMinimum(m_trans.alpha_limits[0])
-		self.dh_alpha_spinbox.setMaximum(m_trans.alpha_limits[1])
+		self.dh_alpha_spinbox.setMinimum(m_trans.alpha_limits[0] if m_trans.alpha_limits else -180.0)
+		self.dh_alpha_spinbox.setMaximum(m_trans.alpha_limits[1] if m_trans.alpha_limits else 180.0)
 		self.dh_alpha_spinbox.setValue(np.degrees(m_trans.alpha))
 
-		self.dh_alpha_slider.setMinimum(int(m_trans.alpha_limits[0]*1000))
-		self.dh_alpha_slider.setMaximum(int(m_trans.alpha_limits[1]*1000))
+		self.dh_alpha_slider.setMinimum(int(m_trans.alpha_limits[0]*1000) if m_trans.alpha_limits else -180000)
+		self.dh_alpha_slider.setMaximum(int(m_trans.alpha_limits[1]*1000) if m_trans.alpha_limits else 180000)
 		self.dh_alpha_slider.setValue(int(np.degrees(m_trans.alpha)*1000))
 		
 		self.dh_d_slider.setEnabled(m_trans.d_variable or self.dh_d_checkbox.isChecked())

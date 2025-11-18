@@ -19,4 +19,5 @@ if __name__ == "__main__":
 
 	for j in m['joints']:
 		print(f"Joint {j['name']}: parent={j['parent_joint']}, a={j['a']}, alpha={j['alpha']}, d={j['d']}, theta={j['theta']}")
+		print(f"      type: {j['type']}, limits: {j['limits']}")
 

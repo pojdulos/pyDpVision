@@ -33,6 +33,29 @@ class Object(BaseObject):
 
 		return [kid for kid in self.m_data if isinstance(kid, types)]
 
+	def children_by_label(self, label, case_sensitive=True, types=tuple()):
+		results = []
+		
+		label = label.lower() if not case_sensitive else label
+		self_label = self.label.lower() if not case_sensitive else self.label
+
+		if self_label == label:
+			results.append(self)
+
+		for kid in self.m_data:
+			kid_label = kid.label.lower() if not case_sensitive else kid.label
+
+			if issubclass(type(kid), Object) or isinstance(kid, Object):
+				results.extend( kid.children_by_label(label, case_sensitive, types) )
+			else:
+				if kid_label == label:
+					results.append(kid)
+
+		if types:
+			results = [kid for kid in results if isinstance(kid, types)]
+
+		return results
+
 
 	def addChild(self, d):
 		if d is None or not issubclass(type(d), BaseObject):

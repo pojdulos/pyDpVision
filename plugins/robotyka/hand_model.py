@@ -1,22 +1,22 @@
 simple_model = {
-	'joint1' : {
-		'theta_deg' : 45.0,
-		'd' : 10.0,
-		'a' : 5.0,
-		'alpha_deg' : 30.0,
-		'theta_variable' : True,
-		'd_variable' : False,
-		'parent_joint' : None,
-	},
-	'joint2' : {
-		'theta_deg' : 30.0,
-		'd' : 15.0,
-		'a' : 10.0,
-		'alpha_deg' : 45.0,
-		'theta_variable' : True,
-		'd_variable' : False,
-		'parent_joint' : "joint1",
-	}
+    'joint1' : {
+        'theta_deg' : 45.0,
+        'd' : 10.0,
+        'a' : 5.0,
+        'alpha_deg' : 30.0,
+        'theta_variable' : True,
+        'd_variable' : False,
+        'parent_joint' : None,
+    },
+    'joint2' : {
+        'theta_deg' : 30.0,
+        'd' : 15.0,
+        'a' : 10.0,
+        'alpha_deg' : 45.0,
+        'theta_variable' : True,
+        'd_variable' : False,
+        'parent_joint' : "joint1",
+    }
 }
 
 hand_model = {
@@ -31,39 +31,39 @@ hand_model = {
         'parent_joint': None,
     },
     
-	# ---- KCIUK: propozycja z dwoma zero-length jointami CMC ----
-	'thumb_base': {
-		# baza - teraz tylko pozycjonowanie i drobny obrót początkowy
-		'theta_deg': -25.0,   # lekkie odchylenie z góry (możesz dopasować)
-		'd': 5.0,
-		'a': 18.0,            # przesunięcie od nadgarstka (rozstaw)
-		'alpha_deg': 65.0,     # ustawiamy alpha=0 — orientację zrobią kolejne zero-lengthy
-		'theta_variable': False,
-		'd_variable': False,
-		'parent_joint': 'wrist',
-	},
+    # ---- KCIUK: propozycja z dwoma zero-length jointami CMC ----
+    'thumb_base': {
+        # baza - teraz tylko pozycjonowanie i drobny obrót początkowy
+        'theta_deg': -25.0,   # lekkie odchylenie z góry (możesz dopasować)
+        'd': 5.0,
+        'a': 18.0,            # przesunięcie od nadgarstka (rozstaw)
+        'alpha_deg': 65.0,     # ustawiamy alpha=0 — orientację zrobią kolejne zero-lengthy
+        'theta_variable': False,
+        'd_variable': False,
+        'parent_joint': 'wrist',
+    },
 
-	'thumb_cmc_abd': {
-		# zero-length joint - abdukcja/addukcja (ruch na boki)
-		'theta_deg': 0.0,
-		'd': 0.0,
-		'a': 0.0,
-		'alpha_deg': 0.0,     # brak tilt — oś obrotu = local Z
-		'theta_variable': True,   # sterujemy tym w animacji (odstawienie kciuka)
-		'd_variable': False,
-		'parent_joint': 'thumb_base',
-	},
+    'thumb_cmc_abd': {
+        # zero-length joint - abdukcja/addukcja (ruch na boki)
+        'theta_deg': 0.0,
+        'd': 0.0,
+        'a': 0.0,
+        'alpha_deg': 0.0,     # brak tilt — oś obrotu = local Z
+        'theta_variable': True,   # sterujemy tym w animacji (odstawienie kciuka)
+        'd_variable': False,
+        'parent_joint': 'thumb_base',
+    },
 
-	'thumb_cmc_flex': {
-		# zero-length joint - flexion; tu ustawiamy alpha tak, aby oś zginania była "właściwa"
-		'theta_deg': 0.0,
-		'd': 0.0,
-		'a': 0.0,
-		'alpha_deg': 90.0,    # obrót o 90° tak, by następny joint zginął w płaszczyźnie palców
-		'theta_variable': True,   # to główny DOF zginania kciuka
-		'd_variable': False,
-		'parent_joint': 'thumb_cmc_abd',
-	},
+    'thumb_cmc_flex': {
+        # zero-length joint - flexion; tu ustawiamy alpha tak, aby oś zginania była "właściwa"
+        'theta_deg': 0.0,
+        'd': 0.0,
+        'a': 0.0,
+        'alpha_deg': 90.0,    # obrót o 90° tak, by następny joint zginął w płaszczyźnie palców
+        'theta_variable': True,   # to główny DOF zginania kciuka
+        'd_variable': False,
+        'parent_joint': 'thumb_cmc_abd',
+    },
     'thumb_proximal': {
         'theta_deg': 0.0,
         'd': 0.0,
@@ -236,3 +236,59 @@ hand_model = {
         'parent_joint': 'pinky_middle',
     },
 }
+
+
+# if __name__ == "__main__":
+#     import json
+
+#     result = {
+#         'meta': {
+#             'angle_unit': 'deg',
+#             'length_unit': 'mm',
+#             'convention': 'classical',
+#             'version': '1.0'
+#         },
+#         'joints': []
+#     }
+
+#     for key, value in hand_model.items():
+#         joint = {}
+#         joint['name'] = key
+#         joint['type'] = 'revolute' if value.get('theta_variable',False) else 'prismatic' if value.get('d_variable',False) else 'fixed'
+#         joint['parent_joint'] = value.get('parent_joint', None)
+#         joint['theta'] = value.get('theta_deg', 0.0)
+#         joint['d'] = value.get('d', 0.0)
+#         joint['a'] = value.get('a', 0.0)
+#         joint['alpha'] = value.get('alpha_deg', 0.0)
+#         limits = value.get('theta_limits', None) if joint['type']=='revolute' else value.get('d_limits', None) if joint['type']=='prismatic' else None
+#         if limits:
+#             joint['limits'] = limits
+#         result['joints'].append(joint)
+    
+#     print(f"{result}")
+        
+#     json.dump(result, open("hand_model.json","w"), indent=4)
+
+if __name__ == "__main__":
+    import json, jsonschema, os
+    schema_filename = "dhjoint_schema.json"
+    try:
+        schema = open(schema_filename).read()
+    except FileNotFoundError:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        try:
+            schema = open(os.path.join(script_dir, schema_filename)).read()
+        except FileNotFoundError:
+            raise FileNotFoundError(f"File {schema_filename} not found in the current directory or script directory.")
+
+    model_filename = "hand_model.json"
+    try:
+        model = open(model_filename).read()
+    except FileNotFoundError:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        try:
+            model = open(os.path.join(script_dir, model_filename)).read()
+        except FileNotFoundError:
+            raise FileNotFoundError(f"File {model_filename} not found in the current directory or script directory.")
+
+    jsonschema.validate(instance=json.loads(model), schema=json.loads(schema))

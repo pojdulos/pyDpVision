@@ -40,13 +40,18 @@ class DHJoint(Transform):
     """
 
     def __init__(self, angle_unit='deg', theta=0.0, d=0.0, a=0.0, alpha=0.0,
-                joint_type='R', theta_variable=True, d_variable=False,
+                joint_type='revolute', theta_variable=True, d_variable=False,
                 parent=None, name=None):
 
-        self.alpha_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
-        self.theta_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
-        self.a_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
-        self.d_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
+        # self.alpha_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
+        # self.theta_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
+        # self.a_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
+        # self.d_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
+
+        self.alpha_limits = None
+        self.theta_limits = None
+        self.a_limits = None
+        self.d_limits = None
 
         # przechowuj wewnętrznie w radianach
         self.theta = math.radians(theta) if angle_unit == 'deg' else float(theta)
@@ -54,14 +59,14 @@ class DHJoint(Transform):
         self.a = float(a)
         self.alpha = math.radians(alpha) if angle_unit == 'deg' else float(alpha)
 
-        if joint_type and joint_type in ('R','P','F'):
+        if joint_type and joint_type in ('revolute','prismatic','fixed'):
             self.joint_type = joint_type
-            self.theta_variable = (joint_type=='R')
-            self.d_variable = (joint_type=='P') 
+            self.theta_variable = (joint_type=='revolute')
+            self.d_variable = (joint_type=='prismatic') 
         else:
             self.theta_variable = bool(theta_variable) if theta_variable is not None else True
             self.d_variable = bool(d_variable) if d_variable is not None else False
-            self.joint_type = 'R' if self.theta_variable else 'P' if self.d_variable else 'F'
+            self.joint_type = 'revolute' if self.theta_variable else 'prismatic' if self.d_variable else 'fixed'
 
         self.view_as_vector = True  # czy renderować joint jako wektor (linia od origin do pozycji jointu)
 
@@ -79,14 +84,14 @@ class DHJoint(Transform):
         #self.updateMatrix()
         # niepotrzebne bo konstruktor Transform wywołał updateMatrix()
 
-    def create(self, type='R'):
-        joint = DHJoint( joint_type = type if type in ('R','P','F') else 'R' )
+    def create(self, type='revolute'):
+        joint = DHJoint( joint_type = type if type in ('revolute','prismatic','fixed') else 'revolute' )
         return joint
 
-    def set_type(self, type='R'):
-        self.joint_type = type if type in ('R','P','F') else 'R'
-        self.d_variable = (self.joint_type == 'P')
-        self.theta_variable = (self.joint_type == 'R')
+    def set_type(self, type='revolute'):
+        self.joint_type = type if type in ('revolute','prismatic','fixed') else 'revolute'
+        self.d_variable = (self.joint_type == 'prismatic')
+        self.theta_variable = (self.joint_type == 'revolute')
 
     # nadpisujemy updateMatrix tak, by ustawić macierz zgodnie z DH
     def updateMatrix(self):
@@ -152,12 +157,12 @@ class DHJoint(Transform):
         c0 = [255,255,0,255]    # kropka w węźle
 
         if not self.view_as_vector:
-            if self.joint_type == 'R':
+            if self.joint_type == 'revolute':
                 p1 = [0.0, 0.0, p2[2]]
-            elif self.joint_type == 'P':
+            elif self.joint_type == 'prismatic':
                 p1 = [p2[0], 0.0, 0.0]
         
-        if self.joint_type == 'F':
+        if self.joint_type == 'fixed':
             c2 = c1
 
         
@@ -194,30 +199,30 @@ class DHJoint(Transform):
 
     # settery/utility
     def set_theta_deg(self, val_deg):
-        val = max( self.theta_limits[0], min( self.theta_limits[1], float(val_deg) ) )
+        val = max( self.theta_limits[0], min( self.theta_limits[1], float(val_deg) ) ) if self.theta_limits else float(val_deg)
         self.theta = math.radians(float(val))
         self.updateMatrix()
 
     def set_theta_rad(self, val_rad):
-        val = max( math.radians(self.theta_limits[0]), min( math.radians(self.theta_limits[1]), float(val_rad) ) )
+        val = max( math.radians(self.theta_limits[0]), min( math.radians(self.theta_limits[1]), float(val_rad) ) ) if self.theta_limits else float(val_rad)
         self.theta = float(val)
         self.updateMatrix()
 
     def set_d(self, val):
-        self.d = max( self.d_limits[0], min( self.d_limits[1], float(val) ) )
+        self.d = max( self.d_limits[0], min( self.d_limits[1], float(val) ) ) if self.d_limits else float(val)
         self.updateMatrix()
 
     def set_a(self, val):
-        self.a = max( self.a_limits[0], min( self.a_limits[1], float(val) ) )
+        self.a = max( self.a_limits[0], min( self.a_limits[1], float(val) ) ) if self.a_limits else float(val)
         self.updateMatrix()
 
     def set_alpha_deg(self, val_deg):
-        val = max( self.alpha_limits[0], min( self.alpha_limits[1], float(val_deg) ) )
+        val = max( self.alpha_limits[0], min( self.alpha_limits[1], float(val_deg) ) ) if self.alpha_limits else float(val_deg) 
         self.alpha = math.radians(float(val))
         self.updateMatrix()
 
     def set_alpha_rad(self, val_rad):
-        val = max( math.radians(self.alpha_limits[0]), min( math.radians(self.alpha_limits[1]), float(val_rad) ) )
+        val = max( math.radians(self.alpha_limits[0]), min( math.radians(self.alpha_limits[1]), float(val_rad) ) ) if self.alpha_limits else float(val_rad) 
         self.alpha = float(val)
         self.updateMatrix()
 
@@ -266,3 +271,69 @@ class DHJoint(Transform):
         axis = np.array([0., 0., 1.])
         return fixed, axis
 
+    def to_dict(self, angle_unit='deg'):
+        parent_joint = self.parent.label if self.parent else None
+        limits = self.theta_limits if self.joint_type=='revolute' else self.d_limits if self.joint_type=='prismatic' else None
+
+        jd = {'name': self.label if self.label else '',
+              'type': self.joint_type,
+              'parent_joint': parent_joint,
+             }
+        dh_params = self.to_dh_row(degrees=(angle_unit=='deg'))
+        jd.update(dh_params)
+
+        if limits:
+            jd['limits'] = limits
+
+        return jd
+    
+    def subtree_to_dict(self, angle_unit='deg'):
+        jd = [ self.to_dict(angle_unit=angle_unit) ]
+        for child in self.children():
+            if isinstance(child, DHJoint):
+                jd.extend( child.subtree_to_dict(angle_unit=angle_unit) )
+        return jd
+    
+    def subtree_to_json(self, angle_unit='deg'):
+        import json
+        jd = self.subtree_to_dict(angle_unit=angle_unit)
+        return json.dumps(jd, indent=4)
+    
+    def export_subtree(self, filename):
+        import json
+        joints = self.subtree_to_dict(angle_unit='deg')
+        meta = {
+            'angle_unit': 'deg',
+            'convention': 'classical',
+            'length_unit': 'mm',
+            'version': '1.0'
+        }
+        jd = {'meta': meta, 'joints': joints}
+        
+        with open(filename, 'w') as f:
+            json.dump(jd, f, indent=4)
+
+    @classmethod
+    def from_dict(cls, jd, joints_dict=None, angle_unit='deg'):
+        joint = DHJoint(
+            joint_type=jd.get('type','revolute'),
+            angle_unit=angle_unit,
+            theta=jd.get('theta',0.0),
+            d=jd.get('d',0.0),
+            a=jd.get('a',0.0),
+            alpha=jd.get('alpha',0.0),
+            name=jd.get('name',None)
+        )
+
+        limits = jd.get('limits', None)
+        if limits:
+            if joint.joint_type=='revolute':
+                joint.theta_limits = limits
+            elif joint.joint_type=='prismatic':
+                joint.d_limits = limits
+
+        if joints_dict is not None:
+            joints_dict[joint.label] = joint
+
+        return joint    
+    

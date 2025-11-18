@@ -70,7 +70,9 @@ def prepare_animation(joints, poses, duration_ms=800, fps=30, loop=True):
     for p in poses:
         for name in list(p.keys()):
             if name not in all_joint_names:
-                raise KeyError(f"Pose zawiera nieznany joint: {name}")
+                # raise KeyError(f"Pose zawiera nieznany joint: {name}")
+                print(f"Pose zawiera nieznany joint: {name}")
+                return None
 
     # wewnętrzny stan animacji
     state = {
@@ -185,7 +187,6 @@ def prepare_animation(joints, poses, duration_ms=800, fps=30, loop=True):
     state['t0'] = time.time()
     timer.timeout.connect(on_tick)
     return timer  # zwróć timer, żeby caller mógł go zatrzymać: timer.stop()
-
 
 
 # poses: lista keyframe'ów; wartości kątów w stopniach (theta). 

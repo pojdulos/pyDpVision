@@ -56,6 +56,9 @@ class ContextMenu(QMenu):
 
 	def create_dhjoint_menu(self):
 		menu = QMenu("dh joint...", self)
+		action = QAction("export subtree", self)
+		action.triggered.connect(self.export_subtree)
+		menu.addAction(action)
 		action = QAction("view as vector", self)
 		action.triggered.connect(
 			lambda: (
@@ -123,6 +126,12 @@ class ContextMenu(QMenu):
 			)
 		add_menu.addAction(action)
 		return menu
+
+	def export_subtree(self):
+		fileName = QFileDialog.getSaveFileName( self, "Save File", "", "*.json")
+		
+		if fileName[0] != '':
+			self.m_obj.export_subtree(fileName[0])
 
 	def create_point_cloud_menu(self):
 		menu = QMenu("point cloud...", self)

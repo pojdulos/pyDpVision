@@ -47,7 +47,12 @@ class DHModel(Object):
 			return False
 		
 		if isinstance(link, str):
-			name = link # we should first check if this name already exists in structure
+			name = link
+
+			found = self.children_by_label(name, types=(DHLink,))
+			if found:
+				print(f"DHModel: link with name '{name}' already exists.")
+				return False
 			
 			link = DHLink()
 			link.label = name
@@ -57,39 +62,17 @@ class DHModel(Object):
 			
 		if parent_joint is not None:
 			if isinstance(parent_joint, DHJoint):
-				if parent_joint.parent is None or parent_joint.parent not in self.m_data:
-					# it should works with infinite recursion...
-					print("DHModel: parent_joint does not belong to this DHModel.")
+				found = self.children_by_label(parent_joint.label, types=(DHJoint,))
+				if not found:
+					print("DHModel: parent_joint not found in this DHModel.")
 					return False
-				else:
-					parent_joint.addChild( link )
-
+				return parent_joint.addChild( link )
 			elif isinstance(parent_joint, str):
-				# find joint by name
-				found = False
-				for link_candidate in self.m_data:
-					for joint_candidate in link_candidate.children():
-						if joint_candidate.name == parent_joint:
-							parent_joint = joint_candidate
-							found = True
-							break
-					if found:
-						break
+				found = self.children_by_label(parent_joint, types=(DHJoint,))
 				if not found:
 					print(f"DHModel: parent_joint with name '{parent_joint}' not found.")
 					return False
-			else:
-				print("DHModel: parent_joint should be DHJoint instance or its name (string).")
-				return False
-			
-
-			parent_link = parent_joint.parent
-			if parent_link is None or not isinstance(parent_link, DHLink):
-				print("DHModel: parent_joint does not belong to a valid DHLink.")
-				return False
-			if parent_link not in self.m_data:
-				print("DHModel: parent_link is not part of this DHModel.")
-				return False
-			parent_link.addChild( link )
-			return True	
+				parent_joint = found[0]
+				return parent_joint.addChild( link )
+					
 		return super( DHModel, self ).addChild( link )

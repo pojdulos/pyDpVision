@@ -19,7 +19,7 @@ class Object(BaseObject):
 	def children(self):
 		return self.m_data
 	
-	def children_by_type(self, types):
+	def types_to_tuple(self, types):
 		# Jeśli to pojedynczy typ (np. GridData64)
 		if isinstance(types, type):
 			types = (types,)
@@ -31,27 +31,26 @@ class Object(BaseObject):
 				# np. jak poda ktoś int albo obiekt nieiterowalny
 				types = (types,)
 
+		return types
+	
+	def children_by_type(self, types):
+		types = self.types_to_tuple(types)
 		return [kid for kid in self.m_data if isinstance(kid, types)]
 
-	def children_by_label(self, label, case_sensitive=True, types=tuple()):
-		results = []
-		
+	def children_by_label(self, label, case_sensitive=True, types=None):
 		label = label.lower() if not case_sensitive else label
-		self_label = self.label.lower() if not case_sensitive else self.label
-
-		if self_label == label:
-			results.append(self)
-
+		results = []
 		for kid in self.m_data:
 			kid_label = kid.label.lower() if not case_sensitive else kid.label
+			if kid_label == label:
+				results.append(kid)
 
 			if issubclass(type(kid), Object) or isinstance(kid, Object):
+				# Rekurencyjne przeszukiwanie dzieci
 				results.extend( kid.children_by_label(label, case_sensitive, types) )
-			else:
-				if kid_label == label:
-					results.append(kid)
 
 		if types:
+			types = self.types_to_tuple(types)
 			results = [kid for kid in results if isinstance(kid, types)]
 
 		return results

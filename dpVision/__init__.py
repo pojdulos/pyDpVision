@@ -9,6 +9,7 @@ from .annotationSphere import AnnotationSphere
 from .annotationTriangle import AnnotationTriangle
 from .baseObject import BaseObject
 from .dHJoint import DHJoint
+from .dHModel import DHModel, DHLink
 from .globals import Globals, AP
 from .gridData64 import GridData64
 from .image import Image
@@ -32,7 +33,7 @@ __all__ = [
 			"Annotation", #"AnnotationEdge",
 			"AnnotationPath", "AnnotationPlane", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
 		    "BaseObject",
-			"DHJoint",
+			"DHJoint", "DHModel", "DHLink",
 			"Globals", "AP",
 			"GridData64",
 			"Image",

@@ -48,11 +48,21 @@ class ContextMenu(QMenu):
 			elif self.m_obj.hasType('DHJoint'):
 				self.addSeparator()
 				self.addMenu(self.create_dhjoint_menu())
+			elif self.m_obj.hasType('DHModel'):
+				self.addSeparator()
+				self.addMenu(self.create_dhmodel_menu())
 
 		self.addSeparator()
 		action = QAction("Refresh tree", self)
 		action.triggered.connect(self.refreshTree)
 		self.addAction(action)
+
+	def create_dhmodel_menu(self):
+		menu = QMenu("dh model...", self)
+		action = QAction("export subtree", self)
+		action.triggered.connect(self.export_DHModel)
+		menu.addAction(action)
+		return menu
 
 	def create_dhjoint_menu(self):
 		menu = QMenu("dh joint...", self)
@@ -132,6 +142,13 @@ class ContextMenu(QMenu):
 		
 		if fileName[0] != '':
 			self.m_obj.export_subtree(fileName[0])
+
+	def export_DHModel(self):
+		fileName = QFileDialog.getSaveFileName( self, "Save File", "", "*.json")
+		dict = self.m_obj.subtree_to_dict()
+		with open(fileName[0], 'w') as f:
+			import json
+			json.dump(dict, f, indent=4)
 
 	def create_point_cloud_menu(self):
 		menu = QMenu("point cloud...", self)

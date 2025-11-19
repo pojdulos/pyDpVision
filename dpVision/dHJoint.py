@@ -43,21 +43,21 @@ class DHJoint(Transform):
                 joint_type='revolute', theta_variable=True, d_variable=False,
                 parent=None, name=None):
 
-        # self.alpha_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
-        # self.theta_limits = [-180.0, 180.0]  # domyślne ograniczenia kątów w stopniach
-        # self.a_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
-        # self.d_limits = [-100.0, 100.0]      # domyślne ograniczenia długości w jednostkach
-
         self.alpha_limits = None
         self.theta_limits = None
         self.a_limits = None
         self.d_limits = None
 
+        self.angle_unit = angle_unit if angle_unit in ('deg','rad') else 'deg'
+        self.length_unit = "mm" # {"type":"string"},
+        self.convention = "classical" # {"type":"string","enum":["classical","modified"]}
+        self.scheme = "urdf-like" # {"type":"string","enum":["joints-only","urdf-like"]}
+        
         # przechowuj wewnętrznie w radianach
-        self.theta = math.radians(theta) if angle_unit == 'deg' else float(theta)
+        self.theta = math.radians(theta) if self.angle_unit == 'deg' else float(theta)
         self.d = float(d)
         self.a = float(a)
-        self.alpha = math.radians(alpha) if angle_unit == 'deg' else float(alpha)
+        self.alpha = math.radians(alpha) if self.angle_unit == 'deg' else float(alpha)
 
         if joint_type and joint_type in ('revolute','prismatic','fixed'):
             self.joint_type = joint_type
@@ -92,6 +92,19 @@ class DHJoint(Transform):
         self.joint_type = type if type in ('revolute','prismatic','fixed') else 'revolute'
         self.d_variable = (self.joint_type == 'prismatic')
         self.theta_variable = (self.joint_type == 'revolute')
+
+    def addChild(self, d):
+        from dpVision.dHModel import DHLink
+        if d is None or not isinstance(d, DHLink):
+            print("DHJoint: only DHLink instances can be added as children.")
+            return False
+        
+        # Joint może mieć tylko jedno dziecko (link)
+        # if len(self.m_data) > 0:
+        #     print("DHJoint: can have only one child link. Remove existing child first.")
+        #     return False
+        
+        return super(DHJoint, self).addChild(d)
 
     # nadpisujemy updateMatrix tak, by ustawić macierz zgodnie z DH
     def updateMatrix(self):
@@ -271,21 +284,27 @@ class DHJoint(Transform):
         axis = np.array([0., 0., 1.])
         return fixed, axis
 
-    def to_dict(self, angle_unit='deg'):
-        parent_joint = self.parent.label if self.parent else None
+    def to_dict(self, angle_unit='deg', urdf_like=True):
         limits = self.theta_limits if self.joint_type=='revolute' else self.d_limits if self.joint_type=='prismatic' else None
 
-        jd = {'name': self.label if self.label else '',
-              'type': self.joint_type,
-              'parent_joint': parent_joint,
-             }
+        joint = {
+            'name': self.label if self.label else '',
+            'type': self.joint_type,
+        }
+        
+        if urdf_like:
+            joint['parent'] = self.parent.label if self.parent else None
+            joint['child'] = self.children()[0].label if self.children() else None
+        else:
+            joint['parent_joint'] = self.parent.parent.label if self.parent and self.parent.parent else None
+
         dh_params = self.to_dh_row(degrees=(angle_unit=='deg'))
-        jd.update(dh_params)
+        joint.update(dh_params)
 
         if limits:
-            jd['limits'] = limits
+            joint['limits'] = limits
 
-        return jd
+        return joint
     
     def subtree_to_dict(self, angle_unit='deg'):
         jd = [ self.to_dict(angle_unit=angle_unit) ]

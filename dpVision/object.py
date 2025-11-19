@@ -45,7 +45,8 @@ class Object(BaseObject):
 			if kid_label == label:
 				results.append(kid)
 
-			if issubclass(type(kid), Object) or isinstance(kid, Object):
+			# if issubclass(type(kid), Object) or isinstance(kid, Object):
+			if isinstance(kid, Object):
 				# Rekurencyjne przeszukiwanie dzieci
 				results.extend( kid.children_by_label(label, case_sensitive, types) )
 
@@ -64,21 +65,23 @@ class Object(BaseObject):
 			d.parent.removeChild(d)
 		d.parent = self
 		self.m_data.append( d )
-
+		self._dirty = True
 		return True
 
 	def removeChild(self, child=None):
 		if child is None and len(self.m_data):
 			self.m_data.remove(self.m_data[0])
+			self._dirty = True
 		elif child in self.m_data:
 			self.m_data.remove(child)
+			self._dirty = True
 
 	def renderKids(self):
 		for child in self.m_data:
 			child.render()
 			
 	def getBB(self):
-		return False, None, None
+		# return False, None, None
 		if not self._dirty and self._cached_bb is not None:
 			return self._cached_bb
 

@@ -10,7 +10,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 from dpVision import AP, PluginInterface
-from dpVision import AP, DHJoint
+from dpVision import AP, DHJoint, DHModel, DHLink
 
 class Robotyka(PluginInterface):
 	def __init__(self):
@@ -160,17 +160,18 @@ class Robotyka(PluginInterface):
 		# for key, value in m['meta'].items():
 		# 	print(f"{key}: {value}")
 
-		angle_unit = m['meta'].get('angle_unit','deg')
-		convention = m['meta'].get('convention','classical')
-		scheme = m['meta'].get('scheme','joints-only')
-		length_unit = m['meta'].get('length_unit','mm')
-		version = m['meta'].get('version','1.0')
+		model = DHModel()
+		model.angle_unit = m['meta'].get('angle_unit','deg')
+		model.convention = m['meta'].get('convention','classical')
+		# model.scheme = m['meta'].get('scheme','joints-only')
+		model.length_unit = m['meta'].get('length_unit','mm')
+		# model.version = m['meta'].get('version','1.0')
 
 		joints = {}
 		for j in m['joints']:
 			joint = DHJoint(
 						joint_type=j['type'],
-				    	angle_unit=angle_unit,
+				    	angle_unit=model.angle_unit,
 						theta=j['theta'],
 						d=j['d'],
 						a=j['a'],
@@ -188,15 +189,12 @@ class Robotyka(PluginInterface):
 			joints[j['name']] = joint
 
 		# Ustaw rodziców
-		model = []
+		# model = []
 		for j in m['joints']:
 			joint = joints[j['name']]
 			parent_name = j['parent_joint']
-			if not parent_name is None and parent_name in joints:
-				parent_joint = joints[parent_name]
-				parent_joint.addChild(joint)
-			else:
-				model.append(joint)
+			parent_joint = joints.get(parent_name, None) if parent_name else None 
+			model.add_joint(joint, parent_joint)
 		return model
 
 	def load_JSON_model(self, filename):
@@ -217,6 +215,7 @@ class Robotyka(PluginInterface):
 		if filename:
 			model_data = self.load_JSON_model(filename)
 			model = self.build_model(model_data)
-			for joint in model:
-				AP.addObject(joint)
+			# for joint in model:
+			# 	AP.addObject(joint)
+			AP.addObject(model)
 			AP.updateAllViews()

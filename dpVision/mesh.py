@@ -214,12 +214,26 @@ class Mesh(PointCloud):
 		pB = self.m_vertices[self.m_faces[:, 1]]
 		pC = self.m_vertices[self.m_faces[:, 2]]
 
-		# Obliczanie wektorów tworzących ściany
-		vAB = pB - pA
-		vAC = pC - pA
+		# # Obliczanie wektorów tworzących ściany
+		# vAB = pB - pA
+		# vAC = pC - pA
 
-		# Obliczanie normalnych za pomocą iloczynu wektorowego
+		# # Obliczanie normalnych za pomocą iloczynu wektorowego
+		# normals = np.cross(vAB, vAC)
+
+		vAB = self.m_vertices[self.m_faces[:, 1]] - self.m_vertices[self.m_faces[:, 0]]
+		vAC = self.m_vertices[self.m_faces[:, 2]] - self.m_vertices[self.m_faces[:, 0]]
+
+		# Debugging shapes
+		print("vAB shape:", vAB.shape)
+		print("vAC shape:", vAC.shape)
+
+		# Ensure shapes are valid for cross product
+		if vAB.shape[-1] not in (2, 3) or vAC.shape[-1] not in (2, 3):
+			raise ValueError("vAB and vAC must be 2D or 3D vectors")
+
 		normals = np.cross(vAB, vAC)
+
 
 		if not weighted:
 			normals_lengths = np.linalg.norm(normals, axis=1)

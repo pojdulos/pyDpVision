@@ -20,9 +20,9 @@ class ParserNRRD(Parser):
 		volum.m_volume = sitk.GetArrayFromImage(image)
 		volum.shape = volum.m_volume.shape
 
-		origin = image.GetOrigin()
-		size = image.GetSize()
-		spacing = image.GetSpacing()
+		origin = list(image.GetOrigin())
+		size = list(image.GetSize())
+		spacing = list(image.GetSpacing())
 
 		for idx in range(size[2]):
 			slice_metadata = SliceMetadata()

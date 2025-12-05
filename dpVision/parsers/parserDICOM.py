@@ -57,8 +57,8 @@ class ParserDICOM(Parser):
 
 		for idx, file in enumerate(dicom_files):
 			slice_metadata = SliceMetadata()
-			slice_metadata.image_position_patient = getattr(file, 'ImagePositionPatient', [0.0, 0.0, idx])
-			slice_metadata.pixel_spacing = getattr(file, 'PixelSpacing', [1.0, 1.0])
+			slice_metadata.image_position_patient = [float(x) for x in getattr(file, 'ImagePositionPatient', [0.0, 0.0, idx])]
+			slice_metadata.pixel_spacing = [float(x) for x in getattr(file, 'PixelSpacing', [1.0, 1.0])]
 			
 			rows, cols = getattr(file, 'Rows'), getattr(file, 'Columns')
 			

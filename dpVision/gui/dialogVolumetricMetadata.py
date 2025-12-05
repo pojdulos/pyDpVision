@@ -48,6 +48,10 @@ class DialogVolumetricMetadata(QDialog):
 		self.input2 = QDoubleSpinBox(self)
 		self.input3 = QDoubleSpinBox(self)
 
+		self.input1.setRange(-1e6, 1e6)
+		self.input2.setRange(-1e6, 1e6)
+		self.input3.setRange(-1e6, 1e6)
+
 		self.input1.setValue(origin[0])
 		self.input2.setValue(origin[1])
 		self.input3.setValue(origin[2])
@@ -67,6 +71,14 @@ class DialogVolumetricMetadata(QDialog):
 		self.input4 = QDoubleSpinBox(self)
 		self.input5 = QDoubleSpinBox(self)
 		self.input6 = QDoubleSpinBox(self)
+
+		self.input4.setRange(0.0, 1e6)
+		self.input5.setRange(0.0, 1e6)
+		self.input6.setRange(0.0, 1e6)
+
+		self.input4.setDecimals(6)
+		self.input5.setDecimals(6)
+		self.input6.setDecimals(6)
 
 		self.input4.setValue(vsizeX)
 		self.input5.setValue(vsizeY)

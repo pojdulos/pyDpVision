@@ -209,7 +209,7 @@ class BaseObject(QObject):
 		bb = self.getBB()
 		if bb is not None:
 			_b, _min, _max = bb
-			if _b:
+			if _b and _min is not None and _max is not None:
 				self.drawBBwireframe(_min, _max, _color=(0.0, 1.0, 0.0))
 
 	def render(self):

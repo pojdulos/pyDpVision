@@ -89,14 +89,16 @@ class Object(BaseObject):
 		_min, _max = None, None
 
 		for kid in self.m_data:
-			kid_b, kid_min, kid_max = kid.getBB()
-			if kid_b:
-				if _min is None:
-					_min, _max = kid_min, kid_max
-				else:
-					_min = [min(m1, m2) for m1, m2 in zip(_min, kid_min)]
-					_max = [max(m1, m2) for m1, m2 in zip(_max, kid_max)]
-				_b = True
+			kid_bb = kid.getBB()
+			if kid_bb is not None:
+				kid_b, kid_min, kid_max = kid_bb
+				if kid_b:
+					if _min is None:
+						_min, _max = kid_min, kid_max
+					else:
+						_min = [min(m1, m2) for m1, m2 in zip(_min, kid_min)]
+						_max = [max(m1, m2) for m1, m2 in zip(_max, kid_max)]
+					_b = True
 
 		self._cached_bb = (_b, _min, _max)
 		self._dirty = False

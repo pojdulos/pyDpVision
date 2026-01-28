@@ -351,9 +351,6 @@ class GLViewer(QOpenGLWidget):
 		self.translate( 0.0, 0.0, -dy )
 
 	def draw3Dcontent(self):
-		glMatrixMode(GL_MODELVIEW)
-		glPushMatrix()
-
 		glClearColor(
 			self._fBgColor.redF(),
 			self._fBgColor.greenF(),
@@ -366,9 +363,6 @@ class GLViewer(QOpenGLWidget):
 		glLoadIdentity()
 		
 		self.render()
-	
-		glMatrixMode(GL_MODELVIEW)
-		glPopMatrix()
 
 	def render(self):
 		self.applyProjection()

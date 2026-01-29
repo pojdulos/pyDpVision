@@ -216,7 +216,7 @@ class GLViewer(QOpenGLWidget):
 			
 			# Rysuj kółko kursora pokazujące rozmiar pędzla
 			painter.setRenderHint(QPainter.Antialiasing)
-			pen = QPen(QColor(255, 255, 0, 200), 2, Qt.SolidLine)
+			pen = QPen(QColor(0, 255, 255, 128), 2, Qt.SolidLine)
 			painter.setPen(pen)
 			painter.setBrush(Qt.NoBrush)
 			radius = self.brush_size / 2.0
@@ -351,7 +351,21 @@ class GLViewer(QOpenGLWidget):
 
 		self.update()
 
-	
+	def drawSelectionPath(self, pos=None):
+		if self.selection_mode:
+			painter = QPainter(self.selection_pixmap)
+			painter.setRenderHint(QPainter.Antialiasing)
+			# Użyj CompositionMode_Source aby nie sumować alfa przy nakładaniu
+			painter.setCompositionMode(QPainter.CompositionMode_Source)
+			pen = QPen(QColor(0, 255, 255, 64), self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+			painter.setPen(pen)
+			if pos is not None:
+				if self.lastPos is not None:
+					painter.drawLine(self.lastPos, pos)
+				else:
+					painter.drawPoint(pos)
+			painter.end()
+				
 	def mouseMoveEvent(self, event):
 		# Zapisz pozycję kursora (dla rysowania kółka)
 		self.cursor_pos = event.pos()
@@ -359,20 +373,13 @@ class GLViewer(QOpenGLWidget):
 		if self.selection_mode and self.is_drawing_selection:
 			# Rysowanie ścieżki zaznaczenia
 			if self.lastPos is not None:
-				painter = QPainter(self.selection_pixmap)
-				painter.setRenderHint(QPainter.Antialiasing)
-				# Użyj CompositionMode_Source aby nie sumować alfa przy nakładaniu
-				painter.setCompositionMode(QPainter.CompositionMode_Source)
-				pen = QPen(QColor(255, 255, 0, 180), self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-				painter.setPen(pen)
-				painter.drawLine(self.lastPos, event.pos())
+				self.drawSelectionPath(event.pos())
 				
 				# Dodaj do ścieżki
 				if self.selection_path.isEmpty():
 					self.selection_path.moveTo(self.lastPos)
 				self.selection_path.lineTo(event.pos())
 				
-				painter.end()
 				self.update()
 			self.lastPos = event.pos()
 		elif self.selection_mode:
@@ -410,7 +417,10 @@ class GLViewer(QOpenGLWidget):
 	def mousePressEvent(self, event ):
 		if self.selection_mode and event.button() == Qt.MouseButton.LeftButton:
 			self.is_drawing_selection = True
+			self.lastPos = None
+			self.drawSelectionPath(event.pos())
 			self.lastPos = event.pos()
+			self.update()
 		else:
 			AP.mouse_key_pressed = True
 			self.lastPos = event.pos()
@@ -419,6 +429,7 @@ class GLViewer(QOpenGLWidget):
 	def mouseReleaseEvent(self, event ):
 		if self.selection_mode and event.button() == Qt.MouseButton.LeftButton:
 			self.is_drawing_selection = False
+			self.lastPos = None
 		else:
 			AP.mouse_key_pressed = False
 		self.update()
@@ -428,7 +439,7 @@ class GLViewer(QOpenGLWidget):
 			# W trybie zaznaczania - zmień grubość pędzla
 			dy = float(event.angleDelta().y())
 			if dy > 0:
-				self.brush_size = min(self.brush_size + 1, 50)  # Maksymalnie 50
+				self.brush_size = min(self.brush_size + 1, 300)  # Maksymalnie 50
 			else:
 				self.brush_size = max(self.brush_size - 1, 1)   # Minimalnie 1
 			self.update()

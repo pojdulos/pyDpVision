@@ -489,11 +489,29 @@ class MainWindow(QMainWindow):
 	def modelResetTransformations(self):
 		pass
 
+	@pyqtSlot()
 	def actionSelectVertex(self):
-		pass
+		"""Obsługa Select->Area (Shift+V) - włącza tryb zaznaczania obszaru"""
+		viewer = self.currentGLViewer()
+		if viewer:
+			viewer.enableSelectionMode()
+			# Upewnij się, że akcja jest zaznaczona
+			self.action_select_Vertex.setChecked(True)
+			self.action_select_None.setChecked(False)
 
+	@pyqtSlot()
 	def actionSelectFace(self):
 		pass
+	
+	@pyqtSlot()
+	def actionSelectNone(self):
+		"""Obsługa Select->None - wyłącza tryb zaznaczania i czyści zaznaczenie"""
+		viewer = self.currentGLViewer()
+		if viewer:
+			viewer.disableSelectionMode()
+			# Upewnij się, że akcja jest zaznaczona
+			self.action_select_None.setChecked(True)
+			self.action_select_Vertex.setChecked(False)
 
 	def saveWorkspace(self):
 		pass

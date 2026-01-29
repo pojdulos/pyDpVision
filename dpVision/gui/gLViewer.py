@@ -91,6 +91,14 @@ class GLViewer(QOpenGLWidget):
 	
 		self._projection = GLViewer.Projection.PERSPECTIVE
 
+		# Selection area mode
+		self.selection_mode = False
+		self.selection_pixmap = QPixmap()
+		self.selection_path = QPainterPath()
+		self.is_drawing_selection = False
+		self.brush_size = 5  # Grubość pędzla
+		self.cursor_pos = QPoint()  # Pozycja kursora dla rysowania kółka
+
 		self.transformChanged.connect(self.mainWindow.onCurrentObjectUpdated)
 		self.mouseMovedSignal.connect(AP.mainApp.onMouseMoveSlot)
 		self.mousePressedSignal.connect(AP.mainApp.onMousePressSlot)
@@ -200,12 +208,48 @@ class GLViewer(QOpenGLWidget):
 		# }
 	
 		# drawOverlays(painter);
+		
+		# Rysuj warstwę zaznaczenia jeśli aktywna
+		if self.selection_mode:
+			if not self.selection_pixmap.isNull():
+				painter.drawPixmap(0, 0, self.selection_pixmap)
+			
+			# Rysuj kółko kursora pokazujące rozmiar pędzla
+			painter.setRenderHint(QPainter.Antialiasing)
+			pen = QPen(QColor(255, 255, 0, 200), 2, Qt.SolidLine)
+			painter.setPen(pen)
+			painter.setBrush(Qt.NoBrush)
+			radius = self.brush_size / 2.0
+			painter.drawEllipse(self.cursor_pos, radius, radius)
+			
+			# Rysuj krzyżyk w środku
+			cross_size = 3
+			painter.drawLine(self.cursor_pos.x() - cross_size, self.cursor_pos.y(), 
+			                 self.cursor_pos.x() + cross_size, self.cursor_pos.y())
+			painter.drawLine(self.cursor_pos.x(), self.cursor_pos.y() - cross_size,
+			                 self.cursor_pos.x(), self.cursor_pos.y() + cross_size)
 	
 		painter.end()
 
 	def switchBB(self):
 		self.m_drawAxes = not self.m_drawAxes
 	
+	def enableSelectionMode(self):
+		"""Włącza tryb zaznaczania obszaru"""
+		self.selection_mode = True
+		self.selection_pixmap = QPixmap(self.size())
+		self.selection_pixmap.fill(Qt.transparent)
+		self.selection_path = QPainterPath()
+		self.is_drawing_selection = False
+		self.update()
+	
+	def disableSelectionMode(self):
+		"""Wyłącza tryb zaznaczania i czyści zaznaczenie"""
+		self.selection_mode = False
+		self.is_drawing_selection = False
+		self.selection_pixmap = QPixmap()
+		self.selection_path = QPainterPath()
+		self.update()
 
 	def applyProjection(self, projection=None):
 		if projection is not None:
@@ -309,7 +353,30 @@ class GLViewer(QOpenGLWidget):
 
 	
 	def mouseMoveEvent(self, event):
-		if self.lastPos is not None:
+		# Zapisz pozycję kursora (dla rysowania kółka)
+		self.cursor_pos = event.pos()
+		
+		if self.selection_mode and self.is_drawing_selection:
+			# Rysowanie ścieżki zaznaczenia
+			if self.lastPos is not None:
+				painter = QPainter(self.selection_pixmap)
+				painter.setRenderHint(QPainter.Antialiasing)
+				pen = QPen(QColor(255, 255, 0, 180), self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+				painter.setPen(pen)
+				painter.drawLine(self.lastPos, event.pos())
+				
+				# Dodaj do ścieżki
+				if self.selection_path.isEmpty():
+					self.selection_path.moveTo(self.lastPos)
+				self.selection_path.lineTo(event.pos())
+				
+				painter.end()
+				self.update()
+			self.lastPos = event.pos()
+		elif self.selection_mode:
+			# W trybie zaznaczania, ale nie rysujemy - odświeżamy dla kółka kursora
+			self.update()
+		elif self.lastPos is not None:
 			dx = float(event.pos().x()) - float(self.lastPos.x())
 			dy = float(event.pos().y()) - float(self.lastPos.y())
 
@@ -333,22 +400,40 @@ class GLViewer(QOpenGLWidget):
 				if obj is not None:
 					obj.on_mouse_move(dx, dy)
 
-		self.lastPos = event.pos()
+			self.lastPos = event.pos()
+		
 		self.mouseMovedSignal.emit((self, event))
 		
 
 	def mousePressEvent(self, event ):
-		AP.mouse_key_pressed = True
-		self.lastPos = event.pos()
+		if self.selection_mode and event.button() == Qt.MouseButton.LeftButton:
+			self.is_drawing_selection = True
+			self.lastPos = event.pos()
+		else:
+			AP.mouse_key_pressed = True
+			self.lastPos = event.pos()
 		self.mousePressedSignal.emit((self,event))
 
 	def mouseReleaseEvent(self, event ):
-		AP.mouse_key_pressed = False
+		if self.selection_mode and event.button() == Qt.MouseButton.LeftButton:
+			self.is_drawing_selection = False
+		else:
+			AP.mouse_key_pressed = False
 		self.update()
 
 	def wheelEvent(self, event):
-		dy = float(event.angleDelta().y())
-		self.translate( 0.0, 0.0, -dy )
+		if self.selection_mode:
+			# W trybie zaznaczania - zmień grubość pędzla
+			dy = float(event.angleDelta().y())
+			if dy > 0:
+				self.brush_size = min(self.brush_size + 1, 50)  # Maksymalnie 50
+			else:
+				self.brush_size = max(self.brush_size - 1, 1)   # Minimalnie 1
+			self.update()
+		else:
+			# Normalny zoom
+			dy = float(event.angleDelta().y())
+			self.translate( 0.0, 0.0, -dy )
 
 	def draw3Dcontent(self):
 		glClearColor(

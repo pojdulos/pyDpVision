@@ -388,11 +388,6 @@
     <string>All</string>
    </property>
   </action>
-  <action name="actionSelectNone">
-   <property name="text">
-    <string>None</string>
-   </property>
-  </action>
   <action name="actionRotationMode">
    <property name="checkable">
     <bool>true</bool>
@@ -1206,6 +1201,38 @@
    <signal>triggered()</signal>
    <receiver>MainWindow</receiver>
    <slot>bbShowHide()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>426</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>action_select_Vertex</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>actionSelectVertex()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>426</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>action_select_None</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>actionSelectNone()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>-1</x>

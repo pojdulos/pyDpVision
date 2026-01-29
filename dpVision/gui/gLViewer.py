@@ -361,6 +361,8 @@ class GLViewer(QOpenGLWidget):
 			if self.lastPos is not None:
 				painter = QPainter(self.selection_pixmap)
 				painter.setRenderHint(QPainter.Antialiasing)
+				# Użyj CompositionMode_Source aby nie sumować alfa przy nakładaniu
+				painter.setCompositionMode(QPainter.CompositionMode_Source)
 				pen = QPen(QColor(255, 255, 0, 180), self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
 				painter.setPen(pen)
 				painter.drawLine(self.lastPos, event.pos())

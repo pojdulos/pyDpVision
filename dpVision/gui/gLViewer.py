@@ -88,8 +88,19 @@ class GLViewer(QOpenGLWidget):
 	
 		self._near = 0.1
 		self._far = 100000.1
-	
+
+		# Bazowy rozmiar przestrzeni zainteresowania (w jednostkach świata).
+		# Steruje pozycją kamery, near/far i skalą ortho.
+		# setViewScale(200) → odtwarza domyślne ustawienia 1:1.
+		self._defaultViewSize = 15.0
+
+		# _fAspect potrzebny przez recalcView(); właściwa wartość ustawiana w resizeGL
+		self._fAspect = 1.0
+
 		self._projection = GLViewer.Projection.PERSPECTIVE
+
+		# Zastosuj domyślną skalę — ustawia kamerę, near/far, orthoViewSize
+		self.setViewScale(self._defaultViewSize)
 
 		# Selection area mode
 		self.selection_mode = False
@@ -165,6 +176,32 @@ class GLViewer(QOpenGLWidget):
 	
 		self._bottom = -self._top
 		self._left = -self._right
+
+	def setViewScale(self, size):
+		"""Dopasowuje widok kamery do sceny o podanym rozmiarze.
+
+		Parametry są dobrane tak, że setViewScale(200) odtwarza dokładnie
+		domyślne ustawienia, więc zmiana nie psuje istniejącego zachowania.
+
+		size : float
+		    Przybliżona średnica / bok obszaru zainteresowania w jednostkach
+		    świata.  Przykłady:
+		      • skan głowy (~250 mm)  → setViewScale(250)
+		      • próbka 10×10 mm       → setViewScale(10)
+		      • dane w skali [0,1]    → setViewScale(1)
+		"""
+		size = float(size)
+		self._camera.pos = [0.0, 0.0, size]          # kamera w odległości = size od środka
+		self._near       = max(0.001, size * 0.0005)  # 0.1   przy size=200
+		self._far        = size * 500.0               # 100000 przy size=200
+		self._dOrthoViewSize = max(1, round(size * 0.45))  # 90 przy size=200
+		self.recalcView()
+		self.update()
+
+	def resetView(self):
+		"""Przywraca kamerę i transformację sceny do stanu domyślnego."""
+		self.transform.reset()
+		self.setViewScale(self._defaultViewSize)
 
 
 	def resizeGL( self, w, h):
@@ -448,6 +485,15 @@ class GLViewer(QOpenGLWidget):
 			dy = float(event.angleDelta().y())
 			self.translate( 0.0, 0.0, -dy )
 
+	def _drainGLAttribStack(self):
+		"""Opróżnia stos atrybutów GL w przypadku niesparowanych Push/Pop
+		z poprzednich klatek (np. po wyjątkach w renderSelf obiektów)."""
+		while True:
+			try:
+				glPopAttrib()
+			except Exception:
+				break
+
 	def draw3Dcontent(self):
 		glClearColor(
 			self._fBgColor.redF(),
@@ -457,6 +503,10 @@ class GLViewer(QOpenGLWidget):
 
 		glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 	
+		# Wyczyść stos atrybutów GL przed każdą klatką
+		# (zabezpieczenie przed wyciekami stosu z poprzednich klatek)
+		self._drainGLAttribStack()
+
 		glMatrixMode(GL_PROJECTION)
 		glLoadIdentity()
 		
@@ -538,7 +588,11 @@ class GLViewer(QOpenGLWidget):
 			self.rysujOsie()
 		
 		# AP::getWorkspace()->render();
-		self.mainWindow.workspace.render()
+		try:
+			self.mainWindow.workspace.render()
+		finally:
+			# Upewnij się że stos attribs jest czysty po renderowaniu obiektów
+			self._drainGLAttribStack()
 	
 		# //rysujGimbal();
 	
@@ -589,7 +643,13 @@ class GLViewer(QOpenGLWidget):
 	
 		glEnable(GL_LINE_SMOOTH);
 	
+		# Skala osi proporcjonalna do rozmiaru sceny
+		# przy _defaultViewSize=200 → mnożnik=1.0 (zachowane oryginalne rozmiary)
+		axis_scale = self._defaultViewSize / 200.0
+		glPushMatrix()
+		glScalef(axis_scale, axis_scale, axis_scale)
 		self.triad3D( 0.1, 45.0, 0.4, 5.0, True )
+		glPopMatrix()
 		# if (m_drawAxes == AxesStyle_ARROWS)
 		# {
 		# 	triad3D( 0.1, 45.0, 0.4, 5.0, (AP::WORKSPACE::getCurrentModelId() < 0) );

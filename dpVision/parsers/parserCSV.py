@@ -85,13 +85,15 @@ def dataframe_to_grid(df, round_decimals=6, auto_unit=True):
     x = x * unit_scale
     y = y * unit_scale
 
+    z = z * unit_scale
+
     stepX = float(xs[-1] - xs[0]) / (len(xs)-1)
     stepY = float(ys[-1] - ys[0]) / (len(ys)-1)
     stepX = round(stepX, round_decimals)
     stepY = round(stepY, round_decimals)
 
     w, h = len(xs), len(ys)
-    grid = np.full((h, w), np.nan, dtype=np.float32)
+    grid = np.full((h, w), np.nan, dtype=np.float64)
 
     x_to_idx = {v:i for i,v in enumerate(xs)}
     y_to_idx = {v:i for i,v in enumerate(ys)}
@@ -118,7 +120,7 @@ def vertices_to_grid(vertices, round_decimals=6, auto_unit=True):
     xs = xs * unit_scale
     ys = ys * unit_scale
     vertices = vertices.copy()
-    vertices[:,0:2] *= unit_scale
+    vertices[:,0:3] *= unit_scale  # skaluj X, Y i Z
 
     # stepX = round((xs[-1] - xs[0]) / (len(xs)-1), round_decimals)
     # stepY = round((ys[-1] - ys[0]) / (len(ys)-1), round_decimals)
@@ -311,6 +313,7 @@ class ParserCSV(Parser):
 		ys = ys * unit_scale
 		x = x * unit_scale
 		y = y * unit_scale
+		z = z * unit_scale
 
 		stepX = np.median(np.diff(xs))
 		stepY = np.median(np.diff(ys))
@@ -356,6 +359,7 @@ class ParserCSV(Parser):
 				print(round(min_nonzero,6))
 				vertices[:, 0] *= 1000.0
 				vertices[:, 1] *= 1000.0
+				vertices[:, 2] *= 1000.0
 			else:
 				print(round(min_nonzero,3))
 

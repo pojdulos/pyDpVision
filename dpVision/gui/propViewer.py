@@ -39,7 +39,7 @@ class PropViewer(PropWidget):
 		w = {	self.spinViewRotX, self.spinViewRotY, self.spinViewRotZ, \
 	   			self.spinViewTransX, self.spinViewTransY, self.spinViewTransZ, \
 				self.bgColorButton, self.radioOrtho, self.spinOrthoViewSize, \
-				self.radioPersp, self.spinAngleOfView }
+				self.radioPersp, self.spinAngleOfView, self.spinDefaultViewSize }
 		
 		for i in w: i.blockSignals(True)
 
@@ -70,6 +70,8 @@ class PropViewer(PropWidget):
 
 		self.orthoWidget.setVisible(isOrtho)
 		self.perspWidget.setVisible(isPersp)
+
+		self.spinDefaultViewSize.setValue(viewer._defaultViewSize)
 
 		self.updateMatrix(viewer.transform)
 
@@ -180,3 +182,22 @@ class PropViewer(PropWidget):
 		viewer.transform.reset()
 		AP.mainWin.dock['properties'].updateProperties()
 		AP.updateAllViews()
+
+	@pyqtSlot(float)
+	def onDefaultViewSizeChanged(self, val):
+		"""Zapisuje nową domyślną skalę sceny i od razu przelicza widok."""
+		viewer = self.obj_ref()
+		if viewer is None:
+			return
+		viewer._defaultViewSize = val
+		viewer.setViewScale(val)
+		self.updateProperties()
+
+	@pyqtSlot()
+	def onResetView(self):
+		"""Przywraca kamerę i transformację do stanu domyślnego dla bieżącej skali."""
+		viewer = self.obj_ref()
+		if viewer is None:
+			return
+		viewer.resetView()
+		self.updateProperties()

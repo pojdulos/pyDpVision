@@ -18,12 +18,15 @@ out vec3 smoothVertexNormal;
 flat out vec3 flatVertexNormal;
 out vec4 vertexColor;
 out vec2 TexCoord; // Wysyłanie współrzędnych tekstury do fragment shadera
+out vec3 FragPos;  // Pozycja wierzchołka w przestrzeni świata
 
 void main()
 {
-	gl_Position = projection * view * model * vec4(aPos, 1.0);
+	vec4 worldPos = model * vec4(aPos, 1.0);
+	FragPos = worldPos.xyz;
+	gl_Position = projection * view * worldPos;
 
-	mat3 normalMatrix = transpose(inverse(mat3(model * view)));
+	mat3 normalMatrix = transpose(inverse(mat3(model)));
 	if (useVNormals)
 	{
 		smoothVertexNormal = flatVertexNormal = normalMatrix * aNormal;

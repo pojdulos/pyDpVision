@@ -254,6 +254,8 @@ class Mesh(PointCloud):
 
 
 	def renderWithShaders2(self):
+		if getattr(self, '_shader_failed', False):
+			return
 		if self.shader_program is None:
 			# Inicjalizacja i konfiguracja shaderów
 			
@@ -262,18 +264,23 @@ class Mesh(PointCloud):
 				fragment_shader = load_and_compile_shader('mesh.frag', GL_FRAGMENT_SHADER)
 			except Exception as e:
 				print( e )
+				self._shader_failed = True
 				return
 			
 			# Tworzenie programu shaderów
-			self.shader_program = glCreateProgram()
-			glAttachShader(self.shader_program, vertex_shader)
-			glAttachShader(self.shader_program, fragment_shader)
-			glLinkProgram(self.shader_program)
+			program = glCreateProgram()
+			glAttachShader(program, vertex_shader)
+			glAttachShader(program, fragment_shader)
+			glLinkProgram(program)
 			
 			# Sprawdzanie, czy program został powiązany poprawnie
-			if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
-				print(glGetProgramInfoLog(self.shader_program))
-				raise Exception("Error linking shaders")
+			if not glGetProgramiv(program, GL_LINK_STATUS):
+				print(glGetProgramInfoLog(program))
+				glDeleteProgram(program)
+				self._shader_failed = True
+				return
+			
+			self.shader_program = program
 			
 			# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
 			glDeleteShader(vertex_shader)

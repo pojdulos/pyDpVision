@@ -406,3 +406,6 @@ class GridData64(Object):
 	def to_mesh(self):
 		from .conversion import grid_to_mesh
 		return grid_to_mesh(self)
+
+	def info(self):
+		return f"GridData64: shape={self.height.shape}, stepX={self.stepX}, stepY={self.stepY}, offsetX={self.offsetX}, offsetY={self.offsetY}"

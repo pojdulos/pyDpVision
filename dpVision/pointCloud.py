@@ -58,17 +58,37 @@ class PointCloud(Object):
 		return ctr
 
 	def getBB(self):
-		_b, _min, _max = Object.getBB(self)  # Pobieranie BB z klasy nadrzędnej
-		if _b:  # Jeśli BB istnieje w klasie nadrzędnej
-			if len(self.m_vertices) > 0:  # Sprawdzenie, czy są wierzchołki w aktualnej klasie
-				_min = [min(dim) for dim in zip(_min, *self.m_vertices)]
-				_max = [max(dim) for dim in zip(_max, *self.m_vertices)]
-		else:  # Jeśli BB nie istnieje w klasie nadrzędnej
-			if len(self.m_vertices) > 0:  # Sprawdzenie, czy są wierzchołki w aktualnej klasie
-				_min = [min(dim) for dim in zip(*self.m_vertices)]
-				_max = [max(dim) for dim in zip(*self.m_vertices)]
-			_b = True  # Zaktualizowanie flagi _b
-		return _b, _min, _max
+		# Cache dla dużych meshów - getBB() jest bardzo wolne dla milionów wierzchołków
+		if not hasattr(self, '_cached_bb') or self._cached_bb is None:
+			_b, _min, _max = Object.getBB(self)  # Pobieranie BB z klasy nadrzędnej
+			if _b:  # Jeśli BB istnieje w klasie nadrzędnej
+				if len(self.m_vertices) > 0:  # Sprawdzenie, czy są wierzchołki w aktualnej klasie
+					# Dla dużych meshów używamy numpy (100x szybsze niż zip/min/max w Pythonie)
+					if len(self.m_vertices) > 10000:
+						verts_array = np.array(self.m_vertices) if not isinstance(self.m_vertices, np.ndarray) else self.m_vertices
+						v_min = verts_array.min(axis=0).tolist()
+						v_max = verts_array.max(axis=0).tolist()
+						_min = [min(a, b) for a, b in zip(_min, v_min)]
+						_max = [max(a, b) for a, b in zip(_max, v_max)]
+					else:
+						_min = [min(dim) for dim in zip(_min, *self.m_vertices)]
+						_max = [max(dim) for dim in zip(_max, *self.m_vertices)]
+			else:  # Jeśli BB nie istnieje w klasie nadrzędnej
+				if len(self.m_vertices) > 0:  # Sprawdzenie, czy są wierzchołki w aktualnej klasie
+					# Dla dużych meshów używamy numpy
+					if len(self.m_vertices) > 10000:
+						verts_array = np.array(self.m_vertices) if not isinstance(self.m_vertices, np.ndarray) else self.m_vertices
+						_min = verts_array.min(axis=0).tolist()
+						_max = verts_array.max(axis=0).tolist()
+					else:
+						_min = [min(dim) for dim in zip(*self.m_vertices)]
+						_max = [max(dim) for dim in zip(*self.m_vertices)]
+				_b = True  # Zaktualizowanie flagi _b
+			
+			# Cache BB (nie zmienia się podczas renderowania)
+			self._cached_bb = (_b, _min, _max)
+		
+		return self._cached_bb
 
 	# def getCenterOfBB(self):
 	# 	ctr = [0., 0., 0.]

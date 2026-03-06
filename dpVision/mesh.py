@@ -44,8 +44,11 @@ class Mesh(PointCloud):
 		self.t_vbo = None
 		self.texture = None
 		self.ebo = None
+		self.vao = None
 		self.shader_program = None
+		self.uniform_locs = {}  # Cache dla uniform locations
 		self.vBuf = None
+		self.iBuf = None
 		self.cBuf = None
 		self.nBuf = None
 		self.tBuf = None
@@ -225,10 +228,6 @@ class Mesh(PointCloud):
 		vAB = self.m_vertices[self.m_faces[:, 1]] - self.m_vertices[self.m_faces[:, 0]]
 		vAC = self.m_vertices[self.m_faces[:, 2]] - self.m_vertices[self.m_faces[:, 0]]
 
-		# Debugging shapes
-		print("vAB shape:", vAB.shape)
-		print("vAC shape:", vAC.shape)
-
 		# Ensure shapes are valid for cross product
 		if vAB.shape[-1] not in (2, 3) or vAC.shape[-1] not in (2, 3):
 			raise ValueError("vAB and vAC must be 2D or 3D vectors")
@@ -258,6 +257,10 @@ class Mesh(PointCloud):
 	def renderWithShaders2(self):
 		if getattr(self, '_shader_failed', False):
 			return
+			
+		# Usuń flagę blokady - problem był w tym że nie pozwalała na normalne renderowanie
+		# Zamiast tego OpenGL kolejkuje komendy więc nie ma problemu z "współbieżnością"
+		
 		if self.shader_program is None:
 			# Inicjalizacja i konfiguracja shaderów
 			
@@ -284,6 +287,19 @@ class Mesh(PointCloud):
 			
 			self.shader_program = program
 			
+			# Cache uniform locations (wywoływane tylko raz, nie w każdej klatce!)
+			self.uniform_locs = {
+				'useVColors': glGetUniformLocation(program, "useVColors"),
+				'myColor': glGetUniformLocation(program, "myColor"),
+				'useVNormals': glGetUniformLocation(program, "useVNormals"),
+				'useTexture': glGetUniformLocation(program, "useTexture"),
+				'texture1': glGetUniformLocation(program, "texture1"),
+				'useFlatShading': glGetUniformLocation(program, "useFlatShading"),
+				'model': glGetUniformLocation(program, "model"),
+				'view': glGetUniformLocation(program, "view"),
+				'projection': glGetUniformLocation(program, "projection")
+			}
+			
 			# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
 			glDeleteShader(vertex_shader)
 			glDeleteShader(fragment_shader)
@@ -303,132 +319,136 @@ class Mesh(PointCloud):
 				and self.m_tindices.shape[0] == self.m_faces.shape[0]
 
 		if self.vBuf is None:
-			# fancy indexing zamiast pętli Python — działa w C, ~1000x szybciej
-			f = self.m_faces  # (nf, 3)
-			self.vBuf = self.m_vertices[f].astype(np.float32)  # (nf, 3, 3)
+			# Używamy indeksowania - wysyłamy tylko unikalne wierzchołki zamiast duplikować dane
+			self.vBuf = self.m_vertices.astype(np.float32)  # (nv, 3)
+			self.iBuf = self.m_faces.astype(np.uint32).ravel()  # (nf*3,) - flat array indeksów
+			
 			if drawVC:
-				self.cBuf = self.m_vcolors[f].astype(np.ubyte)   # (nf, 3, 4)
+				self.cBuf = self.m_vcolors.astype(np.ubyte)  # (nv, 4)
 			elif drawFC:
-				self.cBuf = np.repeat(self.m_fcolors[:, np.newaxis, :], 3, axis=1).astype(np.ubyte)
+				# Dla kolorów per-face, musimy zduplikować wierzchołki (bo kolory są per-vertex w GPU)
+				f = self.m_faces
+				self.vBuf = self.m_vertices[f].reshape(-1, 3).astype(np.float32)  # (nf*3, 3)
+				self.cBuf = np.repeat(self.m_fcolors, 3, axis=0).astype(np.ubyte)  # (nf*3, 4)
+				self.iBuf = np.arange(len(self.vBuf), dtype=np.uint32)  # (nf*3,)
+				
 			if drawVN:
-				self.nBuf = self.m_vnormals[f].astype(np.float32)  # (nf, 3, 3)
+				if drawFC:  # Jeśli już zduplikowaliśmy dla kolorów
+					self.nBuf = self.m_vnormals[f].reshape(-1, 3).astype(np.float32)
+				else:
+					self.nBuf = self.m_vnormals.astype(np.float32)  # (nv, 3)
 			elif drawFN:
-				self.nBuf = np.repeat(self.m_fnormals[:, np.newaxis, :], 3, axis=1).astype(np.float32)
+				# Normalne per-face - musimy zduplikować wierzchołki
+				f = self.m_faces
+				if not drawFC:  # Jeśli nie zduplikowaliśmy jeszcze dla kolorów
+					self.vBuf = self.m_vertices[f].reshape(-1, 3).astype(np.float32)  # (nf*3, 3)
+					if drawVC:
+						self.cBuf = self.m_vcolors[f].reshape(-1, 4).astype(np.ubyte)
+					self.iBuf = np.arange(len(self.vBuf), dtype=np.uint32)
+				self.nBuf = np.repeat(self.m_fnormals, 3, axis=0).astype(np.float32)  # (nf*3, 3)
 
 		if drawT:
 			if self.tBuf is None:
-				# fancy indexing zamiast pętli Python
-				self.tBuf = self.m_tcoords[self.m_tindices].astype(np.float32)  # (nf, 3, 2)
+				if drawFC or drawFN:  # Jeśli zduplikowaliśmy wierzchołki
+					self.tBuf = self.m_tcoords[self.m_tindices].reshape(-1, 2).astype(np.float32)
+				else:
+					self.tBuf = self.m_tcoords.astype(np.float32)
 
 		# Wgraj dane do GPU tylko raz (nie przy każdej klatce)
 		if not self._gpu_uploaded:
+			# Tworzenie VAO - przechowuje cały stan vertex attributes
+			if self.vao is None:
+				self.vao = glGenVertexArrays(1)
+			glBindVertexArray(self.vao)
+			
 			if self.v_vbo is None:
 				self.v_vbo = glGenBuffers(1)
 			glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
 			glBufferData(GL_ARRAY_BUFFER, self.vBuf.nbytes, self.vBuf, GL_STATIC_DRAW)
+			glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
+			glEnableVertexAttribArray(0)
+			
+			# Element Buffer Object dla indeksów
+			if self.ebo is None:
+				self.ebo = glGenBuffers(1)
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.iBuf.nbytes, self.iBuf, GL_STATIC_DRAW)
 
 			if drawC:
 				if self.c_vbo is None:
 					self.c_vbo = glGenBuffers(1)
 				glBindBuffer(GL_ARRAY_BUFFER, self.c_vbo)
 				glBufferData(GL_ARRAY_BUFFER, self.cBuf.nbytes, self.cBuf, GL_STATIC_DRAW)
+				glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, True, 0, None)
+				glEnableVertexAttribArray(1)
 
 			if drawN:
 				if self.n_vbo is None:
 					self.n_vbo = glGenBuffers(1)
 				glBindBuffer(GL_ARRAY_BUFFER, self.n_vbo)
 				glBufferData(GL_ARRAY_BUFFER, self.nBuf.nbytes, self.nBuf, GL_STATIC_DRAW)
+				glVertexAttribPointer(2, 3, GL_FLOAT, True, 0, None)
+				glEnableVertexAttribArray(2)
 
 			if drawT:
 				if self.t_vbo is None:
 					self.t_vbo = glGenBuffers(1)
 				glBindBuffer(GL_ARRAY_BUFFER, self.t_vbo)
 				glBufferData(GL_ARRAY_BUFFER, self.tBuf.nbytes, self.tBuf, GL_STATIC_DRAW)
+				glVertexAttribPointer(3, 2, GL_FLOAT, False, 0, None)
+				glEnableVertexAttribArray(3)
 
+			glBindVertexArray(0)  # Unbind VAO
 			self._gpu_uploaded = True
-
-		useVColors_loc = glGetUniformLocation(self.shader_program, "useVColors")
+		
+		# Używamy cache'owanych uniform locations zamiast glGetUniformLocation w każdej klatce
 		dC = self.materials[self.currentMaterial].diffuse + [self.materials[self.currentMaterial].alpha]
-		loc = glGetUniformLocation(self.shader_program, "myColor")
-		glUniform4f(loc, dC[0], dC[1], dC[2], dC[3])
-		if drawC:
-			glUniform1i(useVColors_loc, 1)
-		else:
-			glUniform1i(useVColors_loc, 0)
-
-		useVNormals_loc = glGetUniformLocation(self.shader_program, "useVNormals")
-		if drawN:
-			glUniform1i(useVNormals_loc, 1)
-		else:
-			glUniform1i(useVNormals_loc, 0)
-
-		useTexture_loc = glGetUniformLocation(self.shader_program, "useTexture")
+		glUniform4f(self.uniform_locs['myColor'], dC[0], dC[1], dC[2], dC[3])
+		glUniform1i(self.uniform_locs['useVColors'], 1 if drawC else 0)
+		glUniform1i(self.uniform_locs['useVNormals'], 1 if drawN else 0)
+		
 		if drawT:
 			glActiveTexture(GL_TEXTURE0)
 			glBindTexture(GL_TEXTURE_2D, self.materials[self.currentMaterial].dTexture.textureId())
-			glUniform1i(glGetUniformLocation(self.shader_program, "texture1"), 0)
-			glUniform1i(useTexture_loc, 1)
+			glUniform1i(self.uniform_locs['texture1'], 0)
+			glUniform1i(self.uniform_locs['useTexture'], 1)
 		else:
-			glUniform1i(useTexture_loc, 0)
+			glUniform1i(self.uniform_locs['useTexture'], 0)
 
-		###############
+		glUniform1i(self.uniform_locs['useFlatShading'], 0 if self.b_renderSmooth else 1)
 
-		useFlatShading_loc = glGetUniformLocation(self.shader_program, "useFlatShading")
-		if self.b_renderSmooth:
-			glUniform1i(useFlatShading_loc, 0)
-		else:
-			glUniform1i(useFlatShading_loc, 1)
-
-
-		glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
-		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
-		glEnableVertexAttribArray(0)
-
-		if drawC:
-			glBindBuffer(GL_ARRAY_BUFFER, self.c_vbo)
-			glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, True, 0, None)
-			glEnableVertexAttribArray(1)
-
-		if drawN:
-			glBindBuffer(GL_ARRAY_BUFFER, self.n_vbo)
-			glVertexAttribPointer(2, 3, GL_FLOAT, True, 0, None)
-			glEnableVertexAttribArray(2)
-
-		if drawT:
-			glBindBuffer(GL_ARRAY_BUFFER, self.t_vbo)
-			glVertexAttribPointer(3, 2, GL_FLOAT, False, 0, None)
-			glEnableVertexAttribArray(3)
-
-		###############
-
-		model_loc = glGetUniformLocation(self.shader_program, "model")
-		view_loc = glGetUniformLocation(self.shader_program, "view")
-		projection_loc = glGetUniformLocation(self.shader_program, "projection")
+		# Bindujemy VAO - automatycznie ustawia wszystkie vertex attributes
+		glBindVertexArray(self.vao)
 		
-		model = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
-		projection = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
-		view = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]], dtype=np.float32)
-
+		# Pobierz macierze z OpenGL (konieczne dla poprawnego wyświetlania)
+		model = np.empty((4,4), dtype=np.float32)
+		projection = np.empty((4,4), dtype=np.float32)
+		view = np.identity(4, dtype=np.float32)
+		
 		glGetFloatv(GL_MODELVIEW_MATRIX, model)
 		glGetFloatv(GL_PROJECTION_MATRIX, projection)
 		
-		glUniformMatrix4fv(model_loc, 1, GL_FALSE, model)
-		glUniformMatrix4fv(view_loc, 1, GL_FALSE, view)
-		glUniformMatrix4fv(projection_loc, 1, GL_FALSE, projection)
+		# Używamy cache'owanych uniform locations
+		glUniformMatrix4fv(self.uniform_locs['model'], 1, GL_FALSE, model)
+		glUniformMatrix4fv(self.uniform_locs['view'], 1, GL_FALSE, view)
+		glUniformMatrix4fv(self.uniform_locs['projection'], 1, GL_FALSE, projection)
 
-		glDrawArrays(GL_TRIANGLES, 0, len(self.vBuf) * 3)
+		# Używamy glDrawElements zamiast glDrawArrays - renderuje tylko unikalne wierzchołki
+		glDrawElements(GL_TRIANGLES, len(self.iBuf), GL_UNSIGNED_INT, None)
 
-		glBindBuffer(GL_ARRAY_BUFFER, 0)
-
-		glDisableVertexAttribArray(0)
-		if drawC:
-			glDisableVertexAttribArray(1)
-		if drawN:
-			glDisableVertexAttribArray(2)
-		if drawT:
-			glDisableVertexAttribArray(3)
+		# Unbind VAO
+		glBindVertexArray(0)
 
 		glUseProgram(0) # Wyłączenie programu shaderów
+		
+		# Podstawowe statystyki (pierwszy frame)
+		if not hasattr(self, '_frame_count'):
+			self._frame_count = 0
+			print(f"\n=== MESH RENDERING STARTED ===")
+			print(f"Triangles: {len(self.iBuf)//3:,}, Unique Vertices: {len(self.vBuf):,}")
+			print(f"Memory: Vertices={self.vBuf.nbytes/1024/1024:.1f}MB, Indices={self.iBuf.nbytes/1024/1024:.1f}MB")
+		
+		self._frame_count += 1
 
 
 	# def renderWithShaders(self):
@@ -567,6 +587,8 @@ class Mesh(PointCloud):
 
 
 
+
+
 	def invert_normals(self):
 		for i in range(self.m_faces.shape[0]):
 			tmp = self.m_faces[i][0]
@@ -608,3 +630,7 @@ class Mesh(PointCloud):
 	def to_grid25D(self, **kwargs):
 		from .conversion import mesh_to_grid25D
 		return mesh_to_grid25D(self, **kwargs)
+
+	def info(self):
+		return f"Mesh: {len(self.m_vertices)} vertices, {len(self.m_faces)} faces"
+	

@@ -270,7 +270,8 @@ class MainWindow(QMainWindow):
 
 				tra.label = os.path.basename(fileName)
 				print(f"Loaded: {fileName} as {obj.__class__.__name__}, label: {tra.label}")
-				
+				print(f"{obj.info()}")
+
 				self.workspace.m_data.append(tra)
 				self.dock["workspace"].addNewItem(tra)
 				AP.updateAllViews()

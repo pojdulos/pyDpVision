@@ -204,25 +204,25 @@ class ParserSTL(Parser):
         return False
 
 
-# Dla dużych siatek deduplikacja (np.unique na 30M wierszach) jest zbyt wolna.
-_DEDUP_THRESHOLD = 1_000_000  # trójkątów
-
 def _verts_to_mesh(verts, label=''):
     """Buduje obiekt Mesh z tablicy wierzchołków (3N, 3) (każda trójka = trójkąt)."""
     n_tri = len(verts) // 3
     v = verts[:n_tri * 3].astype(np.float32)
 
-    if n_tri <= _DEDUP_THRESHOLD:
-        # deduplikacja dla małych siatek (płynne cieniowanie)
-        v_view = v.view(np.dtype((np.void, v.dtype.itemsize * 3)))
-        _, inv = np.unique(v_view, return_inverse=True)
-        unique_idx = np.unique(inv, return_index=True)[1]
-        unique_verts = v[unique_idx]
-        faces = inv[np.arange(n_tri * 3, dtype=np.int64).reshape(n_tri, 3)]
-    else:
-        # brak dedupu dla dużych — flat shading, ale wczytuje się natychmiast
-        unique_verts = v
-        faces = np.arange(n_tri * 3, dtype=np.uint32).reshape(n_tri, 3)
+    # Deduplikacja wierzchołków - zawsze włączona
+    print(f"Deduplikuję {len(v)} wierzchołków...")
+    v_view = v.view(np.dtype((np.void, v.dtype.itemsize * 3)))
+    _, inv = np.unique(v_view, return_inverse=True)
+    unique_idx = np.unique(inv, return_index=True)[1]
+    unique_verts = v[unique_idx]
+    print(f"Po deduplikacji: {len(unique_verts)} unikalnych wierzchołków ({len(unique_verts)/len(v)*100:.1f}%)")
+    
+    # Reshape inv directly to avoid extra dimensions from fancy indexing
+    faces = inv.reshape(n_tri, 3).astype(np.int64)
+        
+    # Ensure proper shapes and data types
+    unique_verts = np.ascontiguousarray(unique_verts, dtype=np.float32)
+    faces = np.ascontiguousarray(faces)
 
     mesh = Mesh()
     mesh.m_vertices = unique_verts

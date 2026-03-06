@@ -233,10 +233,16 @@ class GLViewer(QOpenGLWidget):
 		# }
 
 	def paintGL(self):
+		import time
+		t_paint_start = time.perf_counter()
+		
 		painter = QPainter()
 		painter.begin(self)
 	
+		t_before_3d = time.perf_counter()
 		self.draw3Dcontent()	
+		t_after_3d = time.perf_counter()
+		
 		# if (m_redraw3d)
 		# {
 		# 	draw3Dcontent();
@@ -268,7 +274,37 @@ class GLViewer(QOpenGLWidget):
 			painter.drawLine(self.cursor_pos.x(), self.cursor_pos.y() - cross_size,
 			                 self.cursor_pos.x(), self.cursor_pos.y() + cross_size)
 	
+		t_before_end = time.perf_counter()
 		painter.end()
+		t_after_end = time.perf_counter()
+		
+		# Profilowanie paintGL
+		t_paint_end = time.perf_counter()
+		paint_total = t_paint_end - t_paint_start
+		draw3d_time = t_after_3d - t_before_3d
+		painter_end_time = t_after_end - t_before_end
+		other_time = paint_total - draw3d_time - painter_end_time
+		
+		# Wyświetl co 30 klatek
+		if not hasattr(self, '_paint_frame_count'):
+			self._paint_frame_count = 0
+			self._paint_total = 0.0
+			self._paint_min = float('inf')
+			self._paint_max = 0.0
+			print("\n=== PAINTGL PROFILING ===")
+		
+		self._paint_frame_count += 1
+		self._paint_total += paint_total
+		self._paint_min = min(self._paint_min, paint_total)
+		self._paint_max = max(self._paint_max, paint_total)
+		
+		if self._paint_frame_count % 30 == 0:
+			avg = self._paint_total / 30
+			print(f"[paintGL {self._paint_frame_count:4d}] Avg: {avg*1000:6.2f}ms | Min: {self._paint_min*1000:6.2f}ms | Max: {self._paint_max*1000:6.2f}ms")
+			print(f"  Latest breakdown: draw3D={draw3d_time*1000:.2f}ms, painter.end={painter_end_time*1000:.2f}ms, other={other_time*1000:.2f}ms")
+			self._paint_total = 0.0
+			self._paint_min = float('inf')
+			self._paint_max = 0.0
 
 	def switchBB(self):
 		self.m_drawAxes = not self.m_drawAxes

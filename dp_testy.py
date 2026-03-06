@@ -278,3 +278,32 @@ def testNd():
 
 # AP.addObject(tra2)
 
+
+
+def test_gridData64():
+	from dpVision.gridData64 import GridData64
+	from dpVision.roi import CircleROI
+	from dpVision.gui import GLViewer
+
+	def set_roi(obj):
+		if obj is None:
+			return
+
+		viewer : GLViewer = AP.mainWin.currentGLViewer()
+		if viewer:
+			viewer.setViewScale(15.0)
+			viewer.transform.setTranslation(tx=-3.835,ty=-4.111, tz=0.0)
+
+		roi = CircleROI(center_x=3.835, center_y=4.111, radius=3.0)
+
+		surface2 = roi.apply(obj)
+
+		obj2 = GridData64.from_surface(surface2)
+		AP.addObject(obj2)
+
+		AP.updateAllViews()
+
+	filename = "d:\\praca\\nowe_probki\\_AX data_STL_ASC_TXT\\Sensofar confocal\\AX_3_5x_conf_crop_disabled.stl"
+	AP.load(filename, on_success=set_roi)
+
+test_gridData64()

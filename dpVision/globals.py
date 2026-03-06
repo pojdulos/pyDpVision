@@ -16,6 +16,11 @@ class Globals:
 	# def updateGlobals(self):
 	# 	self.mainWin = MainWindow()
 
+	def load(self, fileName, on_success=None, on_error=None):
+		self.mainWin.load_file(fileName,
+						on_success=on_success,
+						on_error=on_error)
+
 	def addObject(self, child, parent=None):
 		if child is None:
 			return

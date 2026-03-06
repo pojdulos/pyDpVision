@@ -249,7 +249,10 @@ class MainWindow(QMainWindow):
 		pass
 
 
-	def load_file(self, fileName):
+	def load_file(self, fileName, on_success=None, on_error=None):
+		_on_success = on_success
+		_on_error = on_error
+		
 		def display_data(obj):
 			if obj:
 				if isinstance(obj, list) and len(obj)>0:
@@ -273,7 +276,13 @@ class MainWindow(QMainWindow):
 				AP.updateAllViews()
 
 				self.update_recent_files(fileName)
+
+				if _on_success:
+					_on_success(obj)
 				return True
+
+			if _on_error: 
+				_on_error()
 			return False
 
 		def on_loading_finished(obj):
@@ -284,6 +293,8 @@ class MainWindow(QMainWindow):
 		def on_loading_error(parser):
 			self.progressIndicator.hide()
 			parser.deleteLater()
+			if _on_error: 
+				_on_error()
 		
 		if not os.path.exists(fileName):
 			print(f"File not exists: {fileName}")

@@ -8,6 +8,8 @@ from .annotationPoint import AnnotationPoint
 from .annotationSphere import AnnotationSphere
 from .annotationTriangle import AnnotationTriangle
 from .baseObject import BaseObject
+from .colormaps import make_colormap, COLORMAPS
+from .conversion import mesh_to_grid25D, grid_to_mesh
 from .dHJoint import DHJoint
 from .dHModel import DHModel, DHLink
 from .globals import Globals, AP
@@ -33,9 +35,10 @@ __all__ = [
 			"Annotation", #"AnnotationEdge",
 			"AnnotationPath", "AnnotationPlane", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
 		    "BaseObject",
+			"mesh_to_grid25D", "grid_to_mesh",
 			"DHJoint", "DHModel", "DHLink",
 			"Globals", "AP",
-			"GridData64",
+			"GridData64", "make_colormap", "COLORMAPS",
 			"Image",
 			"MainApplication",
 			"Face", "Mesh",

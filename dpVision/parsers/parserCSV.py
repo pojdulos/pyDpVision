@@ -19,6 +19,34 @@ import pandas as pd
 import numpy as np
 
 
+def _detect_lateral_scale(step_raw, threshold=0.5):
+    """
+    Wykrywa skalę jednostki dla osi XY na podstawie kroku siatki.
+    Krok >= threshold  → dane w µm → zwraca 0.001 (µm→mm)
+    Krok <  threshold  → dane już w mm  → zwraca 1.0
+    """
+    return 0.001 if float(step_raw) >= threshold else 1.0
+
+
+def _detect_z_scale(z, threshold=0.5):
+    """
+    Wykrywa skalę jednostki dla osi Z z minimalnego kroku między
+    unikalnymi (skwantowanymi) wartościami Z.
+    Min_step >= threshold  → dane w µm → zwraca 0.001
+    Min_step <  threshold  → dane już w mm  → zwraca 1.0
+    Jeśli Z jest ciągłe/nieskwantowane (min_step ≈ 0) → zwraca 1.0.
+    """
+    z_arr = np.asarray(z, dtype=np.float64).ravel()
+    u = np.unique(z_arr[np.isfinite(z_arr)])
+    if len(u) < 2:
+        return 1.0
+    d = np.diff(u)
+    d = d[d > 1e-9]
+    if len(d) == 0:
+        return 1.0
+    return 0.001 if float(d.min()) >= threshold else 1.0
+
+
 def check_grid_steps(df, decimals=3):
     x = df.iloc[:,0].round(decimals).values
     y = df.iloc[:,1].round(decimals).values
@@ -62,7 +90,7 @@ def dataframe_to_grid(df, round_decimals=6, auto_unit=True):
         grid       - ndarray (h, w) float32 z wartościami z
         stepX,stepY- kroki (float64)
         xs, ys     - unikalne współrzędne (float64)
-        unit_scale - 1.0 (mm) albo 1000.0 (mm->µm)
+        unit_scale - 1.0 (brak konwersji) albo 0.001 (µm→mm)
     """
     x = df.iloc[:,0].values.astype(np.float64)
     y = df.iloc[:,1].values.astype(np.float64)
@@ -76,16 +104,19 @@ def dataframe_to_grid(df, round_decimals=6, auto_unit=True):
 
     unit_scale = 1.0
     if auto_unit:
-        # heurystyka: jeśli kroki <0.2, to dane są w mm → przeskaluj do µm
-        if stepX_raw < 0.2 or stepY_raw < 0.2:
-            unit_scale = 1000.0
+        scale_xy = _detect_lateral_scale(max(stepX_raw, stepY_raw))
+        scale_z  = _detect_z_scale(z)
+        if scale_xy != 1.0 or scale_z != 1.0:
+            print(f"[auto unit] XY: ×{scale_xy}, Z: ×{scale_z}")
+        unit_scale = scale_xy
+    else:
+        scale_xy = scale_z = 1.0
 
-    xs = xs * unit_scale
-    ys = ys * unit_scale
-    x = x * unit_scale
-    y = y * unit_scale
-
-    z = z * unit_scale
+    xs = xs * scale_xy
+    ys = ys * scale_xy
+    x  = x  * scale_xy
+    y  = y  * scale_xy
+    z  = z  * scale_z
 
     stepX = float(xs[-1] - xs[0]) / (len(xs)-1)
     stepY = float(ys[-1] - ys[0]) / (len(ys)-1)
@@ -114,13 +145,20 @@ def vertices_to_grid(vertices, round_decimals=6, auto_unit=True):
 
     unit_scale = 1.0
     if auto_unit:
-        if stepX_raw < 0.2 or stepY_raw < 0.2:
-            unit_scale = 1000.0  # mm → µm
+        scale_xy = _detect_lateral_scale(max(stepX_raw, stepY_raw))
+        scale_z  = _detect_z_scale(vertices[:, 2])
+        if scale_xy != 1.0 or scale_z != 1.0:
+            print(f"[auto unit] XY: ×{scale_xy}, Z: ×{scale_z}")
+        unit_scale = scale_xy
+    else:
+        scale_xy = scale_z = 1.0
 
-    xs = xs * unit_scale
-    ys = ys * unit_scale
+    xs = xs * scale_xy
+    ys = ys * scale_xy
     vertices = vertices.copy()
-    vertices[:,0:3] *= unit_scale  # skaluj X, Y i Z
+    vertices[:, 0] *= scale_xy
+    vertices[:, 1] *= scale_xy
+    vertices[:, 2] *= scale_z
 
     # stepX = round((xs[-1] - xs[0]) / (len(xs)-1), round_decimals)
     # stepY = round((ys[-1] - ys[0]) / (len(ys)-1), round_decimals)
@@ -283,7 +321,7 @@ class ParserCSV(Parser):
 			grid       - ndarray (h, w) float32 z wartościami z
 			stepX,stepY- kroki (float64)
 			xs, ys     - unikalne współrzędne (float64)
-			unit_scale - 1.0 (mm) albo 1000.0 (mm->µm)
+			unit_scale - 1.0 (brak konwersji) albo 0.001 (µm→mm)
 		"""
 		x = df.iloc[:,0].values.astype(np.float64)
 		y = df.iloc[:,1].values.astype(np.float64)
@@ -305,15 +343,19 @@ class ParserCSV(Parser):
 
 		unit_scale = 1.0
 		if auto_unit:
-			# heurystyka: jeśli krok <0.2, to dane są w mm → przeskaluj do µm
-			if stepX_raw < 0.2 or stepY_raw < 0.2:
-				unit_scale = 1000.0
+			scale_xy = _detect_lateral_scale(max(stepX_raw, stepY_raw))
+			scale_z  = _detect_z_scale(z)
+			if scale_xy != 1.0 or scale_z != 1.0:
+				print(f"[auto unit] XY: ×{scale_xy}, Z: ×{scale_z}")
+			unit_scale = scale_xy
+		else:
+			scale_xy = scale_z = 1.0
 
-		xs = xs * unit_scale
-		ys = ys * unit_scale
-		x = x * unit_scale
-		y = y * unit_scale
-		z = z * unit_scale
+		xs = xs * scale_xy
+		ys = ys * scale_xy
+		x  = x  * scale_xy
+		y  = y  * scale_xy
+		z  = z  * scale_z
 
 		stepX = np.median(np.diff(xs))
 		stepY = np.median(np.diff(ys))
@@ -355,13 +397,20 @@ class ParserCSV(Parser):
 			# typical_scale = np.median(np.abs(vertices[:, col]))
 			# print(typical_scale)
 
-			if np.isfinite(min_nonzero) and min_nonzero > eps and min_nonzero < 1.0:
-				print(round(min_nonzero,6))
-				vertices[:, 0] *= 1000.0
-				vertices[:, 1] *= 1000.0
-				vertices[:, 2] *= 1000.0
+			if np.isfinite(min_nonzero) and min_nonzero > eps and min_nonzero >= 0.5:
+				print(f"[auto unit] XY min_step={round(min_nonzero,4)} → µm, konwertuję do mm")
+				vertices[:, 0] *= 0.001
+				vertices[:, 1] *= 0.001
+				scale_z = _detect_z_scale(vertices[:, 2])
+				if scale_z != 1.0:
+					print(f"[auto unit] Z: ×{scale_z}")
+				vertices[:, 2] *= scale_z
 			else:
-				print(round(min_nonzero,3))
+				# XY wydaje się być w mm, sprawdź Z osobno
+				scale_z = _detect_z_scale(vertices[:, 2])
+				if scale_z != 1.0:
+					print(f"[auto unit] XY w mm, Z: ×{scale_z} (µm→mm)")
+				vertices[:, 2] *= scale_z
 
 			cld = PointCloud()
 			cld.m_vertices = vertices
@@ -392,7 +441,7 @@ class ParserCSV(Parser):
 			if scale != 1.0:
 				print(f"[INFO] Dane w mm, przeskalowano do µm (unit_scale={scale})")
 
-			return GridData64(grid, stepX=stepX, stepY=stepY)
+			return GridData64(grid, stepX=stepX, stepY=stepY, offsetX=float(xs[0]), offsetY=float(ys[0]))
 
 		# --- przypadek 3: zwykła chmura punktów ---
 		print("To nie jest regularny grid -> PointCloud")

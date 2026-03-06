@@ -60,7 +60,6 @@ class Parser(QObject):
 			if p.canLoadExt(path=path) or p.check_by_content(path=path):
 				obj = p.load(path)
 				obj.label = os.path.basename(path)
-				print(f"Loaded: {path} as {obj.__class__.__name__}, label: {obj.label}")
 				return obj
 
 		print(f"File format is not supported yet: {path}")

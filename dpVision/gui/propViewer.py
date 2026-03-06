@@ -17,9 +17,8 @@ from .gLViewer import GLViewer
 from .propWidget import PropWidget
 
 class PropViewer(PropWidget):
-	def __init__(self, _viewer, parent=None):
+	def __init__(self, _viewer : GLViewer, parent=None):
 		super( PropViewer, self ).__init__( parent )
-		#uic.loadUi('dpVision/gui/forms/propViewer.ui', self)
 		AP.loadUi('propViewer.ui', self)
 		self.spinOrthoViewSize.setRange(0,180)
 		self.rot = _viewer.transform.getEulerAnglesDeg()
@@ -32,7 +31,7 @@ class PropViewer(PropWidget):
 
 
 	def updateProperties(self):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		if viewer is None:
 			return
 
@@ -71,7 +70,7 @@ class PropViewer(PropWidget):
 		self.orthoWidget.setVisible(isOrtho)
 		self.perspWidget.setVisible(isPersp)
 
-		self.spinDefaultViewSize.setValue(viewer._defaultViewSize)
+		self.spinDefaultViewSize.setValue(viewer._dCurrentViewSize)
 
 		self.updateMatrix(viewer.transform)
 
@@ -97,7 +96,7 @@ class PropViewer(PropWidget):
 
 	@pyqtSlot(float)
 	def changedRotX(self, d ):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		r = d - self.rot[0]
 		viewer.transform.rotate(r, [1, 0, 0])
 		self.rot[0] = d
@@ -105,7 +104,7 @@ class PropViewer(PropWidget):
 	
 	@pyqtSlot(float)
 	def changedRotY(self, d ):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		r = d - self.rot[1]
 		viewer.transform.rotate(r, [0, 1, 0])
 		self.rot[1] = d
@@ -113,7 +112,7 @@ class PropViewer(PropWidget):
 
 	@pyqtSlot(float)
 	def changedRotZ(self, d ):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		r = d - self.rot[2]
 		viewer.transform.rotate(r, [0, 0, 1])
 		self.rot[2] = d
@@ -121,7 +120,7 @@ class PropViewer(PropWidget):
 
 	@pyqtSlot(float)
 	def onChangedRotation(self, d):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		x, y, z = self.spinViewRotX.value(), self.spinViewRotY.value(), self.spinViewRotZ.value()
 		rx, ry, rz = x - self.tra[0], y - self.tra[1], z - self.tra[2]
 		
@@ -134,7 +133,7 @@ class PropViewer(PropWidget):
 
 	@pyqtSlot(float)
 	def changedTraXYZ(self, d):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		x, y, z = self.spinViewTransX.value(), self.spinViewTransY.value(), self.spinViewTransZ.value()
 
 		tx, ty, tz = x - self.tra[0], y - self.tra[1], z - self.tra[2]
@@ -145,7 +144,7 @@ class PropViewer(PropWidget):
 
 	@pyqtSlot()
 	def onBackgroundColorButton(self):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		color = QColorDialog.getColor( viewer._fBgColor, self, "Select background color", QColorDialog.DontUseNativeDialog)
 		if color.isValid():
 			viewer._fBgColor = color
@@ -154,21 +153,21 @@ class PropViewer(PropWidget):
 	
 	@pyqtSlot(int)
 	def changedAngle(self, i ):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		viewer._dViewingAngle = i
 		viewer.recalcView()
 		viewer.update()
 	
 	@pyqtSlot(int)
 	def changedOrthoViewSize(self, d):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		viewer._dOrthoViewSize = d
 		viewer.recalcView()
 		viewer.update()
 
 	@pyqtSlot(bool)
 	def radioPropToggled(self, t):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		if t:
 			viewer._projection = GLViewer.Projection.PERSPECTIVE
 		else:
@@ -178,7 +177,7 @@ class PropViewer(PropWidget):
 		self.updateProperties()
 
 	def onClearMatrixButton(self):
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		viewer.transform.reset()
 		AP.mainWin.dock['properties'].updateProperties()
 		AP.updateAllViews()
@@ -186,17 +185,17 @@ class PropViewer(PropWidget):
 	@pyqtSlot(float)
 	def onDefaultViewSizeChanged(self, val):
 		"""Zapisuje nową domyślną skalę sceny i od razu przelicza widok."""
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		if viewer is None:
 			return
-		viewer._defaultViewSize = val
+		viewer._dCurrentViewSize = val
 		viewer.setViewScale(val)
 		self.updateProperties()
 
 	@pyqtSlot()
 	def onResetView(self):
 		"""Przywraca kamerę i transformację do stanu domyślnego dla bieżącej skali."""
-		viewer = self.obj_ref()
+		viewer : GLViewer = self.obj_ref()
 		if viewer is None:
 			return
 		viewer.resetView()

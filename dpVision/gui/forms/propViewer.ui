@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>201</width>
-    <height>357</height>
+    <height>401</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -50,6 +50,73 @@
       <property name="rightMargin">
        <number>5</number>
       </property>
+      <item>
+       <widget class="QGroupBox" name="groupBoxViewScale">
+        <property name="title">
+         <string>View scale</string>
+        </property>
+        <layout class="QHBoxLayout" name="horizontalLayout_ViewScale">
+         <property name="leftMargin">
+          <number>5</number>
+         </property>
+         <property name="topMargin">
+          <number>4</number>
+         </property>
+         <property name="rightMargin">
+          <number>5</number>
+         </property>
+         <property name="bottomMargin">
+          <number>4</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="label_sceneScale">
+           <property name="text">
+            <string>Scene size:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QDoubleSpinBox" name="spinDefaultViewSize">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>1</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="toolTip">
+            <string>Przybliżony rozmiar obszaru zainteresowania w jednostkach świata.
+Przykłady: głowa ~250 mm → 250; próbka 10×10 mm → 10; domyślne → 200</string>
+           </property>
+           <property name="decimals">
+            <number>0</number>
+           </property>
+           <property name="minimum">
+            <double>0.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>10000000.000000000000000</double>
+           </property>
+           <property name="singleStep">
+            <double>10.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>200.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnResetView">
+           <property name="toolTip">
+            <string>Zresetuj widok kamery do domyślnych ustawień dla podanej skali</string>
+           </property>
+           <property name="text">
+            <string>reset</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
       <item>
        <widget class="QGroupBox" name="groupBox">
         <property name="title">
@@ -916,7 +983,7 @@
                <string/>
               </property>
               <property name="icon">
-               <iconset>
+               <iconset resource="../dpVision.qrc">
                 <normaloff>:/icons/Erase.ico</normaloff>:/icons/Erase.ico</iconset>
               </property>
              </widget>
@@ -936,7 +1003,7 @@
                <string/>
               </property>
               <property name="icon">
-               <iconset>
+               <iconset resource="../dpVision.qrc">
                 <normaloff>:/icons/Copy.ico</normaloff>:/icons/Copy.ico</iconset>
               </property>
               <property name="iconSize">
@@ -962,7 +1029,7 @@
                <string/>
               </property>
               <property name="icon">
-               <iconset>
+               <iconset resource="../dpVision.qrc">
                 <normaloff>:/icons/Paste.ico</normaloff>:/icons/Paste.ico</iconset>
               </property>
              </widget>
@@ -1087,73 +1154,6 @@
              </widget>
             </item>
            </layout>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QGroupBox" name="groupBoxViewScale">
-        <property name="title">
-         <string>Default view scale</string>
-        </property>
-        <layout class="QHBoxLayout" name="horizontalLayout_ViewScale">
-         <property name="leftMargin">
-          <number>5</number>
-         </property>
-         <property name="topMargin">
-          <number>4</number>
-         </property>
-         <property name="rightMargin">
-          <number>5</number>
-         </property>
-         <property name="bottomMargin">
-          <number>4</number>
-         </property>
-         <item>
-          <widget class="QLabel" name="label_sceneScale">
-           <property name="text">
-            <string>Scene size:</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QDoubleSpinBox" name="spinDefaultViewSize">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>1</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="toolTip">
-            <string>Przybliżony rozmiar obszaru zainteresowania w jednostkach świata.
-Przykłady: głowa ~250 mm → 250; próbka 10×10 mm → 10; domyślne → 200</string>
-           </property>
-           <property name="decimals">
-            <number>3</number>
-           </property>
-           <property name="minimum">
-            <double>0.001000000000000</double>
-           </property>
-           <property name="maximum">
-            <double>10000000.000000000000000</double>
-           </property>
-           <property name="singleStep">
-            <double>10.000000000000000</double>
-           </property>
-           <property name="value">
-            <double>200.000000000000000</double>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btnResetView">
-           <property name="toolTip">
-            <string>Zresetuj widok kamery do domyślnych ustawień dla podanej skali</string>
-           </property>
-           <property name="text">
-            <string>Reset view</string>
-           </property>
           </widget>
          </item>
         </layout>
@@ -1350,8 +1350,14 @@ Przykłady: głowa ~250 mm → 250; próbka 10×10 mm → 10; domyślne → 200<
    <receiver>propViewer</receiver>
    <slot>onDefaultViewSizeChanged(double)</slot>
    <hints>
-    <hint type="sourcelabel"><x>100</x><y>300</y></hint>
-    <hint type="destinationlabel"><x>100</x><y>300</y></hint>
+    <hint type="sourcelabel">
+     <x>100</x>
+     <y>300</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>100</x>
+     <y>300</y>
+    </hint>
    </hints>
   </connection>
   <connection>
@@ -1360,8 +1366,14 @@ Przykłady: głowa ~250 mm → 250; próbka 10×10 mm → 10; domyślne → 200<
    <receiver>propViewer</receiver>
    <slot>onResetView()</slot>
    <hints>
-    <hint type="sourcelabel"><x>160</x><y>300</y></hint>
-    <hint type="destinationlabel"><x>100</x><y>300</y></hint>
+    <hint type="sourcelabel">
+     <x>160</x>
+     <y>300</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>100</x>
+     <y>300</y>
+    </hint>
    </hints>
   </connection>
  </connections>

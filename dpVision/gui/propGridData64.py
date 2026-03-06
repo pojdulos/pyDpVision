@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import *
 from .propBaseObject import PropBaseObject
 from .propWidget import PropWidget
 import weakref
-from .. import GridData64, AP
+from .. import GridData64, AP, COLORMAPS
 from .multiSpinBox import MultiSpinBox
 import numpy as np
 
@@ -34,6 +34,9 @@ class PropGridData64(PropWidget):
 		#self.grid_steps.setFlat(True)
 		self.grid_steps.setStyleSheet("border:none")
 		self.use_colormap = QCheckBox()
+		self.colormap_combo = QComboBox()
+		for name in COLORMAPS.keys():
+			self.colormap_combo.addItem(name)
 		self.colormap_range = MultiSpinBox(count=2, labels=("min: ","max: "))
 		self.uniform_color = MultiSpinBox(count=3, labels=("R=","G=","B="))
 		self.uniform_color.setStyleSheet("border:none")
@@ -44,6 +47,7 @@ class PropGridData64(PropWidget):
 
 		layout.addRow("grid steps [um]:", self.grid_steps)
 		layout.addRow("use colormap", self.use_colormap)
+		layout.addRow("colormap", self.colormap_combo)
 		layout.addRow("colormap range", self.colormap_range)
 		layout.addRow("uniform color", self.uniform_color)
 		layout.addRow("draw as surface", self.use_mesh)
@@ -52,6 +56,7 @@ class PropGridData64(PropWidget):
 
 		self.grid_steps.valueChanged.connect(self.on_grid_steps_valueChanged)
 		self.use_colormap.toggled.connect(self.on_use_colormap_toggled)
+		self.colormap_combo.currentTextChanged.connect(self.on_colormap_changed)
 		self.colormap_range.valueChanged.connect(self.on_colormap_range_valueChanged)
 		self.uniform_color.valueChanged.connect(self.on_uniform_color_valueChanged)
 		self.use_mesh.toggled.connect(self.on_use_mesh_toggled)
@@ -72,9 +77,12 @@ class PropGridData64(PropWidget):
 
 		w = self.get_subwidgets()
 		for i in w:	i.blockSignals(True)
+		self.colormap_combo.blockSignals(True)
 
 		self.grid_steps.setValue((obj.stepX, obj.stepY))
 		self.use_colormap.setChecked(not obj.use_uniform_color)
+		self.colormap_combo.setCurrentText(obj._colormap_name if isinstance(obj._colormap_name, str) else 'jet')
+		self.colormap_combo.setEnabled(not obj.use_uniform_color)
 		self.colormap_range.setValue(obj.get_colormap_range())
 		self.colormap_range.setEnabled(not obj.use_uniform_color)
 		self.uniform_color.setValue(obj.uniform_color)
@@ -83,7 +91,16 @@ class PropGridData64(PropWidget):
 		self.z_filter.setValue(obj.z_filter)
 
 		for i in w:	i.blockSignals(False)
+		self.colormap_combo.blockSignals(False)
 		self.update()
+
+	@pyqtSlot(str)
+	def on_colormap_changed(self, name):
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		obj.set_colormap(name)
+		AP.updateAllViews()
 
 	@pyqtSlot(bool)
 	def on_use_colormap_toggled(self, b):
@@ -93,16 +110,17 @@ class PropGridData64(PropWidget):
 
 		obj.use_uniform_color = not b
 		self.uniform_color.setEnabled(obj.use_uniform_color)
+		self.colormap_combo.setEnabled(not obj.use_uniform_color)
 		self.colormap_range.setEnabled(not obj.use_uniform_color)
 
 		AP.updateAllViews()
 
 	@pyqtSlot(tuple)
 	def on_colormap_range_valueChanged(self, vals):
-		obj = self.obj_ref()
+		obj : GridData64 = self.obj_ref()
 		if obj is None:
 			return
-		obj.m_minZ, obj.m_maxZ = vals
+		obj.vmin, obj.vmax = vals
 		AP.updateAllViews()
 
 	@pyqtSlot(tuple)

@@ -3,6 +3,7 @@ uniform float u_minZ;
 uniform float u_maxZ;
 uniform bool u_useUniformColor;
 uniform vec3 u_uniformColor;
+uniform sampler2D u_palette;
 
 in float v_z;
 in float v_mask;
@@ -24,8 +25,7 @@ void main()
         baseColor = u_uniformColor;
     } else {
         float t = clamp((v_z - u_minZ) / (u_maxZ - u_minZ), 0.0, 1.0);
-        baseColor = mix(vec3(1.0, 0.0, 0.0),
-                        vec3(0.0, 1.0, 0.0), t);
+        baseColor = texture(u_palette, vec2(t, 0.5)).rgb;
     }
 
     fragColor = vec4(baseColor * diff, 1.0);

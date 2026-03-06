@@ -39,7 +39,10 @@ class ContextMenu(QMenu):
 			self.addAction(action)
 			self.addSeparator()
 			self.addMenu(self.create_move_menu())
-			if self.m_obj.hasType('PointCloud') or self.m_obj.hasType('Mesh'):
+			if self.m_obj.hasType('GridData64'):
+				self.addSeparator()
+				self.addMenu(self.create_grid_menu())
+			elif self.m_obj.hasType('PointCloud') or self.m_obj.hasType('Mesh'):
 				self.addSeparator()
 				self.addMenu(self.create_point_cloud_menu())
 			elif self.m_obj.hasType('Volumetric'):
@@ -150,6 +153,13 @@ class ContextMenu(QMenu):
 			import json
 			json.dump(dict, f, indent=4)
 
+	def create_grid_menu(self):
+		menu = QMenu("grid...", self)
+		action = QAction("convert to mesh", self)
+		action.triggered.connect(self.grid_convert_to_mesh)
+		menu.addAction(action)
+		return menu
+
 	def create_point_cloud_menu(self):
 		menu = QMenu("point cloud...", self)
 		action = QAction("invert normals for vertices", self)
@@ -158,6 +168,11 @@ class ContextMenu(QMenu):
 		action = QAction("export as .obj", self)
 		action.triggered.connect(self.point_cloud_export_as_obj)
 		menu.addAction(action)
+		if self.m_obj.hasType('Mesh'):
+			menu.addSeparator()
+			action = QAction("convert to grid 2.5D", self)
+			action.triggered.connect(self.mesh_convert_to_grid)
+			menu.addAction(action)
 		return menu
 
 	def create_volumetric_menu(self):
@@ -286,6 +301,28 @@ class ContextMenu(QMenu):
 	@pyqtSlot()
 	def refreshTree(self):
 		AP.mainWin.dock["workspace"].refreshAll()
+
+	@pyqtSlot()
+	def mesh_convert_to_grid(self):
+		grid = self.m_obj.to_grid25D()
+		if grid is None:
+			QMessageBox.warning(None, "Convert to grid", "Nie można przekonwertować — dane nie tworzą regularnego gridu 2.5D.")
+			return
+		parent = self.m_obj.parent
+		AP.addObject(grid, parent)
+		AP.updateAllViews()
+		AP.updateProperties()
+
+	@pyqtSlot()
+	def grid_convert_to_mesh(self):
+		mesh = self.m_obj.to_mesh()
+		if mesh is None:
+			QMessageBox.warning(None, "Convert to mesh", "Nie można przekonwertować gridu do siatki.")
+			return
+		parent = self.m_obj.parent
+		AP.addObject(mesh, parent)
+		AP.updateAllViews()
+		AP.updateProperties()
 
 	@pyqtSlot()
 	def slotCreateEmptyModel(self):

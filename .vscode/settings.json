@@ -7,5 +7,17 @@
 		"GTK_PATH": ""
 	},
 	"better-comments.highlightPlainText": true,
-	"python.analysis.typeCheckingMode": "off"
+	"python.analysis.typeCheckingMode": "off",
+    "openInExternalApp.openMapper": [
+        {
+            "extensionName": "ui",
+            "apps": [
+                {
+                    "title": "Qt Designer",
+                    "openCommand": "d:/Qt/5.15.2/msvc2019_64/bin/designer.exe"
+                }
+            ]
+        }
+    ]
+    
 }

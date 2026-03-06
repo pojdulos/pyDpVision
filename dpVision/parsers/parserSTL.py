@@ -1,269 +1,224 @@
 
-from .. import Parser, AP, Mesh, Transform
+from .. import Parser, AP, Mesh, Transform, BaseObject
+from ..conversion import verts_to_grid25D, mesh_to_grid25D
 
 import numpy as np
+import re
 import os
-from PyQt5.QtGui import *
-from math import *
 import struct
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-def remove_duplicate_vertices(vertices, triangles):
-    # Słownik do przechowywania unikalnych wierzchołków i ich nowych indeksów
-    unique_vertices = {}
-    new_index = 0
-    
-    # Lista na unikalne wierzchołki
-    new_vertices = []
-    
-    # Przypisanie nowych indeksów do unikalnych wierzchołków
-    for i, vertex in enumerate(vertices):
-        vertex_tuple = tuple(vertex)
-        if vertex_tuple not in unique_vertices:
-            unique_vertices[vertex_tuple] = new_index
-            new_vertices.append(vertex)
-            new_index += 1
-    
-    # Zaktualizowanie indeksów trójkątów
-    new_triangles = []
-    for triangle in triangles:
-        new_triangle = [unique_vertices[tuple(vertices[idx])] for idx in triangle]
-        new_triangles.append(new_triangle)
-    
-    return new_vertices, new_triangles
 
-def policz_linie(nazwa_pliku):
-	liczba_linii = 0
-	with open(nazwa_pliku, 'r') as plik:
-		for linia in plik:
-			liczba_linii += 1
-		plik.close()
-	return liczba_linii
+# ---------------------------------------------------------------------------
+# Szybkie wczytywanie STL
+# ---------------------------------------------------------------------------
 
-def read_line(stream):
-	if ParserSTL.cnt%100 == 0:
-		AP.mainWin.progressIndicator.setValue(ParserSTL.cnt)
-	
-	while True:
-		ParserSTL.cnt = ParserSTL.cnt+1
-		line = stream.readline()
-		if line == '':  # Koniec pliku
-			return None
-		if line.strip():  # Linia z treścią
-			return line.strip().split()
-		# Jeśli linia jest pusta, pętla kontynuuje, aby pominąć pustą linię
+def _read_binary_stl_verts(path):
+    """Wczytuje binary STL, zwraca (N*3, 3) float32 — wszystkie wierzchołki trójkątów."""
+    with open(path, 'rb') as f:
+        raw = f.read()
+    n_tri = np.frombuffer(raw, dtype=np.uint32, count=1, offset=80)[0]
+    # każdy trójkąt: 12b normal + 9*4b verts + 2b attr = 50 bajtów
+    dtype = np.dtype([
+        ('normal', np.float32, 3),
+        ('v0',     np.float32, 3),
+        ('v1',     np.float32, 3),
+        ('v2',     np.float32, 3),
+        ('attr',   np.uint16),
+    ])
+    tris = np.frombuffer(raw, dtype=dtype, count=n_tri, offset=84)
+    verts = np.concatenate([tris['v0'], tris['v1'], tris['v2']], axis=0)
+    return verts
 
-class Solid:
-	def __init__(self):
-		self.header = None
-		self.vertices = []
-		self.faces = []
+
+def _read_text_stl_verts(path, progress_cb=None):
+    """Wczytuje text STL, zwraca (N, 3) float32 — tylko wiersze 'vertex x y z'."""
+    vertex_pattern = re.compile(
+        r'^\s*vertex\s+([\S]+)\s+([\S]+)\s+([\S]+)', re.IGNORECASE)
+    verts = []
+    total_size = os.path.getsize(path)
+    read_size = 0
+    last_pct = 0
+    with open(path, 'r', errors='replace') as f:
+        for line in f:
+            read_size += len(line)
+            m = vertex_pattern.match(line)
+            if m:
+                verts.append((float(m.group(1)), float(m.group(2)), float(m.group(3))))
+            if progress_cb is not None:
+                pct = int(read_size / total_size * 100)
+                if pct != last_pct:
+                    last_pct = pct
+                    progress_cb(pct)
+    return np.array(verts, dtype=np.float32)
+
+
+def _is_binary_stl(path):
+    """Heurystyka: binary STL nie ma 'solid' jako pierwszego słowa w ASCII."""
+    with open(path, 'rb') as f:
+        header = f.read(80)
+    try:
+        txt = header.decode('ascii', errors='ignore').strip().lower()
+    except Exception:
+        return True
+    # Jeśli nagłówek zaczyna się od "solid" i plik jest w całości ASCII → text
+    if not txt.startswith('solid'):
+        return True
+    # Dodatkowa weryfikacja: sprawdź rozmiar vs liczba trójkątów z nagłówka binarnego
+    with open(path, 'rb') as f:
+        f.seek(80)
+        raw4 = f.read(4)
+    if len(raw4) < 4:
+        return False
+    n_tri = struct.unpack('<I', raw4)[0]
+    expected_size = 84 + 50 * n_tri
+    actual_size = os.path.getsize(path)
+    return abs(actual_size - expected_size) < 100  # binary jeśli rozmiar się zgadza
+
+
+# ---------------------------------------------------------------------------
+# Worker
+# ---------------------------------------------------------------------------
+
+class STLLoaderWorker(QObject):
+    progressChanged = pyqtSignal(int)
+    loadingFinished  = pyqtSignal(np.ndarray, str)  # (verts, label)
+    errorOccurred    = pyqtSignal(str)
+
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+        self._is_running = True
+
+    def stop(self):
+        self._is_running = False
+
+    def load_stl(self):
+        try:
+            label = os.path.basename(self.path)
+            print(f"\nParsuję plik: {self.path}")
+            if _is_binary_stl(self.path):
+                self.progressChanged.emit(0)
+                verts = _read_binary_stl_verts(self.path)
+                self.progressChanged.emit(100)
+            else:
+                verts = _read_text_stl_verts(self.path,
+                    progress_cb=self.progressChanged.emit if self._is_running else None)
+            if self._is_running:
+                self.loadingFinished.emit(verts, label)
+        except Exception as e:
+            self.errorOccurred.emit(str(e))
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
 
 class ParserSTL(Parser):
-	updateProgress = pyqtSignal()
+    loadingFinished = pyqtSignal(BaseObject)
+    errorOccurred   = pyqtSignal()
 
-	descr = 'STL files'
-	load_exts = ['.stl']
-	#save_exts = ['.stl']
-	cnt = 0
+    descr     = 'STL files'
+    load_exts = ['.stl']
 
-	def __init__(self):
-		super( ParserSTL, self ).__init__()
-		self.solids = []
-		self.path = ''
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+        self._thread = QThread()
+        self._worker = STLLoaderWorker(path)
 
-	def end_procedure(self):
-		meshes = []
-		for solid in self.solids:
-			header = solid.header
-			vertices, faces = remove_duplicate_vertices(solid.vertices, solid.faces)
+    @classmethod
+    def is_not_static(cls):
+        return True
 
-			mesh = Mesh()
+    def on_loading_finished(self, verts, label):
+        self._thread.quit()
+        self._thread.wait()
+        self._worker.deleteLater()
+        self._thread.deleteLater()
 
-			if header:
-				if len(header)>2:
-					descr = ' '.join(header[1:])
-					mesh.description = descr
-					mesh.label = os.path.basename(self.path)
-				elif len(header)>1:
-					mesh.label = header[1]
-				else:
-					mesh.label = os.path.basename(self.path)
+        print(f"Wczytano {len(verts)} wierzchołków, konwertuję…")
+        obj = verts_to_grid25D(verts)
+        if obj is None:
+            # nie jest gridem → zbuduj Mesh
+            from ..conversion import mesh_to_grid25D
+            mesh = _verts_to_mesh(verts, label)
+            obj = mesh
+        obj.label = label
+        self.loadingFinished.emit(obj)
 
-			mesh.m_vertices = np.array(vertices, dtype=np.float32)
-			mesh.m_faces = np.array(faces, dtype=np.uint)
+    def on_loading_error(self, msg):
+        self._thread.quit()
+        self._thread.wait()
+        self._worker.deleteLater()
+        self._thread.deleteLater()
+        print(f"Błąd wczytywania STL: {msg}")
+        self.errorOccurred.emit()
 
-			mesh.calcVN()
-			meshes.append(mesh)
+    def on_stop_loading(self):
+        self._worker.stop()
+        self._thread.quit()
+        self._thread.wait()
+        self._worker.deleteLater()
+        self._thread.deleteLater()
+        self.deleteLater()
+        print("Przerwano wczytywanie!")
 
-		AP.mainWin.progressIndicator.hide()
+    def load_async(self, progressBar=None):
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.load_stl)
+        if progressBar is not None:
+            self._worker.progressChanged.connect(progressBar.setValue)
+        self._worker.loadingFinished.connect(self.on_loading_finished)
+        self._worker.errorOccurred.connect(self.on_loading_error)
+        self._thread.start()
 
-		if len(meshes) > 1:
-			return meshes
-		elif len(meshes) > 0:	
-			return mesh
-		return None
+    @staticmethod
+    def load(path):
+        """Synchroniczne wczytanie (fallback gdy get_instance zwraca None)."""
+        label = os.path.basename(path)
+        try:
+            if _is_binary_stl(path):
+                verts = _read_binary_stl_verts(path)
+            else:
+                verts = _read_text_stl_verts(path)
+        except Exception as e:
+            print(f"Błąd wczytywania STL: {e}")
+            return None
+        obj = verts_to_grid25D(verts)
+        if obj is None:
+            obj = _verts_to_mesh(verts, label)
+        obj.label = label
+        return obj
 
-	def error(self, message):
-		print(message)
-		return self.end_procedure()
+    @staticmethod
+    def save(obj, path):
+        return False
 
-	def loadTextStl( self, path ):
-		liczba_linii = policz_linie(path)
-
-		with open(path,'r') as stream:
-			print("\n\nParsuję plik: "+path)
-			
-			self.path = path
-			self.solids = []
-
-			ParserSTL.cnt = 0
-			AP.mainWin.progressIndicator.init(text="Wczytuję tekstowy plik .stl",max=liczba_linii)
-			# self.updateProgress.connect(AP.mainWin.progressIndicator.increase)
-
-			header = read_line(stream) # solid szyna_ver0.stl
-			if header is None:
-				return self.error("'solid' expected, but end of file detected")
-
-			while header[0] == 'solid':
-				solid = Solid()
-				solid.header = header
-
-				while True: # while (not 'endsolid') or 'facet normal'
-					line = read_line(stream) # facet normal nx ny nz
-					if line is None:
-						return self.error(f"'endsolid' or 'facet normal nx ny nz' expected, but found end of file")
-					elif line[0] == "endsolid":
-						self.solids.append(solid)
-						header = read_line(stream) # solid szyna_ver0.stl
-						if header is None:
-							return self.error("End of file detected (it is not error)")
-						break
-
-					elif not (line[0] == 'facet' and line[1] == 'normal' ):
-						return self.error(f"'endsolid' or 'facet normal nx ny nz' expected, but found: {line}")
-					else:
-						line = read_line(stream) # outer loop
-						if line is None:
-							return self.error(f"'outer loop' expected, but found end of file")
-						elif line[0] != 'outer' or line[1] != 'loop':
-							return self.error(f"'outer loop' expected, but found: {line}")
-						else:
-							vTxt = read_line(stream)
-							if vTxt is None:
-								return self.error(f"'vertex x y z' expected, but found end of file")
-							elif vTxt[0] != 'vertex':
-								return self.error(f"'vertex x y z' expected, but found: {line}")
-							else:
-								face = []
-								while vTxt[0] == 'vertex':
-									x,y,z = map(float, vTxt[1:])
-									vidx = len(solid.vertices)
-									solid.vertices.append([x, y, z])
-									# vnormals.append([nx, ny, nz])
-									face.append(vidx)
-									vTxt = read_line(stream)
-									if vTxt is None:
-										return self.error(f"'vertex x y z' or 'endloop' expected, but found end of file")
-								solid.faces.append(face)
-
-								# in vTxt should now be 'endloop'
-								if vTxt[0] != 'endloop':
-									return self.error(f"'endloop' expected, but found: {line}")
-								else:
-									line = read_line(stream) # endfacet
-									if line is None:
-										return self.error(f"'endfacet' expected, but found end of file")
-									elif line[0] != 'endfacet':
-										return self.error(f"'endfacet' expected, but found: {line}")
-		return self.end_procedure()
+    @staticmethod
+    def inPlugin():
+        return False
 
 
-	@staticmethod	
-	def loadBinaryStl( path ):
-		try:
-			with open(path, 'rb') as file:
-				print("\n\nParsuję plik: "+path)
+def _verts_to_mesh(verts, label=''):
+    """Buduje obiekt Mesh z tablicy wierzchołków (3N, 3) (każda trójka = trójkąt)."""
+    n_tri = len(verts) // 3
+    v = verts[:n_tri * 3]
+    faces = np.arange(n_tri * 3, dtype=np.uint32).reshape(n_tri, 3)
+    # deduplikacja
+    v_view = v.view(np.dtype((np.void, v.dtype.itemsize * 3)))
+    _, inv = np.unique(v_view, return_inverse=True)
+    unique_idx = np.unique(inv, return_index=True)[1]
+    unique_verts = v[unique_idx]
+    faces_dedup = inv[faces]
 
-				# Odczytujemy pierwsze 80 bajtów
-				header = file.read(80)
+    mesh = Mesh()
+    mesh.m_vertices = unique_verts
+    mesh.m_faces = faces_dedup
+    mesh.label = label
+    mesh.calcVN()
+    return mesh
 
-				ileB = file.read(4)
-				lb = struct.unpack('i', ileB)[0]
 
-				vertices = []
-				faces = []
-
-				AP.mainWin.progressIndicator.init(text="Wczytuję binarny plik .stl", max=lb)
-				for _ in range(lb):
-					t = file.read(50)
-
-					AP.mainWin.progressIndicator.increase()
-
-					# Pomiń pierwsze 12 bajtów i odczytaj tylko 9 floatów z zakresu od 12 do 47 bajtu
-					floats = struct.unpack('9f', t[12:48])
-					# Podziel floats na trzy grupy po trzy elementy
-					v = [list(floats[i:i+3]) for i in range(0, 9, 3)]
-					
-					face = []
-					for vertex in v:					
-						face.append(len(vertices))
-						vertices.append(vertex)
-
-					faces.append(face)
-
-				vertices, faces = remove_duplicate_vertices(vertices, faces)
-
-				mesh = Mesh()
-
-				if header:
-					header = header.decode('ascii', errors='ignore').strip().split()
-					if len(header)>2:
-						descr = ' '.join(header[1:])
-						mesh.description = descr
-						mesh.label = os.path.basename(path)
-					elif len(header)>1:
-						mesh.label = header[1]
-					else:
-						mesh.label = os.path.basename(path)
-
-				mesh.m_vertices = np.array(vertices, dtype=np.float32)
-				mesh.m_faces = np.array(faces, dtype=np.uint)
-
-				mesh.calcVN()
-
-				AP.mainWin.progressIndicator.hide()
-				return mesh
-		except Exception as e:
-			print(f"Error reading file: {e}")
-			return None
-
-	@staticmethod	
-	def load( path ):
-		mesh = None
-		try:
-			with open(path, 'rb') as file:
-            	# Odczytujemy pierwsze 80 bajtów
-				header = file.read(80)
-				file.close()
-            	# Sprawdzamy, czy nagłówek zaczyna się od "solid"
-				if header[:5].decode('ascii', errors='ignore').lower() == 'solid':
-					mesh = ParserSTL().loadTextStl(path)
-				else:
-					mesh = ParserSTL.loadBinaryStl(path)
-		except Exception as e:
-			print(f"Error reading file: {e}")
-			return None
-
-		return mesh
-
-	@staticmethod	
-	def save( obj, path ):
-		return False
-	
-	@staticmethod	
-	def inPlugin():
-		return False
-		
 ParserSTL.regParser()

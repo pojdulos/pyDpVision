@@ -92,7 +92,8 @@ class GLViewer(QOpenGLWidget):
 		# Bazowy rozmiar przestrzeni zainteresowania (w jednostkach świata).
 		# Steruje pozycją kamery, near/far i skalą ortho.
 		# setViewScale(200) → odtwarza domyślne ustawienia 1:1.
-		self._defaultViewSize = 15.0
+		self._dDefaultViewSize = 200.0
+		self._dCurrentViewSize = 200.0
 
 		# _fAspect potrzebny przez recalcView(); właściwa wartość ustawiana w resizeGL
 		self._fAspect = 1.0
@@ -100,8 +101,8 @@ class GLViewer(QOpenGLWidget):
 		self._projection = GLViewer.Projection.PERSPECTIVE
 
 		# Zastosuj domyślną skalę — ustawia kamerę, near/far, orthoViewSize
-		self.setViewScale(self._defaultViewSize)
-
+		self.setViewScale(self._dCurrentViewSize)
+		
 		# Selection area mode
 		self.selection_mode = False
 		self.selection_pixmap = QPixmap()
@@ -191,6 +192,7 @@ class GLViewer(QOpenGLWidget):
 		      • dane w skali [0,1]    → setViewScale(1)
 		"""
 		size = float(size)
+		self._dCurrentViewSize = size
 		self._camera.pos = [0.0, 0.0, size]          # kamera w odległości = size od środka
 		self._near       = max(0.001, size * 0.0005)  # 0.1   przy size=200
 		self._far        = size * 500.0               # 100000 przy size=200
@@ -201,7 +203,7 @@ class GLViewer(QOpenGLWidget):
 	def resetView(self):
 		"""Przywraca kamerę i transformację sceny do stanu domyślnego."""
 		self.transform.reset()
-		self.setViewScale(self._defaultViewSize)
+		self.setViewScale(self._dDefaultViewSize)
 
 
 	def resizeGL( self, w, h):
@@ -645,7 +647,7 @@ class GLViewer(QOpenGLWidget):
 	
 		# Skala osi proporcjonalna do rozmiaru sceny
 		# przy _defaultViewSize=200 → mnożnik=1.0 (zachowane oryginalne rozmiary)
-		axis_scale = self._defaultViewSize / 200.0
+		axis_scale = self._dCurrentViewSize / self._dDefaultViewSize
 		glPushMatrix()
 		glScalef(axis_scale, axis_scale, axis_scale)
 		self.triad3D( 0.1, 45.0, 0.4, 5.0, True )

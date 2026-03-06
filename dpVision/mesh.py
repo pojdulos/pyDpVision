@@ -610,3 +610,7 @@ class Mesh(PointCloud):
 			mesh.calcVN()
 		
 		return mesh
+
+	def to_grid25D(self, **kwargs):
+		from .conversion import mesh_to_grid25D
+		return mesh_to_grid25D(self, **kwargs)

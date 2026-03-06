@@ -310,6 +310,10 @@ class MainWindow(QMainWindow):
 			self.progressIndicator.init()
 			self.progressIndicator.cancel_button_pressed.connect(parser.on_stop_loading)
 			
+			# Podłącz statusChanged jeśli parser go ma (np. STL)
+			if hasattr(parser, '_worker') and hasattr(parser._worker, 'statusChanged'):
+				parser._worker.statusChanged.connect(self.progressIndicator.setText)
+			
 			parser.load_async(self.progressIndicator.progressBar)
 		else:
 			obj = Parser.load(fileName)

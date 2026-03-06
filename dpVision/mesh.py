@@ -319,40 +319,38 @@ class Mesh(PointCloud):
 				and self.m_tindices.shape[0] == self.m_faces.shape[0]
 
 		if self.vBuf is None:
-			# Używamy indeksowania - wysyłamy tylko unikalne wierzchołki zamiast duplikować dane
-			self.vBuf = self.m_vertices.astype(np.float32)  # (nv, 3)
-			self.iBuf = self.m_faces.astype(np.uint32).ravel()  # (nf*3,) - flat array indeksów
+			# Sprawdzamy czy trzeba duplikować wierzchołki (gdy atrybuty mają różne indeksy)
+			needDuplication = drawFC or drawFN or (drawT and not np.array_equal(self.m_tindices, self.m_faces))
 			
-			if drawVC:
-				self.cBuf = self.m_vcolors.astype(np.ubyte)  # (nv, 4)
-			elif drawFC:
-				# Dla kolorów per-face, musimy zduplikować wierzchołki (bo kolory są per-vertex w GPU)
+			if needDuplication:
+				# Duplikujemy wierzchołki - każdy trójkąt ma osobne kopie wierzchołków
 				f = self.m_faces
 				self.vBuf = self.m_vertices[f].reshape(-1, 3).astype(np.float32)  # (nf*3, 3)
-				self.cBuf = np.repeat(self.m_fcolors, 3, axis=0).astype(np.ubyte)  # (nf*3, 4)
-				self.iBuf = np.arange(len(self.vBuf), dtype=np.uint32)  # (nf*3,)
+				self.iBuf = np.arange(len(self.vBuf), dtype=np.uint32)  # (nf*3,) sekwencyjne indeksy
 				
-			if drawVN:
-				if drawFC:  # Jeśli już zduplikowaliśmy dla kolorów
+				if drawVC:
+					self.cBuf = self.m_vcolors[f].reshape(-1, 4).astype(np.ubyte)
+				elif drawFC:
+					self.cBuf = np.repeat(self.m_fcolors, 3, axis=0).astype(np.ubyte)
+					
+				if drawVN:
 					self.nBuf = self.m_vnormals[f].reshape(-1, 3).astype(np.float32)
-				else:
-					self.nBuf = self.m_vnormals.astype(np.float32)  # (nv, 3)
-			elif drawFN:
-				# Normalne per-face - musimy zduplikować wierzchołki
-				f = self.m_faces
-				if not drawFC:  # Jeśli nie zduplikowaliśmy jeszcze dla kolorów
-					self.vBuf = self.m_vertices[f].reshape(-1, 3).astype(np.float32)  # (nf*3, 3)
-					if drawVC:
-						self.cBuf = self.m_vcolors[f].reshape(-1, 4).astype(np.ubyte)
-					self.iBuf = np.arange(len(self.vBuf), dtype=np.uint32)
-				self.nBuf = np.repeat(self.m_fnormals, 3, axis=0).astype(np.float32)  # (nf*3, 3)
+				elif drawFN:
+					self.nBuf = np.repeat(self.m_fnormals, 3, axis=0).astype(np.float32)
+			else:
+				# Używamy indeksowania - wysyłamy tylko unikalne wierzchołki
+				self.vBuf = self.m_vertices.astype(np.float32)  # (nv, 3)
+				self.iBuf = self.m_faces.astype(np.uint32).ravel()  # (nf*3,) flat array indeksów
+				
+				if drawVC:
+					self.cBuf = self.m_vcolors.astype(np.ubyte)
+				if drawVN:
+					self.nBuf = self.m_vnormals.astype(np.float32)
 
 		if drawT:
 			if self.tBuf is None:
-				if drawFC or drawFN:  # Jeśli zduplikowaliśmy wierzchołki
-					self.tBuf = self.m_tcoords[self.m_tindices].reshape(-1, 2).astype(np.float32)
-				else:
-					self.tBuf = self.m_tcoords.astype(np.float32)
+				# Tekstury - używamy m_tindices (które mogą być różne od m_faces w OBJ)
+				self.tBuf = self.m_tcoords[self.m_tindices].reshape(-1, 2).astype(np.float32)
 
 		# Wgraj dane do GPU tylko raz (nie przy każdej klatce)
 		if not self._gpu_uploaded:
@@ -390,16 +388,18 @@ class Mesh(PointCloud):
 				glVertexAttribPointer(2, 3, GL_FLOAT, True, 0, None)
 				glEnableVertexAttribArray(2)
 
-			if drawT:
-				if self.t_vbo is None:
-					self.t_vbo = glGenBuffers(1)
-				glBindBuffer(GL_ARRAY_BUFFER, self.t_vbo)
-				glBufferData(GL_ARRAY_BUFFER, self.tBuf.nbytes, self.tBuf, GL_STATIC_DRAW)
-				glVertexAttribPointer(3, 2, GL_FLOAT, False, 0, None)
-				glEnableVertexAttribArray(3)
-
 			glBindVertexArray(0)  # Unbind VAO
 			self._gpu_uploaded = True
+		
+		# Tekstury mogą być ładowane dynamicznie, więc upload osobno
+		if drawT and self.t_vbo is None:
+			glBindVertexArray(self.vao)
+			self.t_vbo = glGenBuffers(1)
+			glBindBuffer(GL_ARRAY_BUFFER, self.t_vbo)
+			glBufferData(GL_ARRAY_BUFFER, self.tBuf.nbytes, self.tBuf, GL_STATIC_DRAW)
+			glVertexAttribPointer(3, 2, GL_FLOAT, False, 0, None)
+			glEnableVertexAttribArray(3)
+			glBindVertexArray(0)
 		
 		# Używamy cache'owanych uniform locations zamiast glGetUniformLocation w każdej klatce
 		dC = self.materials[self.currentMaterial].diffuse + [self.materials[self.currentMaterial].alpha]

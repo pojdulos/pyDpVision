@@ -84,6 +84,7 @@ def _is_binary_stl(path):
 
 class STLLoaderWorker(QObject):
     progressChanged = pyqtSignal(int)
+    statusChanged   = pyqtSignal(str)  # informacja o aktualnym kroku
     loadingFinished  = pyqtSignal(object)  # emituje gotowy BaseObject
     errorOccurred    = pyqtSignal(str)
 
@@ -99,23 +100,27 @@ class STLLoaderWorker(QObject):
         try:
             label = os.path.basename(self.path)
             print(f"\nParsuję plik: {self.path}")
+            self.statusChanged.emit("Wczytuję plik...")
             if _is_binary_stl(self.path):
                 self.progressChanged.emit(0)
                 verts = _read_binary_stl_verts(self.path)
-                self.progressChanged.emit(50)
+                self.progressChanged.emit(30)
             else:
                 verts = _read_text_stl_verts(self.path,
                     progress_cb=self.progressChanged.emit if self._is_running else None)
-                self.progressChanged.emit(50)
+                self.progressChanged.emit(30)
             if not self._is_running:
                 return
             # konwersja w wątku roboczym, nie w GUI
             print(f"Wczytano {len(verts)} wierzchołków, konwertuję…")
             obj = verts_to_grid25D(verts)
             if obj is None:
-                obj = _verts_to_mesh(verts, label)
+                obj = _verts_to_mesh(verts, label, 
+                    progress_cb=self.progressChanged.emit if self._is_running else None,
+                    status_cb=self.statusChanged.emit if self._is_running else None)
             obj.label = label
             self.progressChanged.emit(100)
+            self.statusChanged.emit("Gotowe!")
             if self._is_running:
                 self.loadingFinished.emit(obj)
         except Exception as e:
@@ -204,18 +209,25 @@ class ParserSTL(Parser):
         return False
 
 
-def _verts_to_mesh(verts, label=''):
+def _verts_to_mesh(verts, label='', progress_cb=None, status_cb=None):
     """Buduje obiekt Mesh z tablicy wierzchołków (3N, 3) (każda trójka = trójkąt)."""
     n_tri = len(verts) // 3
     v = verts[:n_tri * 3].astype(np.float32)
 
     # Deduplikacja wierzchołków - zawsze włączona
+    if status_cb:
+        status_cb(f"Deduplikuję {len(v)} wierzchołków...")
     print(f"Deduplikuję {len(v)} wierzchołków...")
+    if progress_cb:
+        progress_cb(40)
+    
     v_view = v.view(np.dtype((np.void, v.dtype.itemsize * 3)))
     _, inv = np.unique(v_view, return_inverse=True)
     unique_idx = np.unique(inv, return_index=True)[1]
     unique_verts = v[unique_idx]
     print(f"Po deduplikacji: {len(unique_verts)} unikalnych wierzchołków ({len(unique_verts)/len(v)*100:.1f}%)")
+    if progress_cb:
+        progress_cb(60)
     
     # Reshape inv directly to avoid extra dimensions from fancy indexing
     faces = inv.reshape(n_tri, 3).astype(np.int64)
@@ -228,7 +240,20 @@ def _verts_to_mesh(verts, label=''):
     mesh.m_vertices = unique_verts
     mesh.m_faces = faces
     mesh.label = label
+    
+    if status_cb:
+        status_cb("Obliczam normalne...")
+    if progress_cb:
+        progress_cb(70)
     mesh.calcVN()
+    
+    # Pre-obliczanie bounding box w tle, żeby nie blokować GUI przy pierwszym renderowaniu
+    if status_cb:
+        status_cb("Obliczam bounding box...")
+    if progress_cb:
+        progress_cb(90)
+    _ = mesh.getBB()  # Wywołujemy getBB() żeby cache się zapełnił
+    
     return mesh
 
 

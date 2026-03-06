@@ -228,3 +228,6 @@ class BaseObject(QObject):
 			if parent is not None:
 				return parent.getGlobalTransformation()
 		return np.eye(4, dtype=np.float64)
+
+	def info(self):
+		return f"BaseObject: Info() should be implemented in derived class"

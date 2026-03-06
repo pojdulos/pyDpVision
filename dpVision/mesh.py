@@ -49,6 +49,7 @@ class Mesh(PointCloud):
 		self.cBuf = None
 		self.nBuf = None
 		self.tBuf = None
+		self._gpu_uploaded = False
 		self.materials = {
 			'' : Mesh.Material() # default material
 		}
@@ -240,17 +241,18 @@ class Mesh(PointCloud):
 			normals_lengths[normals_lengths == 0] = 1  # Zapobieganie dzieleniu przez zero
 			normals = normals / normals_lengths[:, np.newaxis]
 
-		# Inicjalizacja tymczasowej tablicy normalnych
-		tmpN = np.zeros((len(self.m_vertices), 3), dtype=np.float32)
-
-		# Sumowanie normalnych dla wierzchołków
-		for i in range(3):  # Dla każdego wierzchołka w trójkącie
-			np.add.at(tmpN, self.m_faces[:, i], normals)
+		# Sumowanie normalnych dla wierzchołków — bincount zamiast np.add.at
+		nv = len(self.m_vertices)
+		faces_flat = self.m_faces.ravel()          # (3*nf,)
+		normals_rep = np.repeat(normals, 3, axis=0)  # (3*nf, 3)
+		tmpN = np.empty((nv, 3), dtype=np.float64)
+		for d in range(3):
+			tmpN[:, d] = np.bincount(faces_flat, weights=normals_rep[:, d], minlength=nv)
 
 		# Normalizacja normalnych
 		norms = np.linalg.norm(tmpN, axis=1)
 		norms[norms == 0] = 1  # Zapobieganie dzieleniu przez zero
-		self.m_vnormals = tmpN / norms[:, np.newaxis]
+		self.m_vnormals = (tmpN / norms[:, np.newaxis]).astype(np.float32)
 
 
 	def renderWithShaders2(self):
@@ -301,64 +303,61 @@ class Mesh(PointCloud):
 				and self.m_tindices.shape[0] == self.m_faces.shape[0]
 
 		if self.vBuf is None:
-			_vBuf = []
-			_cBuf = []
-			_nBuf = []
-			for idx, f in enumerate(self.m_faces):
-				v = [ self.m_vertices[f[0]], self.m_vertices[f[1]], self.m_vertices[f[2]] ]
-				_vBuf.append(v)
-				if drawVC:
-					c = [ self.m_vcolors[f[0]], self.m_vcolors[f[1]], self.m_vcolors[f[2]] ]
-					_cBuf.append(c)
-				elif drawFC:
-					c = [ self.m_fcolors[idx], self.m_fcolors[idx], self.m_fcolors[idx] ]
-					_cBuf.append(c)
-				if drawVN:
-					n = [ self.m_vnormals[f[0]], self.m_vnormals[f[1]], self.m_vnormals[f[2]] ]
-					_nBuf.append(n)
-				elif drawFN:
-					n = [ self.m_fnormals[idx], self.m_fnormals[idx], self.m_fnormals[idx] ]
-					_nBuf.append(n)
-			self.vBuf = np.array(_vBuf, dtype=np.float32)
-			if drawC:
-				self.cBuf = np.array(_cBuf, dtype=np.ubyte)
-			if drawN:
-				self.nBuf = np.array(_nBuf, dtype=np.float32)
+			# fancy indexing zamiast pętli Python — działa w C, ~1000x szybciej
+			f = self.m_faces  # (nf, 3)
+			self.vBuf = self.m_vertices[f].astype(np.float32)  # (nf, 3, 3)
+			if drawVC:
+				self.cBuf = self.m_vcolors[f].astype(np.ubyte)   # (nf, 3, 4)
+			elif drawFC:
+				self.cBuf = np.repeat(self.m_fcolors[:, np.newaxis, :], 3, axis=1).astype(np.ubyte)
+			if drawVN:
+				self.nBuf = self.m_vnormals[f].astype(np.float32)  # (nf, 3, 3)
+			elif drawFN:
+				self.nBuf = np.repeat(self.m_fnormals[:, np.newaxis, :], 3, axis=1).astype(np.float32)
 
 		if drawT:
-			if self.tBuf is None:		
-				_tBuf = []
-				for i in self.m_tindices:
-					t = [ self.m_tcoords[i[0]], self.m_tcoords[i[1]], self.m_tcoords[i[2]] ]
-					_tBuf.append(t)
+			if self.tBuf is None:
+				# fancy indexing zamiast pętli Python
+				self.tBuf = self.m_tcoords[self.m_tindices].astype(np.float32)  # (nf, 3, 2)
 
-				self.tBuf = np.array(_tBuf, dtype=np.float32)
+		# Wgraj dane do GPU tylko raz (nie przy każdej klatce)
+		if not self._gpu_uploaded:
+			if self.v_vbo is None:
+				self.v_vbo = glGenBuffers(1)
+			glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
+			glBufferData(GL_ARRAY_BUFFER, self.vBuf.nbytes, self.vBuf, GL_STATIC_DRAW)
 
-		if self.v_vbo is None:
-			self.v_vbo = glGenBuffers(1)
-		glBindBuffer(GL_ARRAY_BUFFER, self.v_vbo)
-		glBufferData(GL_ARRAY_BUFFER, self.vBuf.nbytes, self.vBuf, GL_STATIC_DRAW)
+			if drawC:
+				if self.c_vbo is None:
+					self.c_vbo = glGenBuffers(1)
+				glBindBuffer(GL_ARRAY_BUFFER, self.c_vbo)
+				glBufferData(GL_ARRAY_BUFFER, self.cBuf.nbytes, self.cBuf, GL_STATIC_DRAW)
+
+			if drawN:
+				if self.n_vbo is None:
+					self.n_vbo = glGenBuffers(1)
+				glBindBuffer(GL_ARRAY_BUFFER, self.n_vbo)
+				glBufferData(GL_ARRAY_BUFFER, self.nBuf.nbytes, self.nBuf, GL_STATIC_DRAW)
+
+			if drawT:
+				if self.t_vbo is None:
+					self.t_vbo = glGenBuffers(1)
+				glBindBuffer(GL_ARRAY_BUFFER, self.t_vbo)
+				glBufferData(GL_ARRAY_BUFFER, self.tBuf.nbytes, self.tBuf, GL_STATIC_DRAW)
+
+			self._gpu_uploaded = True
 
 		useVColors_loc = glGetUniformLocation(self.shader_program, "useVColors")
 		dC = self.materials[self.currentMaterial].diffuse + [self.materials[self.currentMaterial].alpha]
-#		dC = [1.0, 0.5, 0.5, 0.8]
 		loc = glGetUniformLocation(self.shader_program, "myColor")
-		glUniform4f(loc, dC[0], dC[1], dC[2], dC[3] )
+		glUniform4f(loc, dC[0], dC[1], dC[2], dC[3])
 		if drawC:
-			if self.c_vbo is None:
-				self.c_vbo = glGenBuffers(1)
-			glBindBuffer(GL_ARRAY_BUFFER, self.c_vbo)
-			glBufferData(GL_ARRAY_BUFFER, self.cBuf.nbytes, self.cBuf, GL_STATIC_DRAW)
 			glUniform1i(useVColors_loc, 1)
 		else:
 			glUniform1i(useVColors_loc, 0)
-		
+
 		useVNormals_loc = glGetUniformLocation(self.shader_program, "useVNormals")
 		if drawN:
-			if self.n_vbo is None:
-				self.n_vbo = glGenBuffers(1)
-			glBindBuffer(GL_ARRAY_BUFFER, self.n_vbo)
-			glBufferData(GL_ARRAY_BUFFER, self.nBuf.nbytes, self.nBuf, GL_STATIC_DRAW)
 			glUniform1i(useVNormals_loc, 1)
 		else:
 			glUniform1i(useVNormals_loc, 0)
@@ -368,11 +367,6 @@ class Mesh(PointCloud):
 			glActiveTexture(GL_TEXTURE0)
 			glBindTexture(GL_TEXTURE_2D, self.materials[self.currentMaterial].dTexture.textureId())
 			glUniform1i(glGetUniformLocation(self.shader_program, "texture1"), 0)
-
-			if self.t_vbo is None:
-				self.t_vbo = glGenBuffers(1)
-			glBindBuffer(GL_ARRAY_BUFFER, self.t_vbo)
-			glBufferData(GL_ARRAY_BUFFER, self.tBuf.nbytes, self.tBuf, GL_STATIC_DRAW)
 			glUniform1i(useTexture_loc, 1)
 		else:
 			glUniform1i(useTexture_loc, 0)

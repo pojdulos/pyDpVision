@@ -306,4 +306,4 @@ def test_gridData64():
 	filename = "d:\\praca\\nowe_probki\\_AX data_STL_ASC_TXT\\Sensofar confocal\\AX_3_5x_conf_crop_disabled.stl"
 	AP.load(filename, on_success=set_roi)
 
-test_gridData64()
+# test_gridData64()

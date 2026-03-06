@@ -1,6 +1,6 @@
 
 from .. import Parser, AP, Mesh, Transform, BaseObject
-from ..conversion import verts_to_grid25D, mesh_to_grid25D
+from ..conversion import verts_to_grid25D
 
 import numpy as np
 import re
@@ -28,7 +28,8 @@ def _read_binary_stl_verts(path):
         ('attr',   np.uint16),
     ])
     tris = np.frombuffer(raw, dtype=dtype, count=n_tri, offset=84)
-    verts = np.concatenate([tris['v0'], tris['v1'], tris['v2']], axis=0)
+    # przeplatana kolejność: v0₀,v1₀,v2₀, v0₁,v1₁,v2₁, ... — wymagana przez _verts_to_mesh
+    verts = np.stack([tris['v0'], tris['v1'], tris['v2']], axis=1).reshape(-1, 3)
     return verts
 
 
@@ -83,7 +84,7 @@ def _is_binary_stl(path):
 
 class STLLoaderWorker(QObject):
     progressChanged = pyqtSignal(int)
-    loadingFinished  = pyqtSignal(np.ndarray, str)  # (verts, label)
+    loadingFinished  = pyqtSignal(object)  # emituje gotowy BaseObject
     errorOccurred    = pyqtSignal(str)
 
     def __init__(self, path):
@@ -101,13 +102,24 @@ class STLLoaderWorker(QObject):
             if _is_binary_stl(self.path):
                 self.progressChanged.emit(0)
                 verts = _read_binary_stl_verts(self.path)
-                self.progressChanged.emit(100)
+                self.progressChanged.emit(50)
             else:
                 verts = _read_text_stl_verts(self.path,
                     progress_cb=self.progressChanged.emit if self._is_running else None)
+                self.progressChanged.emit(50)
+            if not self._is_running:
+                return
+            # konwersja w wątku roboczym, nie w GUI
+            print(f"Wczytano {len(verts)} wierzchołków, konwertuję…")
+            obj = verts_to_grid25D(verts)
+            if obj is None:
+                obj = _verts_to_mesh(verts, label)
+            obj.label = label
+            self.progressChanged.emit(100)
             if self._is_running:
-                self.loadingFinished.emit(verts, label)
+                self.loadingFinished.emit(obj)
         except Exception as e:
+            import traceback; traceback.print_exc()
             self.errorOccurred.emit(str(e))
 
 
@@ -132,20 +144,11 @@ class ParserSTL(Parser):
     def is_not_static(cls):
         return True
 
-    def on_loading_finished(self, verts, label):
+    def on_loading_finished(self, obj):
         self._thread.quit()
         self._thread.wait()
         self._worker.deleteLater()
         self._thread.deleteLater()
-
-        print(f"Wczytano {len(verts)} wierzchołków, konwertuję…")
-        obj = verts_to_grid25D(verts)
-        if obj is None:
-            # nie jest gridem → zbuduj Mesh
-            from ..conversion import mesh_to_grid25D
-            mesh = _verts_to_mesh(verts, label)
-            obj = mesh
-        obj.label = label
         self.loadingFinished.emit(obj)
 
     def on_loading_error(self, msg):
@@ -201,21 +204,29 @@ class ParserSTL(Parser):
         return False
 
 
+# Dla dużych siatek deduplikacja (np.unique na 30M wierszach) jest zbyt wolna.
+_DEDUP_THRESHOLD = 1_000_000  # trójkątów
+
 def _verts_to_mesh(verts, label=''):
     """Buduje obiekt Mesh z tablicy wierzchołków (3N, 3) (każda trójka = trójkąt)."""
     n_tri = len(verts) // 3
-    v = verts[:n_tri * 3]
-    faces = np.arange(n_tri * 3, dtype=np.uint32).reshape(n_tri, 3)
-    # deduplikacja
-    v_view = v.view(np.dtype((np.void, v.dtype.itemsize * 3)))
-    _, inv = np.unique(v_view, return_inverse=True)
-    unique_idx = np.unique(inv, return_index=True)[1]
-    unique_verts = v[unique_idx]
-    faces_dedup = inv[faces]
+    v = verts[:n_tri * 3].astype(np.float32)
+
+    if n_tri <= _DEDUP_THRESHOLD:
+        # deduplikacja dla małych siatek (płynne cieniowanie)
+        v_view = v.view(np.dtype((np.void, v.dtype.itemsize * 3)))
+        _, inv = np.unique(v_view, return_inverse=True)
+        unique_idx = np.unique(inv, return_index=True)[1]
+        unique_verts = v[unique_idx]
+        faces = inv[np.arange(n_tri * 3, dtype=np.int64).reshape(n_tri, 3)]
+    else:
+        # brak dedupu dla dużych — flat shading, ale wczytuje się natychmiast
+        unique_verts = v
+        faces = np.arange(n_tri * 3, dtype=np.uint32).reshape(n_tri, 3)
 
     mesh = Mesh()
     mesh.m_vertices = unique_verts
-    mesh.m_faces = faces_dedup
+    mesh.m_faces = faces
     mesh.label = label
     mesh.calcVN()
     return mesh

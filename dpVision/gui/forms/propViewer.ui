@@ -91,13 +91,13 @@ Przykłady: głowa ~250 mm → 250; próbka 10×10 mm → 10; domyślne → 200<
             <number>0</number>
            </property>
            <property name="minimum">
-            <double>0.000000000000000</double>
+            <double>1.000000000000000</double>
            </property>
            <property name="maximum">
             <double>10000000.000000000000000</double>
            </property>
            <property name="singleStep">
-            <double>10.000000000000000</double>
+            <double>1.000000000000000</double>
            </property>
            <property name="value">
             <double>200.000000000000000</double>

@@ -368,32 +368,56 @@ class Volumetric(Object):
 		cloud.m_vertices = np.array(vertices, dtype=np.float32)
 		return cloud
 
-	def marching_cube(self, factor = 1, close_boundary=True):
-		# AP.not_implemented()
-		import mcubes 	# pip install PyMCubes PyCollada
+	def marching_cube(self, factor=1, close_boundary=True, sigma_unit=0.8, min_volume=50):
 
-		first_slice = factor*int(self.m_minSlice/factor)
-		first_row = factor*int(self.m_minRow/factor)
-		first_column = factor*int(self.m_minColumn/factor)
+		import mcubes
+		import numpy as np
+		from scipy.ndimage import gaussian_filter, map_coordinates
+		from scipy import ndimage as ndi
 
-		image = [slice[first_row:self.m_maxRow+1:factor,first_column:self.m_maxColumn+1:factor] for slice in self.m_volume[first_slice:self.m_maxSlice+1:factor]]
+		# ------------------------------------------------------------
+		# 1. ROI extraction (bez subsamplingu)
+		# ------------------------------------------------------------
+
+		first_slice = factor * int(self.m_minSlice / factor)
+		first_row = factor * int(self.m_minRow / factor)
+		first_column = factor * int(self.m_minColumn / factor)
+
+		image = [
+			slice[first_row:self.m_maxRow+1, first_column:self.m_maxColumn+1]
+			for slice in self.m_volume[first_slice:self.m_maxSlice+1]
+		]
 
 		image = np.array(image, dtype=np.float32)
 
-		from scipy.ndimage import gaussian_filter
-		sigma_mm = 0.4 * ( self.metadata[1].pixel_spacing[0] + self.metadata[1].pixel_spacing[1] )
+		# ------------------------------------------------------------
+		# 2. Gaussian smoothing (anti-aliasing)
+		# ------------------------------------------------------------
 
-		sigma_z = sigma_mm / self.metadata[1].slice_distance
-		sigma_y = sigma_mm / self.metadata[1].pixel_spacing[1]
-		sigma_x = sigma_mm / self.metadata[1].pixel_spacing[0]
+		px = self.metadata[1].pixel_spacing[0]
+		py = self.metadata[1].pixel_spacing[1]
+		pz = self.metadata[1].slice_distance
+
+		sigma_mm = sigma_unit * ( 0.5 * (px + py) )
 
 		sigma = (
-			sigma_z * float(factor),
-			sigma_y * float(factor),
-			sigma_x * float(factor),
+			sigma_mm / pz,
+			sigma_mm / py,
+			sigma_mm / px,
 		)
 
 		image = gaussian_filter(image, sigma=sigma)
+
+		# ------------------------------------------------------------
+		# 3. Subsampling (factor)
+		# ------------------------------------------------------------
+
+		if factor > 1:
+			image = image[::factor, ::factor, ::factor]
+
+		# ------------------------------------------------------------
+		# 4. Gradient computation
+		# ------------------------------------------------------------
 
 		gz, gy, gx = np.gradient(image)
 		grad = np.sqrt(gx*gx + gy*gy + gz*gz)
@@ -401,38 +425,39 @@ class Volumetric(Object):
 		g = grad.ravel()
 		v = image.ravel()
 
+		# ------------------------------------------------------------
+		# 5. Automatic threshold estimation
+		# ------------------------------------------------------------
+
 		g_thr = np.percentile(g, 95)
 
-		mask_grad = (g >= g_thr) & (v > 150) & (v < 2000)
+		mask_grad = (g >= g_thr) & (v > 150) & (v < 6000)
 
 		if np.sum(mask_grad) < 100:
 			threshold_init = 300
 		else:
-			threshold_init = np.percentile(v[mask_grad], 40)
+			threshold_init = np.percentile(v[mask_grad], 30)
+
+		threshold_init *= 1.05
 
 		print("threshold_init:", threshold_init)
 
+		# ------------------------------------------------------------
+		# 6. Binary segmentation
+		# ------------------------------------------------------------
 
 		mask_bone = image > threshold_init
 
-		from scipy import ndimage as ndi
-		mask_bone = ndi.binary_closing(mask_bone, iterations=1)
+		structure = ndi.generate_binary_structure(3,1)
+
+		mask_bone = ndi.binary_opening(mask_bone, structure=structure, iterations=1)
+		mask_bone = ndi.binary_closing(mask_bone, structure=structure, iterations=2)
 
 		labels, n = ndi.label(mask_bone)
-
 		sizes = ndi.sum(mask_bone, labels, index=np.arange(1, n+1))
 
-
-		voxel_volume = (
-			self.metadata[1].pixel_spacing[0]
-			* self.metadata[1].pixel_spacing[1]
-			* self.metadata[1].slice_distance
-		)
-
+		voxel_volume = px * py * pz
 		sizes_mm3 = sizes * voxel_volume
-
-		min_volume = 20  # mm³ – do strojenia
-
 
 		keep = np.zeros(n + 1, dtype=bool)
 		keep[1:][sizes_mm3 >= min_volume] = True
@@ -441,6 +466,10 @@ class Volumetric(Object):
 
 		image_clean = image.copy()
 		image_clean[~mask_clean] = image.min()
+
+		# ------------------------------------------------------------
+		# 7. Marching cubes
+		# ------------------------------------------------------------
 
 		if close_boundary:
 			image_mc = np.pad(image_clean, 1, mode='constant')
@@ -451,68 +480,76 @@ class Volumetric(Object):
 
 		offset = 1 if close_boundary else 0
 
-		grad_values = []
+		# ------------------------------------------------------------
+		# 8. Gradient confidence on surface
+		# ------------------------------------------------------------
 
-		for p in points:
-			z = int(round(p[0] - offset))
-			y = int(round(p[1] - offset))
-			x = int(round(p[2] - offset))
+		coords = np.vstack([
+			points[:,0] - offset,
+			points[:,1] - offset,
+			points[:,2] - offset
+		])
 
-			z = max(0, min(z, grad.shape[0] - 1))
-			y = max(0, min(y, grad.shape[1] - 1))
-			x = max(0, min(x, grad.shape[2] - 1))
-
-			grad_values.append(float(grad[z, y, x]))
+		grad_values = map_coordinates(grad, coords, order=1, mode='nearest')
 
 		print("Gradient on surface:")
-		print("min:", min(grad_values))
-		print("max:", max(grad_values))
-		print("mean:", sum(grad_values) / len(grad_values))
+		print("min:", grad_values.min())
+		print("max:", grad_values.max())
+		print("mean:", grad_values.mean())
 
-		print("p1 :", np.percentile(grad_values, 1))
-		print("p5 :", np.percentile(grad_values, 5))
-		print("p10:", np.percentile(grad_values, 10))
-		print("p50:", np.percentile(grad_values, 50))
-		print("p90:", np.percentile(grad_values, 90))
-		print("p95:", np.percentile(grad_values, 95))
-		print("p99:", np.percentile(grad_values, 99))
+		for p in [1,5,10,50,90,95,99]:
+			print(f"p{p}:", np.percentile(grad_values, p))
+
+		# ------------------------------------------------------------
+		# 9. Transform vertices to world coordinates
+		# ------------------------------------------------------------
 
 		origin = [
-			self.metadata[first_slice].image_position_patient[0] + self.metadata[first_slice].pixel_spacing[0] * float(first_column),
-			self.metadata[first_slice].image_position_patient[1] + self.metadata[first_slice].pixel_spacing[1] * float(first_row),
+			self.metadata[first_slice].image_position_patient[0] + px * float(first_column),
+			self.metadata[first_slice].image_position_patient[1] + py * float(first_row),
 			self.metadata[first_slice].image_position_patient[2]
 		]
 
-		# origin = list(self.metadata[first_slice].image_position_patient).copy()
-
 		if first_slice > 0:
-			slice_distance = self.metadata[first_slice].image_position_patient[2] - self.metadata[first_slice-1].image_position_patient[2]
+			slice_distance = (
+				self.metadata[first_slice].image_position_patient[2] -
+				self.metadata[first_slice-1].image_position_patient[2]
+			)
 		else:
-			slice_distance = self.metadata[first_slice+1].image_position_patient[2] - self.metadata[first_slice].image_position_patient[2]
+			slice_distance = (
+				self.metadata[first_slice+1].image_position_patient[2] -
+				self.metadata[first_slice].image_position_patient[2]
+			)
 
 		gantra = self.metadata[0].gantry_detector_tilt
 
 		if close_boundary:
-			origin[0] = origin[0] - self.metadata[first_slice].pixel_spacing[0] * factor
-			origin[1] = origin[1] - self.metadata[first_slice].pixel_spacing[1] * factor
-			origin[2] = origin[2] - slice_distance * factor
-		
-		scale = [ self.metadata[first_slice].pixel_spacing[0], self.metadata[first_slice].pixel_spacing[1],	slice_distance	]
-		scale = [ x * float(factor) for x in scale ]
-		
-		vertices = []
-		for point in points:
-			vx = [ point[2]*scale[0], point[1]*scale[1], point[0]*scale[2] ]
-			
-			if gantra != 0.0:
-				vx[1] = vx[1] + vx[2] * tan(gantra)
+			origin[0] -= px * factor
+			origin[1] -= py * factor
+			origin[2] -= slice_distance * factor
 
-			vx = [ vx[i]+origin[i] for i in range(3) ]
+		scale = [px*factor, py*factor, slice_distance*factor]
+
+		vertices = []
+
+		for p in points:
+
+			vx = [
+				p[2] * scale[0],
+				p[1] * scale[1],
+				p[0] * scale[2]
+			]
+
+			if gantra != 0.0:
+				vx[1] += vx[2] * tan(gantra)
+
+			vx = [vx[i] + origin[i] for i in range(3)]
+
 			vertices.append(vx)
 
 		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
 		AP.addObject(mesh, self)
-
+		
 	def adjustMinMax(self, calc_color=True, winMin=None, winMax=None, min_slice=None, max_slice=None, min_row=None, max_row=None, min_column=None, max_column=None):
 		if calc_color:
 			self.m_min = np.min(self.m_volume[0])

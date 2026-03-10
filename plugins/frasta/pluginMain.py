@@ -277,7 +277,7 @@ class Frasta(PluginInterface):
 			self.scale_transform = Transform()
 			self.scale_transform.label = "Frasta scale (0.01x)"
 			self.scale_transform.locked = True
-			self.scale_transform.setScale(0.01, 0.01, 0.01)  # skalowanie skanów
+			# self.scale_transform.setScale(0.01, 0.01, 0.01)  # skalowanie skanów
 			AP.addObject(self.scale_transform)
 		if self.adj_transform is None:
 			self.adj_transform = Transform()
@@ -587,7 +587,7 @@ class Frasta(PluginInterface):
 		], dtype=float)
 
 		#plane = AnnotationPlane(pC=center_world, pN=normal, size=8000)
-		plane = AnnotationPlane(pC=[0,0,center_world[2]], pN=normal, size=8000)
+		plane = AnnotationPlane(pC=[0,0,center_world[2]], pN=normal, size=10)
 
 		return plane, [a_w, b_w, c_w]
 

@@ -281,7 +281,7 @@ class ParserCSV(Parser):
 		self._thread = QThread()
 		self._worker = CSVLoaderWorker(path)
 
-	def looks_like_grid(self, df, tol=1e-3, frac_threshold=0.95, completeness_threshold=0.5):
+	def looks_like_grid(self, df, tol=5e-3, frac_threshold=0.80, completeness_threshold=0.25):
 		x = df.iloc[:,0].round(self.round_decimals).values
 		y = df.iloc[:,1].round(self.round_decimals).values
 
@@ -289,16 +289,18 @@ class ParserCSV(Parser):
 		ys = np.unique(y)
 
 		if len(xs) < 2 or len(ys) < 2:
-			return False, None, None, len(xs), len(ys), 0.0
+			return False, None, None, len(xs), len(ys), 0.0, False
 
-		dx = np.round(np.diff(xs), self.round_decimals)
-		dy = np.round(np.diff(ys), self.round_decimals)
+		dx = np.diff(xs)
+		dy = np.diff(ys)
 
 		stepX = np.median(dx)
 		stepY = np.median(dy)
 
-		frac_x = np.mean(dx == stepX)
-		frac_y = np.mean(dy == stepY)
+		# Użyj tolerancji względnej (jak w verts_to_grid25D dla STL)
+		# zamiast wymagać dokładnej równości po zaokrągleniu
+		frac_x = np.mean(np.abs(dx - stepX) <= stepX * tol) if stepX > 0 else 0.0
+		frac_y = np.mean(np.abs(dy - stepY) <= stepY * tol) if stepY > 0 else 0.0
 
 		is_regular_x = frac_x >= frac_threshold
 		is_regular_y = frac_y >= frac_threshold
@@ -306,10 +308,18 @@ class ParserCSV(Parser):
 		completeness = len(df) / (len(xs) * len(ys))
 
 		is_grid = (is_regular_x and is_regular_y and completeness >= completeness_threshold)
+		
+		# Określ czy wynik jest niepewny (borderline case)
+		uncertain = False
+		if not is_grid:
+			# Niepewny gdy jest szansa że to grid ale progi nie zostały spełnione
+			# (przyzwoite wypełnienie I przyzwoita regularność)
+			if (completeness >= 0.10 and min(frac_x, frac_y) >= 0.60):
+				uncertain = True
 
-		print(f"stepX: {stepX}, stepY: {stepY}, frac_x={frac_x:.6f}, frac_y={frac_y:.6f}, completeness={completeness:.3f}, is_grid={is_grid}")
+		print(f"stepX: {stepX}, stepY: {stepY}, frac_x={frac_x:.6f}, frac_y={frac_y:.6f}, completeness={completeness:.3f}, is_grid={is_grid}, uncertain={uncertain}")
 
-		return is_grid, stepX, stepY, len(xs), len(ys), completeness
+		return is_grid, stepX, stepY, len(xs), len(ys), completeness, uncertain
 
 
 
@@ -432,7 +442,40 @@ class ParserCSV(Parser):
 			return cld
 
 		# --- przypadek 2: kandydat na grid / chmurę punktów ---
-		ok, stepX, stepY, nx, ny, cpl = self.looks_like_grid(dataframe, tol=1e-3)
+		ok, stepX, stepY, nx, ny, cpl, uncertain = self.looks_like_grid(dataframe, tol=1e-3)
+
+		# Jeśli niepewne, zapytaj użytkownika
+		if uncertain and not ok:
+			from PyQt5.QtWidgets import QMessageBox
+			msg = QMessageBox()
+			msg.setIcon(QMessageBox.Question)
+			msg.setWindowTitle("Wykryto nieregularny grid")
+			msg.setText(f"Dane wyglądają na grid, ale są niepełne:\n\n"
+						f"• Rozmiar: {nx} × {ny}\n"
+						f"• Wypełnienie: {cpl*100:.1f}%\n"
+						f"• Krok X: {stepX:.6f}\n"
+						f"• Krok Y: {stepY:.6f}\n\n"
+						f"Jak chcesz załadować te dane?")
+			msg.addButton("Grid (z lukami)", QMessageBox.YesRole)
+			msg.addButton("PointCloud", QMessageBox.NoRole)
+			msg.addButton("Mesh (triangulacja)", QMessageBox.RejectRole)
+			result = msg.exec_()
+			
+			if result == 0:  # Grid
+				ok = True
+			elif result == 2:  # Mesh
+				print("Konwertuję do Mesh z triangulacją")
+				vertices = dataframe.values.astype(np.float32)
+				from .. import Mesh
+				mesh = Mesh()
+				mesh.m_vertices = vertices
+				# Delaunay triangulation
+				from scipy.spatial import Delaunay
+				tri = Delaunay(vertices[:, :2])
+				mesh.m_faces = tri.simplices.astype(np.int64)
+				mesh.calcVN()
+				return mesh
+			# else: PointCloud (result == 1)
 
 		if ok:
 			print(f"To wygląda na grid {nx}×{ny}, stepX={stepX}, stepY={stepY}")

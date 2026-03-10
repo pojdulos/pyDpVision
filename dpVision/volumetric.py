@@ -398,25 +398,56 @@ class Volumetric(Object):
 		gz, gy, gx = np.gradient(image)
 		grad = np.sqrt(gx*gx + gy*gy + gz*gz)
 
-
 		g = grad.ravel()
 		v = image.ravel()
 
-		g_thr = np.percentile(g, 90)
+		g_thr = np.percentile(g, 95)
 
-		mask = (g >= g_thr) & (v > 500) & (v < 1200)
+		mask_grad = (g >= g_thr) & (v > 150) & (v < 2000)
 
-		threshold_init = np.median(v[mask])
+		if np.sum(mask_grad) < 100:
+			threshold_init = 300
+		else:
+			threshold_init = np.percentile(v[mask_grad], 40)
 
-		print("threshold_init: ", threshold_init)
+		print("threshold_init:", threshold_init)
+
+
+		mask_bone = image > threshold_init
+
+		from scipy import ndimage as ndi
+		mask_bone = ndi.binary_closing(mask_bone, iterations=1)
+
+		labels, n = ndi.label(mask_bone)
+
+		sizes = ndi.sum(mask_bone, labels, index=np.arange(1, n+1))
+
+
+		voxel_volume = (
+			self.metadata[1].pixel_spacing[0]
+			* self.metadata[1].pixel_spacing[1]
+			* self.metadata[1].slice_distance
+		)
+
+		sizes_mm3 = sizes * voxel_volume
+
+		min_volume = 20  # mm³ – do strojenia
+
+
+		keep = np.zeros(n + 1, dtype=bool)
+		keep[1:][sizes_mm3 >= min_volume] = True
+
+		mask_clean = keep[labels]
+
+		image_clean = image.copy()
+		image_clean[~mask_clean] = image.min()
 
 		if close_boundary:
-			image_mc = np.pad(image, 1, mode='constant')
+			image_mc = np.pad(image_clean, 1, mode='constant')
 		else:
-			image_mc = image
+			image_mc = image_clean
 
-		points, faces = mcubes.marching_cubes(image_mc, threshold_init ) # self.m_minDisplWin)
-
+		points, faces = mcubes.marching_cubes(image_mc, threshold_init)
 
 		offset = 1 if close_boundary else 0
 

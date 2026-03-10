@@ -24,7 +24,7 @@ out VS_OUT{
 	vec3 vScale;
 	mat4 modelviewMatrix;
 	mat4 projectionMatrix;
-	bool isValid;
+	int isValid;
 } vout;
 
 vec3 get_filter(int i, float nCol)
@@ -59,7 +59,7 @@ void main()
 			{
 				vout.color = get_filter(i, nCol);
 
-				vout.isValid = true;
+				vout.isValid = 1;
 				return;
 			}
 		}
@@ -74,15 +74,15 @@ void main()
 			}
 			else
 				vout.color = vec3(1.0, 1.0, 1.0);
-			vout.isValid = true;
+			vout.isValid = 1;
 		}
 		else
 		{
-			vout.isValid = false;
+			vout.isValid = 0;
 		}
 	}
 	else
 	{
-		vout.isValid = false;
+		vout.isValid = 0;
 	}
 }

@@ -8,14 +8,16 @@ in VS_OUT {
 	vec3 vScale;
 	mat4 modelviewMatrix;
 	mat4 projectionMatrix;
-    bool isValid;
+    int isValid;
 } gs_in[];
 
 out vec3 vertexColor;
+out vec3 FragPos;
 
 void main() {
-    if (gs_in[0].isValid) {
+    if (gs_in[0].isValid != 0) {
         vertexColor = gs_in[0].color;
+        FragPos = gs_in[0].vPos;
 
         // Pozycja wierzchołka (punkt)
         vec4 pointPos = vec4(gs_in[0].vPos, 1.0);
@@ -63,12 +65,14 @@ void main() {
         // Generowanie ścian kostki
         for (int i = 0; i < 10; ++i) {
 			int idx = indices[i];
+            FragPos = vec3(vertices[idx]);
             gl_Position = gs_in[0].projectionMatrix * gs_in[0].modelviewMatrix * vertices[idx];
             EmitVertex();
         }
         EndPrimitive();
         for (int i = 10; i < 20; ++i) {
 			int idx = indices[i];
+            FragPos = vec3(vertices[idx]);
             gl_Position = gs_in[0].projectionMatrix * gs_in[0].modelviewMatrix * vertices[idx];
             EmitVertex();
         }

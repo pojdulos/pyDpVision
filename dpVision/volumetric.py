@@ -56,7 +56,7 @@ class Volumetric(Object):
 		self.m_maxDisplWin = 1.0
 		self.m_fastDraw = True
 		self.m_renderBoxes = False
-		self.metadata = []
+		self.metadata : list[SliceMetadata] = []
 		self.m_minSlice = 0
 		self.m_maxSlice = 0
 		self.m_minRow = 0
@@ -177,8 +177,13 @@ class Volumetric(Object):
 		
 		# Sprawdzanie, czy program został powiązany poprawnie
 		if not glGetProgramiv(self.shader_program, GL_LINK_STATUS):
-			print(glGetProgramInfoLog(self.shader_program))
-			raise Exception("Error linking shaders")
+			info = glGetProgramInfoLog(self.shader_program)
+			if isinstance(info, bytes):
+				info = info.decode('utf-8')
+			print(f"Shader program link failed:\n{info}")
+			glDeleteProgram(self.shader_program)
+			self.shader_program = None
+			return
 		
 		# Usuwanie shaderów (już nie są potrzebne po powiązaniu programu)
 		glDeleteShader(vertex_shader)
@@ -372,15 +377,30 @@ class Volumetric(Object):
 		first_column = factor*int(self.m_minColumn/factor)
 
 		image = [slice[first_row:self.m_maxRow+1:factor,first_column:self.m_maxColumn+1:factor] for slice in self.m_volume[first_slice:self.m_maxSlice+1:factor]]
-		#image = self.m_volume[ first_slice:self.m_maxSlice+1:factor ][ first_row:self.m_maxRow+1:factor, first_column:self.m_maxColumn+1:factor ]
-		image = [ [ [min(max(self.m_minDisplWin,i),self.m_maxDisplWin) for i in row] for row in slice] for slice in image]
-		
-		image = np.array(image)
+
+		image = np.array(image, dtype=np.float32)
+
+		from scipy.ndimage import gaussian_filter
+		sigma_mm = 0.4 * ( self.metadata[1].pixel_spacing[0] + self.metadata[1].pixel_spacing[1] )
+
+		sigma_z = sigma_mm / self.metadata[1].slice_distance
+		sigma_y = sigma_mm / self.metadata[1].pixel_spacing[1]
+		sigma_x = sigma_mm / self.metadata[1].pixel_spacing[0]
+
+		sigma = (
+			sigma_z * float(factor),
+			sigma_y * float(factor),
+			sigma_x * float(factor),
+		)
+
+		image = gaussian_filter(image, sigma=sigma)
 
 		if close_boundary:
-			big_image = np.zeros((image.shape[0]+2, image.shape[1]+2, image.shape[2]+2), dtype=image.dtype)
-			big_image[1:-1, 1:-1, 1:-1] = image
-			points, faces = mcubes.marching_cubes(big_image, self.m_minDisplWin)
+			image = np.pad(image, 1, mode='constant')
+			points, faces = mcubes.marching_cubes(image, self.m_minDisplWin)
+			# big_image = np.zeros((image.shape[0]+2, image.shape[1]+2, image.shape[2]+2), dtype=image.dtype)
+			# big_image[1:-1, 1:-1, 1:-1] = image
+			# points, faces = mcubes.marching_cubes(big_image, self.m_minDisplWin)
 		else:
 			points, faces = mcubes.marching_cubes(image, self.m_minDisplWin)
 

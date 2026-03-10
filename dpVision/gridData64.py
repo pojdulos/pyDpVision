@@ -74,6 +74,7 @@ class GridData64(Object):
 	@height.setter
 	def height(self, value):
 		self._surface.height = np.asarray(value, dtype=np.float64)
+		self.invalidate_bb()
 
 	@property
 	def dx(self):
@@ -83,6 +84,7 @@ class GridData64(Object):
 	def dx(self, value):
 		self._surface.dx = value
 		self._surface.__dict__.pop('xi', None)
+		self.invalidate_bb()
 
 	@property
 	def dy(self):
@@ -92,6 +94,7 @@ class GridData64(Object):
 	def dy(self, value):
 		self._surface.dy = value
 		self._surface.__dict__.pop('yi', None)
+		self.invalidate_bb()
 
 	@property
 	def x0(self):
@@ -101,6 +104,7 @@ class GridData64(Object):
 	def x0(self, value):
 		self._surface.x0 = value
 		self._surface.__dict__.pop('xi', None)
+		self.invalidate_bb()
 
 	@property
 	def y0(self):
@@ -110,6 +114,7 @@ class GridData64(Object):
 	def y0(self, value):
 		self._surface.y0 = value
 		self._surface.__dict__.pop('yi', None)
+		self.invalidate_bb()
 
 	@property
 	def mask(self):
@@ -161,7 +166,7 @@ class GridData64(Object):
 
 	@m_grid64.setter
 	def m_grid64(self, value):
-		self._surface.height = np.asarray(value, dtype=np.float64)
+		self.height = value  # przez height setter → invalidate_bb()
 
 	@property
 	def stepX(self):
@@ -310,9 +315,13 @@ class GridData64(Object):
 		glUseProgram(self.shader_program)
 
 		# --- Uniformy: macierz MVP ---
+		# Surface przechowuje dane w µm; tu konwertujemy µm→mm (1e-3).
+		# Viewer już zastosował gl.glScalef(mm→viewer_unit) przed wywołaniem render(),
+		# więc modelview zawiera tę skalę — dlatego MVP automatycznie daje poprawne wsp.
 		modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32).T
 		projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32).T
-		mvp = projection @ modelview
+		scale = np.diag([1e-3, 1e-3, 1e-3, 1.0]).astype(np.float32)  # µm → mm
+		mvp = projection @ modelview @ scale
 
 		mvp_loc = glGetUniformLocation(self.shader_program, "u_mvp")
 		glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, mvp.T)
@@ -380,24 +389,25 @@ class GridData64(Object):
 		self.vmin = None
 		self.vmax = None
 		self.upload_to_gpu()
+		self.invalidate_bb()  # propaguj do rodziców
 
 	def getBB(self):
-		_b, _min1, _max1 = Object.getBB(self)  # Pobieranie BB z klasy nadrzędnej
+		_b, _min1, _max1 = Object.getBB(self)  # BB dzieci w hierarchii sceny
 		if self.height.size == 0:
 			return _b, _min1, _max1
-		
+
+		# Surface przechowuje w µm; BB zawsze w mm (canonical world unit).
+		s = 1e-3
 		_min = [
-			self.x0,
-			self.y0,
-			np.nanmin(self.height)
+			self.x0 * s,
+			self.y0 * s,
+			np.nanmin(self.height) * s
 		]
-		
 		_max = [
-			self.x0 + self.dx * self.nx,
-			self.y0 + self.dy * self.ny,
-			np.nanmax(self.height)
+			(self.x0 + self.dx * self.nx) * s,
+			(self.y0 + self.dy * self.ny) * s,
+			np.nanmax(self.height) * s
 		]
-		
 		if _b:
 			_min = [min(a, b) for a, b in zip(_min1, _min)]
 			_max = [max(a, b) for a, b in zip(_max1, _max)]

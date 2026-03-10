@@ -95,6 +95,18 @@ class GLViewer(QOpenGLWidget):
 		self._dDefaultViewSize = 200.0
 		self._dCurrentViewSize = 200.0
 
+		# Jednostka wyświetlania — obiekty przechowują dane w µm (Surface),
+		# a viewer skaluje do wybranej jednostki świata.
+		# Mapowanie: nazwa → współczynnik (ile µm = 1 jednostka docelowa)
+		self._UNIT_SCALES = {
+			'nm':  0.001,
+			'µm':  1.0,
+			'mm':  1_000.0,
+			'cm':  10_000.0,
+			'm':   1_000_000.0,
+		}
+		self.display_unit = 'mm'  # domyślna jednostka świata viewera
+
 		# _fAspect potrzebny przez recalcView(); właściwa wartość ustawiana w resizeGL
 		self._fAspect = 1.0
 
@@ -115,6 +127,11 @@ class GLViewer(QOpenGLWidget):
 		self.mouseMovedSignal.connect(AP.mainApp.onMouseMoveSlot)
 		self.mousePressedSignal.connect(AP.mainApp.onMousePressSlot)
 		
+
+	@property
+	def unit_scale(self) -> float:
+		"""Współczynnik skali µm → jednostka viewera (do wbudowania w MVP)."""
+		return 1.0 / self._UNIT_SCALES.get(self.display_unit, 1_000.0)
 
 	# def resetGeometry(self):
 	# 	m_transform.translation() = CVector3d(0.0, 0.0, 0.0);
@@ -625,10 +642,18 @@ class GLViewer(QOpenGLWidget):
 		if self.m_drawAxes:
 			self.rysujOsie()
 		
-		# AP::getWorkspace()->render();
+		# Skalowanie świata: obiekty trzymają dane w mm (world unit);
+		# viewer skaluje mm → jednostkę wyświetlania jednym glScalef.
+		# GridData64 sam konwertuje µm→mm przez własny MVP — modelview które odczytuje
+		# zawiera już tę skalę, więc jest obsłużony automatycznie.
+		s_mm = 1000.0 / self._UNIT_SCALES[self.display_unit]  # mm → viewer unit
+		glPushMatrix()
+		if s_mm != 1.0:
+			glScalef(s_mm, s_mm, s_mm)
 		try:
 			self.mainWindow.workspace.render()
 		finally:
+			glPopMatrix()
 			# Upewnij się że stos attribs jest czysty po renderowaniu obiektów
 			self._drainGLAttribStack()
 	

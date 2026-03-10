@@ -24,6 +24,11 @@ class PropViewer(PropWidget):
 		self.rot = _viewer.transform.getEulerAnglesDeg()
 		self.tra = _viewer.transform.getTranslation()
 		self.obj_ref = weakref.ref(_viewer)
+		# wypełnij combobox jednostkami z viewera i podłącz slot
+		self.comboDisplayUnit.clear()
+		for unit in _viewer._UNIT_SCALES:
+			self.comboDisplayUnit.addItem(unit)
+		self.comboDisplayUnit.currentTextChanged.connect(self.onDisplayUnitChanged)
 
 	@staticmethod
 	def create(m, parent = 0):
@@ -38,7 +43,8 @@ class PropViewer(PropWidget):
 		w = {	self.spinViewRotX, self.spinViewRotY, self.spinViewRotZ, \
 	   			self.spinViewTransX, self.spinViewTransY, self.spinViewTransZ, \
 				self.bgColorButton, self.radioOrtho, self.spinOrthoViewSize, \
-				self.radioPersp, self.spinAngleOfView, self.spinDefaultViewSize }
+				self.radioPersp, self.spinAngleOfView, self.spinDefaultViewSize, \
+				self.comboDisplayUnit }
 		
 		for i in w: i.blockSignals(True)
 
@@ -71,6 +77,10 @@ class PropViewer(PropWidget):
 		self.perspWidget.setVisible(isPersp)
 
 		self.spinDefaultViewSize.setValue(viewer._dCurrentViewSize)
+
+		idx = self.comboDisplayUnit.findText(viewer.display_unit)
+		if idx >= 0:
+			self.comboDisplayUnit.setCurrentIndex(idx)
 
 		self.updateMatrix(viewer.transform)
 
@@ -200,3 +210,12 @@ class PropViewer(PropWidget):
 			return
 		viewer.resetView()
 		self.updateProperties()
+
+	@pyqtSlot(str)
+	def onDisplayUnitChanged(self, unit: str):
+		"""Zmiana jednostki wyświetlania viewera — odświeża wszystkie widoki."""
+		viewer : GLViewer = self.obj_ref()
+		if viewer is None:
+			return
+		viewer.display_unit = unit
+		viewer.update()

@@ -14,6 +14,7 @@ import numpy as np
 
 import weakref
 
+
 class BaseObject(QObject):
 	def __init__(self, parent=None):
 		super( BaseObject, self ).__init__( parent )
@@ -151,9 +152,18 @@ class BaseObject(QObject):
 	
 	def getBB(self):
 		return None
-	
+
+	def invalidate_bb(self):
+		"""Unieważnia cache BB tego węzła i wszystkich przodków."""
+		# BaseObject nie ma _dirty/_cached_bb — implementacja pełna jest w Object.
+		# Tutaj tylko propagujemy w górę.
+		p = self.parent
+		if p is not None:
+			p.invalidate_bb()
 	def drawBBwireframe(self, _min, _max, _color=(1.0, 1.0, 0.0)):
 		gl.glPushMatrix()
+		# BB jest w mm; viewer już zastosował gl.glScalef(mm→viewer) przed workspace.render().
+		# Tutaj żadnego dodatkowego skalowania.
 		gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
 
 		gl.glDisable(gl.GL_TEXTURE_2D)

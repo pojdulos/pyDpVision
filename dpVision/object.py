@@ -65,21 +65,28 @@ class Object(BaseObject):
 			d.parent.removeChild(d)
 		d.parent = self
 		self.m_data.append( d )
-		self._dirty = True
+		self.invalidate_bb()
 		return True
 
 	def removeChild(self, child=None):
 		if child is None and len(self.m_data):
 			self.m_data.remove(self.m_data[0])
-			self._dirty = True
+			self.invalidate_bb()
 		elif child in self.m_data:
 			self.m_data.remove(child)
-			self._dirty = True
+			self.invalidate_bb()
 
 	def renderKids(self):
 		for child in self.m_data:
 			child.render()
 			
+	def invalidate_bb(self):
+		"""Unieważnia cache BB tego węzła i propaguje do rodzica."""
+		self._dirty = True
+		self._cached_bb = None
+		self._cached_midpoint = None
+		super().invalidate_bb()  # propagacja w górę
+
 	def getBB(self):
 		# return False, None, None
 		if not self._dirty and self._cached_bb is not None:

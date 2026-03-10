@@ -118,6 +118,49 @@ Przykłady: głowa ~250 mm → 250; próbka 10×10 mm → 10; domyślne → 200<
        </widget>
       </item>
       <item>
+       <widget class="QWidget" name="widgetDisplayUnit" native="true">
+        <layout class="QHBoxLayout" name="horizontalLayout_DisplayUnit">
+         <property name="leftMargin">
+          <number>5</number>
+         </property>
+         <property name="topMargin">
+          <number>4</number>
+         </property>
+         <property name="rightMargin">
+          <number>5</number>
+         </property>
+         <property name="bottomMargin">
+          <number>4</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="label_displayUnit">
+           <property name="text">
+            <string>Display unit:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboDisplayUnit">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>1</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="toolTip">
+            <string>Jednostka wyświetlania sceny (dane wewnętrznie w µm)</string>
+           </property>
+           <item><property name="text"><string>nm</string></property></item>
+           <item><property name="text"><string>µm</string></property></item>
+           <item><property name="text"><string>mm</string></property></item>
+           <item><property name="text"><string>cm</string></property></item>
+           <item><property name="text"><string>m</string></property></item>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
        <widget class="QGroupBox" name="groupBox">
         <property name="title">
          <string>View type:</string>

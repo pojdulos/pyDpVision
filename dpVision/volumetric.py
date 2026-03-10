@@ -395,15 +395,56 @@ class Volumetric(Object):
 
 		image = gaussian_filter(image, sigma=sigma)
 
-		if close_boundary:
-			image = np.pad(image, 1, mode='constant')
-			points, faces = mcubes.marching_cubes(image, self.m_minDisplWin)
-			# big_image = np.zeros((image.shape[0]+2, image.shape[1]+2, image.shape[2]+2), dtype=image.dtype)
-			# big_image[1:-1, 1:-1, 1:-1] = image
-			# points, faces = mcubes.marching_cubes(big_image, self.m_minDisplWin)
-		else:
-			points, faces = mcubes.marching_cubes(image, self.m_minDisplWin)
+		gz, gy, gx = np.gradient(image)
+		grad = np.sqrt(gx*gx + gy*gy + gz*gz)
 
+
+		g = grad.ravel()
+		v = image.ravel()
+
+		g_thr = np.percentile(g, 90)
+
+		mask = (g >= g_thr) & (v > 500) & (v < 1200)
+
+		threshold_init = np.median(v[mask])
+
+		print("threshold_init: ", threshold_init)
+
+		if close_boundary:
+			image_mc = np.pad(image, 1, mode='constant')
+		else:
+			image_mc = image
+
+		points, faces = mcubes.marching_cubes(image_mc, threshold_init ) # self.m_minDisplWin)
+
+
+		offset = 1 if close_boundary else 0
+
+		grad_values = []
+
+		for p in points:
+			z = int(round(p[0] - offset))
+			y = int(round(p[1] - offset))
+			x = int(round(p[2] - offset))
+
+			z = max(0, min(z, grad.shape[0] - 1))
+			y = max(0, min(y, grad.shape[1] - 1))
+			x = max(0, min(x, grad.shape[2] - 1))
+
+			grad_values.append(float(grad[z, y, x]))
+
+		print("Gradient on surface:")
+		print("min:", min(grad_values))
+		print("max:", max(grad_values))
+		print("mean:", sum(grad_values) / len(grad_values))
+
+		print("p1 :", np.percentile(grad_values, 1))
+		print("p5 :", np.percentile(grad_values, 5))
+		print("p10:", np.percentile(grad_values, 10))
+		print("p50:", np.percentile(grad_values, 50))
+		print("p90:", np.percentile(grad_values, 90))
+		print("p95:", np.percentile(grad_values, 95))
+		print("p99:", np.percentile(grad_values, 99))
 
 		origin = [
 			self.metadata[first_slice].image_position_patient[0] + self.metadata[first_slice].pixel_spacing[0] * float(first_column),

@@ -368,7 +368,8 @@ class Volumetric(Object):
 		cloud.m_vertices = np.array(vertices, dtype=np.float32)
 		return cloud
 
-	def marching_cube(self, factor=1, close_boundary=True, sigma_unit=0.8, min_volume=50):
+	# Wersja wyjściowa algorytmu marching cubes, bez dodatkowego filtrowania trójkątów.
+	def marching_cube(self, factor=1, close_boundary=True, sigma_mm=None, min_volume=50, sharpening=False):
 
 		import mcubes
 		import numpy as np
@@ -398,7 +399,8 @@ class Volumetric(Object):
 		py = self.metadata[1].pixel_spacing[1]
 		pz = self.metadata[1].slice_distance
 
-		sigma_mm = sigma_unit * ( 0.5 * (px + py) )
+		if sigma_mm is None or sigma_mm <= 0.0:
+			sigma_mm = 0.8 * ( 0.5 * (px + py) ) # 0.8 * mean pixel size in mm
 
 		sigma = (
 			sigma_mm / pz,
@@ -407,6 +409,9 @@ class Volumetric(Object):
 		)
 
 		image = gaussian_filter(image, sigma=sigma)
+		
+		if sharpening:
+			image_full = image.copy() # do sharpeningu
 
 		# ------------------------------------------------------------
 		# 3. Subsampling (factor)
@@ -420,6 +425,10 @@ class Volumetric(Object):
 		# ------------------------------------------------------------
 
 		gz, gy, gx = np.gradient(image)
+		
+		if sharpening:
+			gz_full, gy_full, gx_full = np.gradient(image_full, pz, py, px)
+
 		grad = np.sqrt(gx*gx + gy*gy + gz*gz)
 
 		g = grad.ravel()
@@ -433,12 +442,17 @@ class Volumetric(Object):
 
 		mask_grad = (g >= g_thr) & (v > 150) & (v < 6000)
 
-		if np.sum(mask_grad) < 100:
+		vals = v[mask_grad]
+
+		if len(vals) < 100:
 			threshold_init = 300
 		else:
-			threshold_init = np.percentile(v[mask_grad], 30)
+			weights = g[mask_grad]
+			hist, edges = np.histogram(vals, bins=256, weights=weights)
 
-		threshold_init *= 1.05
+			peak = np.argmax(hist)
+
+			threshold_init = 0.5 * (edges[peak] + edges[peak+1])
 
 		print("threshold_init:", threshold_init)
 
@@ -465,7 +479,8 @@ class Volumetric(Object):
 		mask_clean = keep[labels]
 
 		image_clean = image.copy()
-		image_clean[~mask_clean] = image.min()
+		# image_clean[~mask_clean] = image.min()
+		image_clean[~mask_clean] = threshold_init - 1
 
 		# ------------------------------------------------------------
 		# 7. Marching cubes
@@ -479,6 +494,54 @@ class Volumetric(Object):
 		points, faces = mcubes.marching_cubes(image_mc, threshold_init)
 
 		offset = 1 if close_boundary else 0
+
+
+
+		# ------------------------------------------------------------
+		# 7A. Voxel sharpening (opcjonalne, może poprawić jakość siatki)
+		# ------------------------------------------------------------
+		if sharpening:
+			from scipy.ndimage import map_coordinates
+
+			coords = np.vstack([
+				(points[:,0] - offset) * factor,
+				(points[:,1] - offset) * factor,
+				(points[:,2] - offset) * factor
+			])
+
+			# intensywność
+			# I = map_coordinates(image, coords, order=1, mode='nearest')
+			I = map_coordinates(image_full, coords, order=1, mode='nearest')
+
+			gx_v = map_coordinates(gx_full, coords, order=1, mode='nearest')
+			gy_v = map_coordinates(gy_full, coords, order=1, mode='nearest')
+			gz_v = map_coordinates(gz_full, coords, order=1, mode='nearest')
+
+			# gradient
+			# gx_v = map_coordinates(gx, coords, order=1, mode='nearest')
+			# gy_v = map_coordinates(gy, coords, order=1, mode='nearest')
+			# gz_v = map_coordinates(gz, coords, order=1, mode='nearest')
+
+			eps = 1e-6
+
+			grad_norm2 = gx_v*gx_v + gy_v*gy_v + gz_v*gz_v + eps
+			grad_norm = np.sqrt(grad_norm2)
+
+			valid = grad_norm > 50   # HU/mm – wartość orientacyjna
+
+			shift = (threshold_init - I) / grad_norm2
+
+			shift[~valid] = 0
+
+			# ograniczenie stabilności
+			shift = np.clip(shift, -0.25, 0.25)
+
+			points[:,0] += shift * gz_v
+			points[:,1] += shift * gy_v
+			points[:,2] += shift * gx_v
+
+
+
 
 		# ------------------------------------------------------------
 		# 8. Gradient confidence on surface
@@ -549,7 +612,9 @@ class Volumetric(Object):
 
 		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
 		AP.addObject(mesh, self)
+
 		
+
 	def adjustMinMax(self, calc_color=True, winMin=None, winMax=None, min_slice=None, max_slice=None, min_row=None, max_row=None, min_column=None, max_column=None):
 		if calc_color:
 			self.m_min = np.min(self.m_volume[0])

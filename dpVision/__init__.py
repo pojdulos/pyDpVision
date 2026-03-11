@@ -14,6 +14,7 @@ from .dHJoint import DHJoint
 from .dHModel import DHModel, DHLink
 from .globals import Globals, AP
 from .gridData64 import GridData64
+from .sphereGrid import SphereGrid
 from .image import Image
 from .nDimCloud import NDimCloud
 from .mainApplication import MainApplication
@@ -38,7 +39,7 @@ __all__ = [
 			"mesh_to_grid25D", "grid_to_mesh",
 			"DHJoint", "DHModel", "DHLink",
 			"Globals", "AP",
-			"GridData64", "make_colormap", "COLORMAPS",
+			"GridData64", "SphereGrid", "make_colormap", "COLORMAPS",
 			"Image",
 			"MainApplication",
 			"Face", "Mesh",

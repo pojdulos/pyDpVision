@@ -1,4 +1,5 @@
 import sys
+import multiprocessing
 from PyQt5.QtCore import QSettings
 
 from dpVision import AP, MainApplication
@@ -18,36 +19,42 @@ def set_logger():
     )
     logging.getLogger("frasta").setLevel(logging.DEBUG)
 
-set_logger()
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
 
-locale.setlocale(locale.LC_NUMERIC, 'pl_PL.UTF-8')
+    set_logger()
 
-MainApplication.setOrganizationName('IITiS PAN')
-MainApplication.setOrganizationDomain("iitis.pl")
-MainApplication.setApplicationName("dpVision")
+    try:
+        locale.setlocale(locale.LC_NUMERIC, 'pl_PL.UTF-8')
+    except locale.Error:
+        pass  # locale pl_PL.UTF-8 niedostępne (np. Linux bez locale-gen)
 
-# inicjalizacja 'zmiennych globalnych'
-AP.mainApp = MainApplication(sys.argv)
-AP.settings = QSettings()
-AP.mainWin = MainWindow()
+    MainApplication.setOrganizationName('IITiS PAN')
+    MainApplication.setOrganizationDomain("iitis.pl")
+    MainApplication.setApplicationName("dpVision")
 
-# ładowanie pluginów z określonego katalogu
-AP.mainApp.load_plugins("./plugins")
-#from plugins import *
+    # inicjalizacja 'zmiennych globalnych'
+    AP.mainApp = MainApplication(sys.argv)
+    AP.settings = QSettings()
+    AP.mainWin = MainWindow()
 
-if AP.settings.value("mainwindow/maximized", False, type=bool):
-	AP.mainWin.showMaximized()
-else:
-	AP.mainWin.show()
+    # ładowanie pluginów z określonego katalogu
+    AP.mainApp.load_plugins("./plugins")
+    #from plugins import *
 
-#######################################################################
-# 
-# dp_testy to mój roboczy moduł służący do testowania różnych rzeczy
-# import do usunięcia w wersji 'produkcyjnej'
-from dp_testy import *
-#######################################################################
+    if AP.settings.value("mainwindow/maximized", False, type=bool):
+        AP.mainWin.showMaximized()
+    else:
+        AP.mainWin.show()
 
-#from OpenGL.GL import *
-#print(glGetString(GL_VERSION))
+    #######################################################################
+    # 
+    # dp_testy to mój roboczy moduł służący do testowania różnych rzeczy
+    # import do usunięcia w wersji 'produkcyjnej'
+    from dp_testy import *
+    #######################################################################
 
-sys.exit(AP.mainApp.exec_())
+    #from OpenGL.GL import *
+    #print(glGetString(GL_VERSION))
+
+    sys.exit(AP.mainApp.exec_())

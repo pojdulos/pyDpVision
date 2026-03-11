@@ -307,3 +307,118 @@ def test_gridData64():
 	AP.load(filename, on_success=set_roi)
 
 # test_gridData64()
+
+
+def test_sphere_grid():
+	"""
+	Demonstracja SphereGrid na syntetycznych danych.
+
+	Generujemy trzy obiekty w workspace:
+	  1. SphereGrid z "polem sferycznym" — elipsoida z szumem + dziury (ang. invalid hits)
+	  2. SphereGrid symulujący wiązki typowego LiDAR-a (ograniczone pole widzenia pionowe)
+	  3. PointCloud przekonwertowana z obiektu 2 (żeby porównać obie reprezentacje)
+	"""
+	from dpVision.sphereGrid import SphereGrid
+
+	# ------------------------------------------------------------------
+	# 1. Sfera z szumem i dziurami — pełne 360° × 180°
+	# ------------------------------------------------------------------
+	W, H = 360, 180                 # 1°/piksel
+	az = np.deg2rad(np.linspace(0.5, 359.5, W))
+	el = np.deg2rad(np.linspace(-89.5, 89.5, H))
+	AZ, EL = np.meshgrid(az, el)
+
+	# Elipsoida: a=20m, b=15m, c=10m
+	a, b, c = 20.0, 15.0, 10.0
+	r_ellipsoid = 1.0 / np.sqrt(
+		(np.cos(EL) * np.cos(AZ)) ** 2 / a**2 +
+		(np.cos(EL) * np.sin(AZ)) ** 2 / b**2 +
+		np.sin(EL) ** 2              / c**2
+	)
+
+	# losowy szum ±5%
+	rng = np.random.default_rng(42)
+	noise = rng.uniform(-0.05, 0.05, (H, W)).astype(np.float32)
+	range_map = (r_ellipsoid * (1.0 + noise)).astype(np.float32)
+
+	# "dziury" — 5% pikseli bez echa
+	holes = rng.random((H, W)) < 0.05
+	range_map[holes] = np.nan
+
+	# intensywność: zależy od kąta padania (symulacja cosinus)
+	intensity = np.clip(np.abs(np.sin(EL)).astype(np.float32), 0.0, 1.0)
+	intensity[holes] = np.nan
+
+	sg_full = SphereGrid(
+		range_map,
+		azimuth_range=(0.0, 360.0),
+		elevation_range=(-90.0, 90.0),
+		intensity=intensity,
+		unit="m"
+	)
+	sg_full.label = "SphereGrid – elipsoida 360°"
+	sg_full.use_uniform_color   = False
+	sg_full.color_by_intensity  = False   # colormap po zasięgu
+	sg_full.set_colormap('skala')
+	AP.addObject(sg_full)
+
+	# ------------------------------------------------------------------
+	# 2. Symulacja LiDAR-a (np. Ouster OS1-32 — 32 wiązki, ±22.5°)
+	# ------------------------------------------------------------------
+	W_lidar, H_lidar = 1024, 32
+	az_l  = np.deg2rad(np.linspace(0.0, 360.0, W_lidar, endpoint=False))
+	el_l  = np.deg2rad(np.linspace(-22.5, 22.5, H_lidar))
+	AZ_L, EL_L = np.meshgrid(az_l, el_l)
+
+	# Grunt: płaszczyzna z=0, skaner na z=1.5m.
+	# Tylko wiązki skierowane w DÓŁ (EL < 0) mogą trafić grunt;
+	# wiązki w górę (EL >= 0) dają np.nan (brak trafienia).
+	# Wzór: r = -sensor_h / sin(el)  (dla el < 0 wynik > 0)
+	r_ground = np.where(
+		EL_L < -1e-4,
+		1.5 / (-np.sin(EL_L)),
+		np.nan
+	).astype(np.float32)
+
+	# ściany pionowe (walce) w 4 kierunkach
+	r_wall = np.full((H_lidar, W_lidar), np.nan, dtype=np.float32)
+	for wall_az in [0.0, 90.0, 180.0, 270.0]:
+		az_center = np.deg2rad(wall_az)
+		daz = np.abs(AZ_L - az_center)
+		daz = np.minimum(daz, 2 * np.pi - daz)
+		mask_wall = daz < np.deg2rad(5.0)
+		r_wall[mask_wall] = 15.0 / np.cos(EL_L[mask_wall])
+
+	# bierzemy minimum zasięgu (co pierwsze trafione)
+	r_lidar = np.nanmin(
+		np.stack([r_ground.astype(np.float32), r_wall], axis=0), axis=0
+	)
+	r_lidar = np.clip(r_lidar, 0.1, 120.0)
+
+	intens_lidar = rng.uniform(0.1, 0.9, (H_lidar, W_lidar)).astype(np.float32)
+
+	sg_lidar = SphereGrid(
+		r_lidar,
+		azimuth_range=(0.0, 360.0),
+		elevation_range=(-22.5, 22.5),
+		intensity=intens_lidar,
+		origin=(0.0, 0.0, 1.5),   # skaner zamontowany 1.5m nad ziemią
+		unit="m"
+	)
+	sg_lidar.label = "SphereGrid – LiDAR 32-beam"
+	sg_lidar.use_uniform_color  = False
+	sg_lidar.color_by_intensity = True   # colormap po intensywności
+	sg_lidar.set_colormap('skala')
+	AP.addObject(sg_lidar)
+
+	# ------------------------------------------------------------------
+	# 3. PointCloud z LiDAR-a — porównanie reprezentacji
+	# ------------------------------------------------------------------
+	pc = sg_lidar.to_point_cloud()
+	pc.label = "PointCloud – z LiDAR (z SphereGrid)"
+	AP.addObject(pc)
+
+	AP.updateAllViews()
+
+# test_sphere_grid()
+

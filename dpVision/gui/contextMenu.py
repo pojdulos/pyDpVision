@@ -9,12 +9,32 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
+from dpVision.volumetric import Volumetric
+
 from .dialogSiftParameters import DialogSiftParameters
 from .dialogVolumetricMetadata import DialogVolumetricMetadata
 
 import numpy as np
 
 from .. import AP, Transform
+
+
+class MarchingCubeWorker(QThread):
+	finished  = pyqtSignal(object, object)  # vertices, faces
+	error     = pyqtSignal(str)
+
+	def __init__(self, vol, kwargs):
+		super().__init__()
+		self._vol    = vol
+		self._kwargs = kwargs
+
+	def run(self):
+		try:
+			vertices, faces = self._vol.marching_cube_compute(**self._kwargs)
+			self.finished.emit(vertices, faces)
+		except Exception as e:
+			import traceback
+			self.error.emit(traceback.format_exc())
 
 class ContextMenu(QMenu):
 	def __init__(self, obj=None, parent=None):
@@ -288,15 +308,56 @@ class ContextMenu(QMenu):
 
 	@pyqtSlot()
 	def volumetric_marching_cube(self):
+		vol : Volumetric = self.m_obj
+		
 		dlg = QDialog()
 		AP.loadUi('dlgMarchingCube.ui', dlg)
 
-		# pmUi.spinBox->setValue( ((CMesh*) AP::WORKSPACE::getCurrentModel()->getChild())->vertices().size() );
+		dlg.factor_spin.setValue(1)
+
+		dlg.thresh_auto_radio.setChecked(True)
+
+		spin : QDoubleSpinBox = dlg.thresh_spin
+		spin.setMinimum(vol.m_volume.min())
+		spin.setMaximum(vol.m_volume.max())
+		spin.setValue(vol.m_minDisplWin)
+
+		dlg.sigma_auto_radio.setChecked(True)
+		dlg.sigma_spin.setValue(0.0) # auto
 
 		if dlg.exec():
-			factor = dlg.spinBox.value()
+			factor    = dlg.factor_spin.value()
+			sigma     = None if dlg.sigma_auto_radio.isChecked() else dlg.sigma_spin.value()
+			threshold = None if dlg.thresh_auto_radio.isChecked() else vol.m_minDisplWin if dlg.thresh_displ_radio.isChecked() else dlg.thresh_spin.value()
 			close_boundary = dlg.closeBoundaryBox.isChecked()
-			self.m_obj.marching_cube(factor=factor, close_boundary=close_boundary)
+
+			denoise_3d = dlg.denoise3dBox.isChecked()
+			kwargs = dict(factor=factor, sigma_mm=sigma, threshold=threshold,
+			              close_boundary=close_boundary, denoise_3d=denoise_3d)
+
+			# znajdź akcję w menu żeby ją zablokować podczas obliczeń
+			mc_action = self.sender()
+
+			self._mc_worker = MarchingCubeWorker(vol, kwargs)
+			self._mc_worker.finished.connect(
+				lambda verts, faces: self._mc_on_done(verts, faces, vol, mc_action))
+			self._mc_worker.error.connect(
+				lambda msg: self._mc_on_error(msg, mc_action))
+			if mc_action:
+				mc_action.setEnabled(False)
+			self._mc_worker.start()
+
+	def _mc_on_done(self, vertices, faces, vol, action):
+		from dpVision.mesh import Mesh
+		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
+		AP.addObject(mesh, vol)
+		if action:
+			action.setEnabled(True)
+
+	def _mc_on_error(self, msg, action):
+		QMessageBox.critical(None, "Marching Cube – błąd", msg)
+		if action:
+			action.setEnabled(True)
 
 	@pyqtSlot()
 	def refreshTree(self):

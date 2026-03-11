@@ -369,280 +369,111 @@ class Volumetric(Object):
 		return cloud
 
 	# Wersja wyjściowa algorytmu marching cubes, bez dodatkowego filtrowania trójkątów.
-	def marching_cube(self, factor=1, close_boundary=True, sigma_mm=None, min_volume=50, sharpening=False, taubin_iterations=10):
+	def marching_cube(self, factor=1, close_boundary=True, sigma_mm=None, threshold=None, threshold_min=300.0,
+	                  min_volume=50, sharpening=False, taubin_iterations=10, denoise=True, fill_holes=True,
+	                  denoise_iter=50, denoise_3d=False):
+		vertices, faces = self.marching_cube_compute(
+			factor=factor, close_boundary=close_boundary, sigma_mm=sigma_mm,
+			threshold=threshold, threshold_min=threshold_min, min_volume=min_volume,
+			sharpening=sharpening, taubin_iterations=taubin_iterations,
+			denoise=denoise, fill_holes=fill_holes, denoise_3d=denoise_3d)
+		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
+		AP.addObject(mesh, self)
 
+	def marching_cube_compute(self, factor=1, close_boundary=True, sigma_mm=None, threshold=None,
+	                          threshold_min=300.0, min_volume=50, sharpening=False,
+	                          taubin_iterations=10, denoise=True, fill_holes=True, denoise_iter=50,
+	                          denoise_3d=False):
+		"""Całkowite obliczenia MC – bez Qt. Bezpieczne do uruchomienia w wątku.
+		Zwraca (vertices, faces) gotowe do Mesh.create()."""
+		import time
 		import mcubes
 		import numpy as np
-		from scipy.ndimage import gaussian_filter, map_coordinates
-		from scipy import ndimage as ndi
+		from scipy.ndimage import map_coordinates
+		from .marchingCubes import (mc_preprocess, mc_gradient, mc_estimate_threshold,
+		                             mc_segment, mc_sharpen, mc_to_world, taubin_smooth)
 
-		# ------------------------------------------------------------
-		# 1. ROI extraction (bez subsamplingu)
-		# ------------------------------------------------------------
-
-		first_slice = factor * int(self.m_minSlice / factor)
-		first_row = factor * int(self.m_minRow / factor)
-		first_column = factor * int(self.m_minColumn / factor)
-
-		image = [
-			slice[first_row:self.m_maxRow+1, first_column:self.m_maxColumn+1]
-			for slice in self.m_volume[first_slice:self.m_maxSlice+1]
-		]
-
-		image = np.array(image, dtype=np.float32)
-
-		# ------------------------------------------------------------
-		# 2. Gaussian smoothing (anti-aliasing)
-		# ------------------------------------------------------------
+		t0 = t = time.perf_counter()
+		def _log(msg):
+			nonlocal t
+			now = time.perf_counter()
+			print(f"[MC] {msg}  ({now-t:.1f}s / total {now-t0:.1f}s)")
+			t = now
 
 		px = self.metadata[1].pixel_spacing[0]
 		py = self.metadata[1].pixel_spacing[1]
 		pz = self.metadata[1].slice_distance
+		print(f"[MC] start  voxel={px:.3f}x{py:.3f}x{pz:.3f}mm")
 
-		if sigma_mm is None or sigma_mm <= 0.0:
-			sigma_mm = 0.8 * ( 0.5 * (px + py) ) # 0.8 * mean pixel size in mm
+		# 1. ROI
+		first_slice = factor * int(self.m_minSlice / factor)
+		first_row   = factor * int(self.m_minRow    / factor)
+		first_col   = factor * int(self.m_minColumn / factor)
+		image = np.array([
+			s[first_row:self.m_maxRow+1, first_col:self.m_maxColumn+1]
+			for s in self.m_volume[first_slice:self.m_maxSlice+1]
+		], dtype=np.float32)
+		_log(f"1. ROI  {image.shape}")
 
-		sigma = (
-			sigma_mm / pz,
-			sigma_mm / py,
-			sigma_mm / px,
-		)
+		# 2. Preprocessing
+		image, image_full, zoom_z, pz_eff = mc_preprocess(
+				image, px, py, pz, factor, sigma_mm, denoise, sharpening, denoise_iter, denoise_3d)
+		_log(f"2. preprocess  shape={image.shape}  denoise={denoise}  denoise_3d={denoise_3d}")
 
-		image = gaussian_filter(image, sigma=sigma)
-		
-		if sharpening:
-			image_full = image.copy() # do sharpeningu
+		# 3. Gradient
+		grad, gx_full, gy_full, gz_full = mc_gradient(
+			image, image_full, pz_eff, py, px, sharpening)
+		_log("3. gradient")
 
-		# ------------------------------------------------------------
-		# 3. Subsampling (factor)
-		# ------------------------------------------------------------
+		# 4. Threshold
+		threshold = mc_estimate_threshold(image, grad, threshold, threshold_min)
+		_log(f"4. threshold={threshold:.1f}")
 
-		if factor > 1:
-			image = image[::factor, ::factor, ::factor]
+		# 5. Segmentacja
+		image_clean = mc_segment(image, threshold, px, py, pz_eff, min_volume, fill_holes)
+		_log("5. segmentation")
 
-		# ------------------------------------------------------------
-		# 4. Gradient computation
-		# ------------------------------------------------------------
-
-		gz, gy, gx = np.gradient(image)
-		
-		if sharpening:
-			gz_full, gy_full, gx_full = np.gradient(image_full, pz, py, px)
-
-		grad = np.sqrt(gx*gx + gy*gy + gz*gz)
-
-		g = grad.ravel()
-		v = image.ravel()
-
-		# ------------------------------------------------------------
-		# 5. Automatic threshold estimation
-		# ------------------------------------------------------------
-
-		g_thr = np.percentile(g, 95)
-
-		mask_grad = (g >= g_thr) & (v > 150) & (v < 6000)
-
-		vals = v[mask_grad]
-
-		if len(vals) < 100:
-			threshold_init = 300
-		else:
-			weights = g[mask_grad]
-			hist, edges = np.histogram(vals, bins=256, weights=weights)
-
-			peak = np.argmax(hist)
-
-			threshold_init = 0.5 * (edges[peak] + edges[peak+1])
-
-		print("threshold_init:", threshold_init)
-
-		# ------------------------------------------------------------
-		# 6. Binary segmentation
-		# ------------------------------------------------------------
-
-		mask_bone = image > threshold_init
-
-		structure = ndi.generate_binary_structure(3,1)
-
-		mask_bone = ndi.binary_opening(mask_bone, structure=structure, iterations=1)
-		mask_bone = ndi.binary_closing(mask_bone, structure=structure, iterations=2)
-
-		labels, n = ndi.label(mask_bone)
-		sizes = ndi.sum(mask_bone, labels, index=np.arange(1, n+1))
-
-		voxel_volume = px * py * pz
-		sizes_mm3 = sizes * voxel_volume
-
-		keep = np.zeros(n + 1, dtype=bool)
-		keep[1:][sizes_mm3 >= min_volume] = True
-
-		mask_clean = keep[labels]
-
-		image_clean = image.copy()
-		# image_clean[~mask_clean] = image.min()
-		image_clean[~mask_clean] = threshold_init - 1
-
-		# ------------------------------------------------------------
-		# 7. Marching cubes
-		# ------------------------------------------------------------
-
-		if close_boundary:
-			image_mc = np.pad(image_clean, 1, mode='constant')
-		else:
-			image_mc = image_clean
-
-		points, faces = mcubes.marching_cubes(image_mc, threshold_init)
-
+		# 6. Marching cubes
+		image_mc = np.pad(image_clean, 1, mode='constant') if close_boundary else image_clean
+		points, faces = mcubes.marching_cubes(image_mc, threshold)
 		offset = 1 if close_boundary else 0
+		_log(f"6. marching cubes  {len(points)} vertices, {len(faces)} faces")
 
-
-
-		# ------------------------------------------------------------
-		# 7A. Voxel sharpening (opcjonalne, może poprawić jakość siatki)
-		# ------------------------------------------------------------
+		# 7. Voxel sharpening (opcjonalne)
 		if sharpening:
-			coords = np.vstack([
-				(points[:,0] - offset) * factor,
-				(points[:,1] - offset) * factor,
-				(points[:,2] - offset) * factor
-			])
+			points = mc_sharpen(
+				points, offset, factor, image_full, gx_full, gy_full, gz_full, threshold)
+			_log("7. sharpening")
 
-			# intensywność
-			# I = map_coordinates(image, coords, order=1, mode='nearest')
-			I = map_coordinates(image_full, coords, order=1, mode='nearest')
+		# 8. Gradient confidence (diagnostyka)
+		coords = np.vstack([points[:,0]-offset, points[:,1]-offset, points[:,2]-offset])
+		gv = map_coordinates(grad, coords, order=1, mode='nearest')
+		_log(f"8. gradient on surface  min={gv.min():.1f}  mean={gv.mean():.1f}  max={gv.max():.1f}")
 
-			gx_v = map_coordinates(gx_full, coords, order=1, mode='nearest')
-			gy_v = map_coordinates(gy_full, coords, order=1, mode='nearest')
-			gz_v = map_coordinates(gz_full, coords, order=1, mode='nearest')
-
-			# gradient
-			# gx_v = map_coordinates(gx, coords, order=1, mode='nearest')
-			# gy_v = map_coordinates(gy, coords, order=1, mode='nearest')
-			# gz_v = map_coordinates(gz, coords, order=1, mode='nearest')
-
-			eps = 1e-6
-
-			grad_norm2 = gx_v*gx_v + gy_v*gy_v + gz_v*gz_v + eps
-			grad_norm = np.sqrt(grad_norm2)
-
-			valid = grad_norm > 50   # HU/mm – wartość orientacyjna
-
-			shift = (threshold_init - I) / grad_norm2
-
-			shift[~valid] = 0
-
-			# ograniczenie stabilności
-			shift = np.clip(shift, -0.25, 0.25)
-
-			points[:,0] += shift * gz_v
-			points[:,1] += shift * gy_v
-			points[:,2] += shift * gx_v
-
-
-
-
-		# ------------------------------------------------------------
-		# 8. Gradient confidence on surface
-		# ------------------------------------------------------------
-
-		coords = np.vstack([
-			points[:,0] - offset,
-			points[:,1] - offset,
-			points[:,2] - offset
-		])
-
-		grad_values = map_coordinates(grad, coords, order=1, mode='nearest')
-
-		print("Gradient on surface:")
-		print("min:", grad_values.min())
-		print("max:", grad_values.max())
-		print("mean:", grad_values.mean())
-
-		for p in [1,5,10,50,90,95,99]:
-			print(f"p{p}:", np.percentile(grad_values, p))
-
-		# ------------------------------------------------------------
-		# 9. Transform vertices to world coordinates
-		# ------------------------------------------------------------
-
+		# 9. Transformacja do układu world
 		origin = [
-			self.metadata[first_slice].image_position_patient[0] + px * float(first_column),
+			self.metadata[first_slice].image_position_patient[0] + px * float(first_col),
 			self.metadata[first_slice].image_position_patient[1] + py * float(first_row),
-			self.metadata[first_slice].image_position_patient[2]
+			self.metadata[first_slice].image_position_patient[2],
 		]
-
 		if first_slice > 0:
-			slice_distance = (
-				self.metadata[first_slice].image_position_patient[2] -
-				self.metadata[first_slice-1].image_position_patient[2]
-			)
+			slice_distance = (self.metadata[first_slice  ].image_position_patient[2] -
+			                  self.metadata[first_slice-1].image_position_patient[2])
 		else:
-			slice_distance = (
-				self.metadata[first_slice+1].image_position_patient[2] -
-				self.metadata[first_slice].image_position_patient[2]
-			)
+			slice_distance = (self.metadata[first_slice+1].image_position_patient[2] -
+			                  self.metadata[first_slice  ].image_position_patient[2])
 
-		gantra = self.metadata[0].gantry_detector_tilt
+		vertices = mc_to_world(
+			points, origin, slice_distance, self.metadata[0].gantry_detector_tilt,
+			px, py, zoom_z, factor, close_boundary, offset)
 
-		if close_boundary:
-			origin[0] -= px * factor
-			origin[1] -= py * factor
-			origin[2] -= slice_distance * factor
-
-		scale = [px*factor, py*factor, slice_distance*factor]
-
-		vertices = np.empty((len(points), 3), dtype=np.float64)
-		vertices[:, 0] = points[:, 2] * scale[0]
-		vertices[:, 1] = points[:, 1] * scale[1]
-		vertices[:, 2] = points[:, 0] * scale[2]
-
-		if gantra != 0.0:
-			vertices[:, 1] += vertices[:, 2] * tan(gantra)
-
-		vertices[:, 0] += origin[0]
-		vertices[:, 1] += origin[1]
-		vertices[:, 2] += origin[2]
-
-		# ------------------------------------------------------------
 		# 10. Taubin smoothing
-		# ------------------------------------------------------------
-
 		if taubin_iterations > 0:
-			vertices = Volumetric._taubin_smooth(vertices, faces, iterations=taubin_iterations)
+			vertices = taubin_smooth(vertices, faces, iterations=taubin_iterations)
+			_log(f"10. Taubin smoothing  iterations={taubin_iterations}")
 
-		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
-		AP.addObject(mesh, self)
-
-		
-
-	@staticmethod
-	def _taubin_smooth(vertices, faces, lambda_=0.5, mu=-0.53, iterations=10):
-		"""Taubin smoothing: alternating Laplacian steps with lambda and mu (negative).
-		Preserves volume better than plain Laplacian smoothing."""
-		from scipy.sparse import coo_matrix, diags
-
-		n = len(vertices)
-		faces = np.asarray(faces)
-
-		# Build symmetric adjacency from triangle edges
-		i_idx = np.concatenate([faces[:, 0], faces[:, 1], faces[:, 2],
-								faces[:, 1], faces[:, 2], faces[:, 0]])
-		j_idx = np.concatenate([faces[:, 1], faces[:, 2], faces[:, 0],
-								faces[:, 0], faces[:, 1], faces[:, 2]])
-
-		A = coo_matrix((np.ones(len(i_idx)), (i_idx, j_idx)), shape=(n, n)).tocsr()
-
-		# Row-normalize → row-stochastic matrix (mean of neighbors)
-		deg = np.asarray(A.sum(axis=1)).ravel()
-		deg[deg == 0] = 1
-		A_norm = diags(1.0 / deg) @ A
-
-		vertices = vertices.copy()
-		for _ in range(iterations):
-			for factor in [lambda_, mu]:
-				vertices += factor * (A_norm @ vertices - vertices)
-
-		return vertices
+		_log("done")
+		return vertices, faces
 
 	def adjustMinMax(self, calc_color=True, winMin=None, winMax=None, min_slice=None, max_slice=None, min_row=None, max_row=None, min_column=None, max_column=None):
 		if calc_color:

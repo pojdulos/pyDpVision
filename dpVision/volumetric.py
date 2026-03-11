@@ -369,7 +369,7 @@ class Volumetric(Object):
 		return cloud
 
 	# Wersja wyjściowa algorytmu marching cubes, bez dodatkowego filtrowania trójkątów.
-	def marching_cube(self, factor=1, close_boundary=True, sigma_mm=None, min_volume=50, sharpening=False):
+	def marching_cube(self, factor=1, close_boundary=True, sigma_mm=None, min_volume=50, sharpening=False, taubin_iterations=10):
 
 		import mcubes
 		import numpy as np
@@ -603,10 +603,46 @@ class Volumetric(Object):
 		vertices[:, 1] += origin[1]
 		vertices[:, 2] += origin[2]
 
+		# ------------------------------------------------------------
+		# 10. Taubin smoothing
+		# ------------------------------------------------------------
+
+		if taubin_iterations > 0:
+			vertices = Volumetric._taubin_smooth(vertices, faces, iterations=taubin_iterations)
+
 		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
 		AP.addObject(mesh, self)
 
 		
+
+	@staticmethod
+	def _taubin_smooth(vertices, faces, lambda_=0.5, mu=-0.53, iterations=10):
+		"""Taubin smoothing: alternating Laplacian steps with lambda and mu (negative).
+		Preserves volume better than plain Laplacian smoothing."""
+		from scipy.sparse import coo_matrix, diags
+
+		n = len(vertices)
+		faces = np.asarray(faces)
+
+		# Build symmetric adjacency from triangle edges
+		i_idx = np.concatenate([faces[:, 0], faces[:, 1], faces[:, 2],
+								faces[:, 1], faces[:, 2], faces[:, 0]])
+		j_idx = np.concatenate([faces[:, 1], faces[:, 2], faces[:, 0],
+								faces[:, 0], faces[:, 1], faces[:, 2]])
+
+		A = coo_matrix((np.ones(len(i_idx)), (i_idx, j_idx)), shape=(n, n)).tocsr()
+
+		# Row-normalize → row-stochastic matrix (mean of neighbors)
+		deg = np.asarray(A.sum(axis=1)).ravel()
+		deg[deg == 0] = 1
+		A_norm = diags(1.0 / deg) @ A
+
+		vertices = vertices.copy()
+		for _ in range(iterations):
+			for factor in [lambda_, mu]:
+				vertices += factor * (A_norm @ vertices - vertices)
+
+		return vertices
 
 	def adjustMinMax(self, calc_color=True, winMin=None, winMax=None, min_slice=None, max_slice=None, min_row=None, max_row=None, min_column=None, max_column=None):
 		if calc_color:

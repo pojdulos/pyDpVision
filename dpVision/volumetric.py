@@ -501,8 +501,6 @@ class Volumetric(Object):
 		# 7A. Voxel sharpening (opcjonalne, może poprawić jakość siatki)
 		# ------------------------------------------------------------
 		if sharpening:
-			from scipy.ndimage import map_coordinates
-
 			coords = np.vstack([
 				(points[:,0] - offset) * factor,
 				(points[:,1] - offset) * factor,
@@ -593,22 +591,17 @@ class Volumetric(Object):
 
 		scale = [px*factor, py*factor, slice_distance*factor]
 
-		vertices = []
+		vertices = np.empty((len(points), 3), dtype=np.float64)
+		vertices[:, 0] = points[:, 2] * scale[0]
+		vertices[:, 1] = points[:, 1] * scale[1]
+		vertices[:, 2] = points[:, 0] * scale[2]
 
-		for p in points:
+		if gantra != 0.0:
+			vertices[:, 1] += vertices[:, 2] * tan(gantra)
 
-			vx = [
-				p[2] * scale[0],
-				p[1] * scale[1],
-				p[0] * scale[2]
-			]
-
-			if gantra != 0.0:
-				vx[1] += vx[2] * tan(gantra)
-
-			vx = [vx[i] + origin[i] for i in range(3)]
-
-			vertices.append(vx)
+		vertices[:, 0] += origin[0]
+		vertices[:, 1] += origin[1]
+		vertices[:, 2] += origin[2]
 
 		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
 		AP.addObject(mesh, self)

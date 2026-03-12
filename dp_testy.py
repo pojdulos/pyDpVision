@@ -2,6 +2,7 @@ from dpVision import AP, Transform, Image, AnnotationPoint, AnnotationSphere, An
 
 from PyQt5.QtCore import QTimer
 
+from dpVision.mesh import Mesh
 from dpVision.meshUncertaintyModel import MeshUncertaintyModel, colorize_mesh_by_confidence, uncertainty_colormap
 from dpVision.volumetric import Volumetric
 
@@ -437,18 +438,51 @@ def test_uncertainty():
 		y = (x - lo) / max(hi - lo, 1e-12)
 		return np.clip(y, 0.0, 1.0)
 		
-	def analyse_mesh(mesh):
+	def analyse_mesh(mesh : Mesh):
 		model = MeshUncertaintyModel(mesh)
 		result = model.analyze()
+
+		confidence = result["confidence"]
+		unc = 1 - confidence
+
+		v = mesh.m_vertices
+		dist = np.linalg.norm(v, axis=1)
+		dist_n = (dist - dist.min()) / (dist.max() - dist.min())
+		distance_uncertainty = dist_n**2
+
+		
+		v_dir = v / np.linalg.norm(v, axis=1, keepdims=True)
+
+		mesh.calcVN()
+		cos_angle = np.abs(np.sum(v_dir * mesh.m_vnormals, axis=1))
+
+		angle_uncertainty = 1 - cos_angle
+
+		unc_final = (
+			0.5 * unc +
+			0.25 * distance_uncertainty +
+			0.25 * angle_uncertainty
+		)
+
+		unc_final = np.clip(unc_final, 0, 1)
+		colorize_mesh_by_uncertainty(mesh, unc_final)
 
 		# curv = result["metrics"]["vertex_curvature"]
 		# curv_log = np.log1p(curv * 1000)
 		# curv_vis = normalize_robust(curv_log, 2, 98)
 		# colorize_mesh_by_uncertainty(mesh, curv_vis)
 
-		confidence = result["confidence"]
-		uncertainty = 1.0 - confidence
-		colorize_mesh_by_uncertainty(mesh, uncertainty)
+		# uncertainty = 1.0 - confidence
+		# colorize_mesh_by_uncertainty(mesh, uncertainty)
+
+
+		# instability = (
+		# 	0.45 * normalize_robust(result["metrics"]["vertex_planarity_residual"], 5, 95) +
+		# 	0.30 * normalize_robust(result["metrics"]["vertex_spacing"], 5, 95) +
+		# 	0.25 * (1.0 / (1.0 + result["metrics"]["vertex_boundary_distance"]))
+		# )
+		# instability = np.clip(instability, 0, 1)
+		# colorize_mesh_by_uncertainty(mesh, instability)
 
 		AP.updateAllViews()
 

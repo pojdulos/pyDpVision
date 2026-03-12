@@ -76,13 +76,8 @@ def _build_objects_from_npz(npz_path):
             if 'pose_matrix' in meta:
                 pose_4x4 = np.array(meta['pose_matrix'], dtype=np.float64).reshape(4, 4)
                 obj.pose_matrix = pose_4x4.copy()   # oryginał do celów obliczeniowych
-                # Odwrotność pose: R^T | -R^T·t  →  P_local = R^T @ (P_global - t)
-                R = pose_4x4[:3, :3]
-                t = pose_4x4[:3,  3]
-                inv_4x4 = np.eye(4, dtype=np.float64)
-                inv_4x4[:3, :3] = R.T
-                inv_4x4[:3,  3] = -R.T @ t
-                scan_tra.fromNumPy(inv_4x4)
+                # Forward pose [R|t]: P_global = R @ P_local + t
+                scan_tra.fromNumPy(pose_4x4)
             scan_tra.addChild(obj)
             root.addChild(scan_tra)
 

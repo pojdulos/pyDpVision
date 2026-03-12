@@ -118,14 +118,13 @@ def _process_cartesian(header, data, prefix, arrays):
     row_idx = np.asarray(data.pop('rowIndex',    np.arange(len(x)) // cols), dtype=np.int32)
     col_idx = np.asarray(data.pop('columnIndex', np.arange(len(x)) %  cols), dtype=np.int32)
 
-    # Uwaga: read_scan() wywołuje się domyślnie z transform=True — punkty są
-    # już w globalnym układzie współrzędnych (pye57 sam zastosował pose.rotation
-    # i pose.translation). Wystarczy odjąć pozycję skanera, by uzyskać wektory
-    # kierunkowe potrzebne do obliczenia AZ/EL.
-    origin = _pose_translation(header)
+    # read_scan() wywoływany z transform=False — punkty są w lokalnym układzie
+    # skanera (skaner = origin [0,0,0]). Pose [R|t] zaszyty jest w węźle Transform
+    # w drzewie obiektów i stosowany przez GL przy renderowaniu.
+    origin = [0.0, 0.0, 0.0]
 
-    # Wektory od skanera do każdego punktu (globalne XYZ → względne)
-    dx = x - origin[0]; dy = y - origin[1]; dz = z - origin[2]
+    # Wektory od skanera do każdego punktu (lokalne XYZ)
+    dx = x; dy = y; dz = z
 
     r = dx * dx; r += dy * dy; r += dz * dz
     np.sqrt(r, out=r)
@@ -138,6 +137,15 @@ def _process_cartesian(header, data, prefix, arrays):
     valid = r > 0
     range_map = np.full((rows, cols), np.nan, dtype=np.float32)
     range_map[row_idx[valid], col_idx[valid]] = r[valid]
+
+    # Diagnostyka: puste kolumny (skaner nie zmierzył żadnego punktu w danej kolumnie)
+    col_fill = np.isfinite(range_map).any(axis=0)   # (cols,) bool
+    empty_cols = np.where(~col_fill)[0]
+    if len(empty_cols):
+        if len(empty_cols) <= 20:
+            print(f"STATUS:  [cart] puste kolumny ({len(empty_cols)}): {empty_cols.tolist()}", flush=True)
+        else:
+            print(f"STATUS:  [cart] puste kolumny: {len(empty_cols)} (pierwsza={empty_cols[0]}, ostatnia={empty_cols[-1]})", flush=True)
 
     az_min = float(az[valid].min()) if valid.any() else -180.0
     az_max = float(az[valid].max()) if valid.any() else  180.0
@@ -245,7 +253,7 @@ def _process_spherical(header, raw, prefix, arrays):
         'rows': rows, 'cols': cols,
         'az_min': float(az_deg.min()), 'az_max': float(az_deg.max()),
         'el_min': float(el_deg.min()), 'el_max': float(el_deg.max()),
-        'origin': _pose_translation(header),
+        'origin': [0.0, 0.0, 0.0],
         'has_intensity': False,
         'has_rgb': False,
     }
@@ -390,11 +398,13 @@ def main():
                         meta = _process_spherical(header, raw, prefix, arrays)
                     else:
                         data = e57.read_scan(idx, intensity=True, colors=True,
-                                             row_column=True, ignore_missing_fields=True)
+                                             row_column=True, transform=False,
+                                             ignore_missing_fields=True)
                         meta = _process_cartesian(header, data, prefix, arrays)
                 else:
                     data = e57.read_scan(idx, intensity=True, colors=True,
-                                         row_column=True, ignore_missing_fields=True)
+                                         row_column=True, transform=False,
+                                         ignore_missing_fields=True)
                     meta = _process_cartesian(header, data, prefix, arrays)
             except Exception as exc:
                 import traceback
@@ -405,9 +415,8 @@ def main():
         if meta is None:
             try:
                 data = e57.read_scan(idx, intensity=True, colors=True,
-                                     transform=True, ignore_missing_fields=True)
-                origin = _pose_translation(header)
-                meta = _process_point_cloud(data, origin, prefix, arrays)
+                                     transform=False, ignore_missing_fields=True)
+                meta = _process_point_cloud(data, [0.0, 0.0, 0.0], prefix, arrays)
             except Exception as exc:
                 import traceback
                 traceback.print_exc()

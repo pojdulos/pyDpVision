@@ -60,7 +60,9 @@ class SphereGrid(Object):
                  rgb=None,
                  origin=(0.0, 0.0, 0.0),
                  parent=None,
-                 unit="m"):
+                 unit="m",
+                 az_per_col=None,
+                 el_per_row=None):
 
         Object.__init__(self, parent)
 
@@ -75,6 +77,10 @@ class SphereGrid(Object):
         self.origin          = np.asarray(origin, dtype=np.float32)
         self.unit            = unit
 
+        # Mapy kątowe (1D) — eliminują zniekształcenia przy rekonstrukcji sferycznej
+        self._az_per_col = np.asarray(az_per_col, dtype=np.float32) if az_per_col is not None else None
+        self._el_per_row = np.asarray(el_per_row, dtype=np.float32) if el_per_row is not None else None
+
         # Opcjonalne kanały dodatkowe
         if intensity is not None:
             self._intensity = np.asarray(intensity, dtype=np.float32)
@@ -85,13 +91,18 @@ class SphereGrid(Object):
 
         if rgb is not None:
             self._rgb = np.asarray(rgb, dtype=np.uint8)
-            if self._rgb.shape[:2] != self._range.shape or self._rgb.shape[2] != 3:
+            H, W = self._range.shape
+            rh, rw = self._rgb.shape[:2]
+            if self._rgb.ndim != 3 or self._rgb.shape[2] != 3:
                 raise ValueError("rgb musi mieć kształt (H, W, 3)")
+            if not ((rh == H and rw == W) or (rh == H - 1 and rw == W - 1)):
+                raise ValueError(f"rgb musi mieć kształt ({H}\u00d7{W}) lub ({H-1}\u00d7{W-1})")
         else:
             self._rgb = None
 
         # Ustawienia wizualizacji
-        self.use_uniform_color   = True
+        # Gdy RGB jest dostępny, domyślnie pokazujemy kolorowy obraz
+        self.use_uniform_color   = (self._rgb is None)
         self.uniform_color       = [0.6, 0.6, 0.6]
         self.color_by_intensity  = False   # True → paleta wg intensywności, False → wg zasięgu
         self._colormap_name      = 'skala'
@@ -104,6 +115,9 @@ class SphereGrid(Object):
         self.palette_tex    = None
         self._render_h      = None         # wymiary tekstury GPU (po próbkowaniu)
         self._render_w      = None
+        self.fast_shader    = None         # shader dla pre-baked VBO
+        self._fast_vbo      = None         # VBO z pre-baked XYZ (tylko ważne punkty)
+        self._fast_vbo_count = 0
 
     # ------------------------------------------------------------------
     # Właściwości geometryczne
@@ -335,7 +349,19 @@ class SphereGrid(Object):
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
         glBindTexture(GL_TEXTURE_2D, 0)
-        print(f"  [SphereGrid.upload_to_gpu] upload OK", flush=True)
+        print(f"  [SphereGrid.upload_to_gpu] tekstura OK", flush=True)
+
+        # --- Pre-baked VBO (tylko ważne punkty, szybkie renderowanie) ---
+        vbo_data = self._bake_vbo()
+        n_pts = len(vbo_data)
+        print(f"  [SphereGrid.upload_to_gpu] VBO: {n_pts:,} punktów", flush=True)
+        if self._fast_vbo is None:
+            self._fast_vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, self._fast_vbo)
+        glBufferData(GL_ARRAY_BUFFER, vbo_data.nbytes, vbo_data, GL_STATIC_DRAW)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        self._fast_vbo_count = n_pts
+        print(f"  [SphereGrid.upload_to_gpu] VBO OK", flush=True)
 
     def upload_palette_to_gpu(self):
         """Tworzy / aktualizuje 256×1 teksturę RGB z aktualną paletą."""
@@ -355,17 +381,193 @@ class SphereGrid(Object):
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
         glBindTexture(GL_TEXTURE_2D, 0)
 
+    def _bake_vbo(self):
+        """Pre-compute XYZ+value buffer dla ważnych komórek siatki.
+        Korzysta z map kątowych (az_per_col, el_per_row) jeśli dostępne,
+        co eliminuje zniekształcenia wynikające z liniowej interpolacji kątów.
+        Zwraca tablicę float32 (N, 5): x, y, z, range, intensity."""
+        import math
+        H, W = self._range.shape
+        step = 1
+        if H * W > _GPU_MAX_PIXELS:
+            step = max(2, math.ceil(math.sqrt(H * W / _GPU_MAX_PIXELS)))
+
+        rng = self._range[::step, ::step]
+        msk = self._mask [::step, ::step]
+        rH, rW = rng.shape
+
+        # Azymut na kolumnę [rad]
+        if self._az_per_col is not None:
+            az_arr = self._az_per_col[::step]
+            # Zastąp NaN interpolacją liniową
+            if not np.isfinite(az_arr).all():
+                az_lin = self.azimuth_range[0] + (np.arange(rW, dtype=np.float32) + 0.5) * \
+                         (self.azimuth_range[1] - self.azimuth_range[0]) / rW
+                az_arr = np.where(np.isfinite(az_arr), az_arr, az_lin)
+            az_col = np.deg2rad(az_arr.astype(np.float32))
+        else:
+            az_col = np.deg2rad(
+                self.azimuth_range[0] +
+                (np.arange(rW, dtype=np.float32) + 0.5) *
+                (self.azimuth_range[1] - self.azimuth_range[0]) / rW
+            )
+
+        # Elewacja na wiersz [rad]
+        if self._el_per_row is not None:
+            el_arr = self._el_per_row[::step]
+            if not np.isfinite(el_arr).all():
+                el_lin = self.elevation_range[0] + (np.arange(rH, dtype=np.float32) + 0.5) * \
+                         (self.elevation_range[1] - self.elevation_range[0]) / rH
+                el_arr = np.where(np.isfinite(el_arr), el_arr, el_lin)
+            el_row = np.deg2rad(el_arr.astype(np.float32))
+        else:
+            el_row = np.deg2rad(
+                self.elevation_range[0] +
+                (np.arange(rH, dtype=np.float32) + 0.5) *
+                (self.elevation_range[1] - self.elevation_range[0]) / rH
+            )
+
+        # Broadcast do 2D i odfiltruj ważne
+        az_2d = np.broadcast_to(az_col[np.newaxis, :], (rH, rW))
+        el_2d = np.broadcast_to(el_row[:, np.newaxis], (rH, rW))
+        msk_f = msk.ravel()
+        r     = rng.ravel()[msk_f].astype(np.float32)
+        az    = az_2d.ravel()[msk_f].astype(np.float32)
+        el    = el_2d.ravel()[msk_f].astype(np.float32)
+
+        cos_el = np.cos(el)
+        x = r * cos_el * np.cos(az) + self.origin[0]
+        y = r * cos_el * np.sin(az) + self.origin[1]
+        z = r * np.sin(el)          + self.origin[2]
+
+        if self._intensity is not None:
+            intens = self._intensity[::step, ::step].ravel()[msk_f].astype(np.float32)
+        else:
+            intens = np.zeros(len(r), dtype=np.float32)
+
+        # RGB (0.0-1.0) — trafia do VBO jako atrybuty wierzchołka
+        if self._rgb is not None:
+            H_full, W_full = self._range.shape
+            rh_t, rw_t = self._rgb.shape[:2]
+            between_pts = (rh_t == H_full - 1 and rw_t == W_full - 1)
+
+            if between_pts:
+                # Tekstura leży między punktami pomiaru: piksel [i,j] → środek między
+                # skanem (i,j) a (i+1,j+1). Biliniarne dostępowanie z offset 0.5:
+                # dla punktu skanu [si*step, sj*step] interpolujemy między
+                # wierszami/kolumnami [si*step-1] i [si*step] z wagami 0.5/0.5.
+                i_orig = np.arange(rH) * step          # oryginalne wiersze skanu
+                j_orig = np.arange(rW) * step
+
+                # Elewacja nigdy się nie zapętla — clip
+                i0 = np.clip(i_orig - 1, 0, rh_t - 1)  # (rH,)
+                i1 = np.clip(i_orig,     0, rh_t - 1)
+
+                # Azymut: przy skanach 360° kolumna 0 sąsiaduje z ostatnią → wrap
+                az_span = self.azimuth_range[1] - self.azimuth_range[0]
+                if az_span >= 359.9:
+                    j0 = (j_orig - 1) % rw_t   # wrap: col 0 → rw_t-1 (piksel po drugiej stronie szwu)
+                    j1 =  j_orig      % rw_t
+                else:
+                    j0 = np.clip(j_orig - 1, 0, rw_t - 1)
+                    j1 = np.clip(j_orig,     0, rw_t - 1)
+                # Średnio z 4 narożników (waga zawsze 0.25 bo offset = 0.5)
+                rgb_2d = (
+                    self._rgb[i0[:, None], j0[None, :], :].astype(np.float32) +
+                    self._rgb[i0[:, None], j1[None, :], :].astype(np.float32) +
+                    self._rgb[i1[:, None], j0[None, :], :].astype(np.float32) +
+                    self._rgb[i1[:, None], j1[None, :], :].astype(np.float32)
+                ) * 0.25  # (rH, rW, 3) float32
+                rf = rgb_2d[:, :, 0].ravel()[msk_f] / 255.0
+                gf = rgb_2d[:, :, 1].ravel()[msk_f] / 255.0
+                bf = rgb_2d[:, :, 2].ravel()[msk_f] / 255.0
+            else:
+                rgb_sub = self._rgb[::step, ::step]  # (rH, rW, 3) uint8
+                rf = rgb_sub[:, :, 0].ravel()[msk_f].astype(np.float32) / 255.0
+                gf = rgb_sub[:, :, 1].ravel()[msk_f].astype(np.float32) / 255.0
+                bf = rgb_sub[:, :, 2].ravel()[msk_f].astype(np.float32) / 255.0
+        else:
+            rf = gf = bf = np.zeros(len(r), dtype=np.float32)
+
+        # Format VBO: x(0) y(4) z(8) range(12) intensity(16) r(20) g(24) b(28) → stride 32
+        buf = np.empty((len(r), 8), dtype=np.float32)
+        buf[:, 0] = x
+        buf[:, 1] = y
+        buf[:, 2] = z
+        buf[:, 3] = r
+        buf[:, 4] = intens
+        buf[:, 5] = rf
+        buf[:, 6] = gf
+        buf[:, 7] = bf
+        return buf
+
+    def _render_vbo(self):
+        """Szybkie renderowanie z pre-baked VBO przy użyciu fast_shader."""
+        import ctypes
+        glUseProgram(self.fast_shader)
+
+        modelview  = np.array(glGetFloatv(GL_MODELVIEW_MATRIX),  dtype=np.float32).T
+        projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32).T
+        mvp = projection @ modelview
+        glUniformMatrix4fv(glGetUniformLocation(self.fast_shader, "u_mvp"), 1, GL_FALSE, mvp.T)
+
+        minVal, maxVal = self.get_colormap_range()
+        glUniform1f(glGetUniformLocation(self.fast_shader, "u_minVal"), minVal)
+        glUniform1f(glGetUniformLocation(self.fast_shader, "u_maxVal"), maxVal)
+        glUniform1i(glGetUniformLocation(self.fast_shader, "u_useUniformColor"),  int(self.use_uniform_color))
+        glUniform3fv(glGetUniformLocation(self.fast_shader, "u_uniformColor"),    1, self.uniform_color)
+        glUniform1i(glGetUniformLocation(self.fast_shader, "u_colorByIntensity"), int(self.color_by_intensity))
+
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, self.palette_tex)
+        glUniform1i(glGetUniformLocation(self.fast_shader, "u_palette"), 0)
+
+        glUniform1i(glGetUniformLocation(self.fast_shader, "u_hasRgb"), int(self._rgb is not None))
+
+        stride = 8 * 4  # 8 floatów × 4 bajty = 32
+        glBindBuffer(GL_ARRAY_BUFFER, self._fast_vbo)
+        # attr 0: xyz (offset 0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, False, stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(0)
+        # attr 1: range+intensity (offset 12)
+        glVertexAttribPointer(1, 2, GL_FLOAT, False, stride, ctypes.c_void_p(12))
+        glEnableVertexAttribArray(1)
+        # attr 2: rgb 0.0-1.0 (offset 20)
+        glVertexAttribPointer(2, 3, GL_FLOAT, False, stride, ctypes.c_void_p(20))
+        glEnableVertexAttribArray(2)
+
+        glEnable(GL_PROGRAM_POINT_SIZE)
+        glPointSize(1)
+        glDrawArrays(GL_POINTS, 0, self._fast_vbo_count)
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glDisableVertexAttribArray(0)
+        glDisableVertexAttribArray(1)
+        glDisableVertexAttribArray(2)
+        glUseProgram(0)
+
     def initializeGL(self):
         self.upload_to_gpu()
         self.shader_program = create_program(
             vertex_shader_name='sphereGrid.vert',
             fragment_shader_name='sphereGrid.frag'
         )
+        self.fast_shader = create_program(
+            vertex_shader_name='sphereGridFast.vert',
+            fragment_shader_name='sphereGridFast.frag'
+        )
         self.upload_palette_to_gpu()
 
     def renderSelf(self):
         if self.shader_program is None:
             self.initializeGL()
+
+        # Preferuj szybki VBO (pre-baked XYZ, tylko ważne punkty)
+        if self._fast_vbo is not None and self._fast_vbo_count > 0:
+            self._render_vbo()
+            return
 
         glUseProgram(self.shader_program)
 

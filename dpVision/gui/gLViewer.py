@@ -222,6 +222,20 @@ class GLViewer(QOpenGLWidget):
 		self.transform.reset()
 		self.setViewScale(self._dDefaultViewSize)
 
+	def pan_to_bounding_box(self, bb_min, bb_max):
+		"""Przesuwa scenę (pan) tak by środek AABB znalazł się w punkcie [0,0,0]
+		widoku — bez zmiany odległości kamery ani skali.
+
+		bb_min, bb_max – współrzędne w jednostkach danych obiektów (np. m dla E57).
+		"""
+		s = 1000.0 / self._UNIT_SCALES[self.display_unit]
+		cx = (bb_min[0] + bb_max[0]) / 2.0 * s
+		cy = (bb_min[1] + bb_max[1]) / 2.0 * s
+		cz = (bb_min[2] + bb_max[2]) / 2.0 * s
+		self.transform.reset()
+		self.transform.setTranslation(-cx, -cy, -cz)
+		self.update()
+
 
 	def resizeGL( self, w, h):
 		QOpenGLWidget.resizeGL(self, w, h)

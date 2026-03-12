@@ -1,6 +1,7 @@
 # __init__.py
 
 from .parserATMDL import ParserATMDL
+from .parserASC import ParserASC
 from .parserDICOM import ParserDICOM
 from .parserE57 import ParserE57
 from .parserIMAGE2D import ParserIMAGE2D
@@ -11,6 +12,7 @@ from .parserCSV import ParserCSV
 
 __all__ = [
 	"ParserATMDL",
+	"ParserASC",
 	"ParserDICOM",
 	"ParserE57",
 	"ParserIMAGE2D",

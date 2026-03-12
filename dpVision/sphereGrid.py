@@ -17,6 +17,7 @@ sferyczne skanery naziemne, panoramiczne kamery głębi.
 """
 
 import numpy as np
+from enum import IntEnum
 from OpenGL.GL import *
 
 from .object import Object
@@ -24,9 +25,15 @@ from .shaders import create_program
 from .colormaps import make_colormap
 
 # Maksymalna liczba pikseli wgrywanej do GPU tekstury RGBA32F.
-# Przy 16 MB px × 16 B/px = 256 MB VRAM — bezpieczny limit dla większości kart.
-# Większe siatki są automatycznie próbkowane przed wgraniem.
 _GPU_MAX_PIXELS = 16 * 1024 * 1024
+
+
+class DisplayMode(IntEnum):
+    RGB          = 0   # kolor z pliku JPG / E57 (wymaga _rgb)
+    INTENSITY    = 1   # intensywność (wymaga _intensity)
+    GREYSCALE    = 2   # jasność z RGB lub intensity jako skala szarosci
+    RANGE_COLOR  = 3   # colormap wg odległości od skanera
+    UNIFORM      = 4   # stały kolor
 
 
 class SphereGrid(Object):
@@ -101,10 +108,14 @@ class SphereGrid(Object):
             self._rgb = None
 
         # Ustawienia wizualizacji
-        # Gdy RGB jest dostępny, domyślnie pokazujemy kolorowy obraz
-        self.use_uniform_color   = (self._rgb is None)
+        # Tryb domyslny: RGB jesli dostepny, inaczej RANGE_COLOR
+        if self._rgb is not None:
+            self.display_mode    = DisplayMode.RGB
+        elif self._intensity is not None:
+            self.display_mode    = DisplayMode.INTENSITY
+        else:
+            self.display_mode    = DisplayMode.RANGE_COLOR
         self.uniform_color       = [0.6, 0.6, 0.6]
-        self.color_by_intensity  = False   # True → paleta wg intensywności, False → wg zasięgu
         self._colormap_name      = 'skala'
         self.vmin                = None    # None = auto
         self.vmax                = None
@@ -279,7 +290,7 @@ class SphereGrid(Object):
 
     def get_colormap_range(self):
         """Zwraca (vmin, vmax) dla aktualnego kanału koloru."""
-        if self.color_by_intensity and self._intensity is not None:
+        if self.display_mode == DisplayMode.INTENSITY and self._intensity is not None:
             data = self._intensity[self._mask]
         else:
             data = self._range[self._mask]
@@ -514,15 +525,15 @@ class SphereGrid(Object):
         minVal, maxVal = self.get_colormap_range()
         glUniform1f(glGetUniformLocation(self.fast_shader, "u_minVal"), minVal)
         glUniform1f(glGetUniformLocation(self.fast_shader, "u_maxVal"), maxVal)
-        glUniform1i(glGetUniformLocation(self.fast_shader, "u_useUniformColor"),  int(self.use_uniform_color))
-        glUniform3fv(glGetUniformLocation(self.fast_shader, "u_uniformColor"),    1, self.uniform_color)
-        glUniform1i(glGetUniformLocation(self.fast_shader, "u_colorByIntensity"), int(self.color_by_intensity))
+        glUniform1i(glGetUniformLocation(self.fast_shader, "u_mode"),   int(self.display_mode))
+        glUniform3fv(glGetUniformLocation(self.fast_shader, "u_uniformColor"), 1, self.uniform_color)
 
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_2D, self.palette_tex)
         glUniform1i(glGetUniformLocation(self.fast_shader, "u_palette"), 0)
 
-        glUniform1i(glGetUniformLocation(self.fast_shader, "u_hasRgb"), int(self._rgb is not None))
+        glUniform1i(glGetUniformLocation(self.fast_shader, "u_hasRgb"),  int(self._rgb is not None))
+        glUniform1i(glGetUniformLocation(self.fast_shader, "u_hasInten"), int(self._intensity is not None))
 
         stride = 8 * 4  # 8 floatów × 4 bajty = 32
         glBindBuffer(GL_ARRAY_BUFFER, self._fast_vbo)
@@ -614,9 +625,10 @@ class SphereGrid(Object):
         minVal, maxVal = self.get_colormap_range()
         glUniform1f(glGetUniformLocation(self.shader_program, "u_minVal"), minVal)
         glUniform1f(glGetUniformLocation(self.shader_program, "u_maxVal"), maxVal)
-        glUniform1i(glGetUniformLocation(self.shader_program, "u_useUniformColor"),  int(self.use_uniform_color))
-        glUniform3fv(glGetUniformLocation(self.shader_program, "u_uniformColor"),    1, self.uniform_color)
-        glUniform1i(glGetUniformLocation(self.shader_program, "u_colorByIntensity"), int(self.color_by_intensity))
+        glUniform1i(glGetUniformLocation(self.shader_program, "u_mode"),   int(self.display_mode))
+        glUniform3fv(glGetUniformLocation(self.shader_program, "u_uniformColor"), 1, self.uniform_color)
+        glUniform1i(glGetUniformLocation(self.shader_program, "u_hasInten"),
+                    1 if self._intensity is not None else 0)
 
         # --- Rysowanie (jeden punkt na każdą komórkę renderowej siatki) ---
         glEnable(GL_PROGRAM_POINT_SIZE)

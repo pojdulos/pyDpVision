@@ -22,6 +22,7 @@ from .propAnnotationPlane import PropAnnotationPlane
 from .propAnnotationPoint import PropAnnotationPoint
 from .propAnnotationSphere import PropAnnotationSphere
 from .propGridData64 import PropGridData64
+from .propSphereGrid import PropSphereGrid
 from .propDHJoint import PropDHJoint
 
 from .. import BaseObject, Object, Annotation, AP
@@ -55,6 +56,7 @@ class DockWidgetProperties(QDockWidget):
 				'Mesh' : PropMesh,
 				#'PointCloud' : PropMesh,
 				'GridData64' : PropGridData64,
+				'SphereGrid' : PropSphereGrid,
 				'NDimCloud': PropNDimCloud,
 				'Motion': PropMotion,
 				'Volumetric': PropVolumetric,

@@ -1,13 +1,13 @@
 #version 330 core
 
 // --- Zakres wartości dla colormapy ---
-uniform float u_minVal;        // min zasięgu lub intensywności
-uniform float u_maxVal;        // max zasięgu lub intensywności
+uniform float u_minVal;
+uniform float u_maxVal;
 
-// --- Tryb koloru ---
-uniform bool  u_useUniformColor;   // jeśli true → jednolity kolor
-uniform vec3  u_uniformColor;      // jednolity kolor (RGB)
-uniform bool  u_colorByIntensity;  // jeśli true → koloruj wg intensywności, wpp wg zasięgu
+// --- Tryb koloru: 0=RGB,1=INTENSITY,2=GREYSCALE,3=RANGE_COLOR,4=UNIFORM ---
+uniform int   u_mode;
+uniform vec3  u_uniformColor;
+uniform bool  u_hasInten;
 
 // --- Paleta kolorów (1D LUT, 256×1 px) ---
 uniform sampler2D u_palette;
@@ -21,16 +21,23 @@ out vec4 fragColor;
 
 void main()
 {
-    // Odrzuć nieważne piksele (brak echa)
     if (v_mask < 0.5)
         discard;
 
     vec3 color;
-    if (u_useUniformColor) {
+    if (u_mode == 4) {
         color = u_uniformColor;
+    } else if (u_mode == 1 && u_hasInten) {
+        float t = clamp((v_intensity - u_minVal) / (u_maxVal - u_minVal), 0.0, 1.0);
+        color = texture(u_palette, vec2(t, 0.5)).rgb;
+    } else if (u_mode == 2) {
+        float grey = u_hasInten
+            ? clamp((v_intensity - u_minVal) / (u_maxVal - u_minVal), 0.0, 1.0)
+            : clamp((v_range     - u_minVal) / (u_maxVal - u_minVal), 0.0, 1.0);
+        color = vec3(grey);
     } else {
-        float val = u_colorByIntensity ? v_intensity : v_range;
-        float t = clamp((val - u_minVal) / (u_maxVal - u_minVal), 0.0, 1.0);
+        // RANGE_COLOR (mode==3) lub fallback
+        float t = clamp((v_range - u_minVal) / (u_maxVal - u_minVal), 0.0, 1.0);
         color = texture(u_palette, vec2(t, 0.5)).rgb;
     }
 

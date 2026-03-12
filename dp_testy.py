@@ -424,33 +424,36 @@ def test_sphere_grid():
 # test_sphere_grid()
 
 
-def colorize_mesh_by_uncertainty(mesh, uncertainty):
+def test_uncertainty():
+	def colorize_mesh_by_uncertainty(mesh, uncertainty):
 
-    colors = uncertainty_colormap(uncertainty)
+		colors = uncertainty_colormap(uncertainty)
 
-    mesh.m_vcolors = colors
-	
-def normalize_robust(x, p_low=5, p_high=95):
-    lo = np.percentile(x, p_low)
-    hi = np.percentile(x, p_high)
-    y = (x - lo) / max(hi - lo, 1e-12)
-    return np.clip(y, 0.0, 1.0)
-	
-def colorize(mesh):
-	model = MeshUncertaintyModel(mesh)
-	result = model.analyze()
+		mesh.m_vcolors = colors
+		
+	def normalize_robust(x, p_low=5, p_high=95):
+		lo = np.percentile(x, p_low)
+		hi = np.percentile(x, p_high)
+		y = (x - lo) / max(hi - lo, 1e-12)
+		return np.clip(y, 0.0, 1.0)
+		
+	def analyse_mesh(mesh):
+		model = MeshUncertaintyModel(mesh)
+		result = model.analyze()
 
-	# curv = result["metrics"]["vertex_curvature"]
-	# curv_log = np.log1p(curv * 1000)
-	# curv_vis = normalize_robust(curv_log, 2, 98)
-	# colorize_mesh_by_uncertainty(mesh, curv_vis)
+		# curv = result["metrics"]["vertex_curvature"]
+		# curv_log = np.log1p(curv * 1000)
+		# curv_vis = normalize_robust(curv_log, 2, 98)
+		# colorize_mesh_by_uncertainty(mesh, curv_vis)
 
-	confidence = result["confidence"]
-	uncertainty = 1.0 - confidence
-	colorize_mesh_by_uncertainty(mesh, uncertainty)
+		confidence = result["confidence"]
+		uncertainty = 1.0 - confidence
+		colorize_mesh_by_uncertainty(mesh, uncertainty)
 
-	AP.updateAllViews()
+		AP.updateAllViews()
 
-# filename = "d:\\praca\\dane\\190911100545.obj"
-filename = "d:\\praca\\dane\\zdeb\\1000000008.obj"
-AP.load(filename, on_success=colorize)
+	# filename = "d:\\praca\\dane\\190911100545.obj"
+	filename = "d:\\praca\\dane\\zdeb\\1000000008.obj"
+	AP.load(filename, on_success=analyse_mesh)
+
+test_uncertainty()

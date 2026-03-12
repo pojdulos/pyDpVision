@@ -30,10 +30,12 @@ _GPU_MAX_PIXELS = 16 * 1024 * 1024
 
 class DisplayMode(IntEnum):
     RGB          = 0   # kolor z pliku JPG / E57 (wymaga _rgb)
-    INTENSITY    = 1   # intensywność (wymaga _intensity)
-    GREYSCALE    = 2   # jasność z RGB lub intensity jako skala szarosci
-    RANGE_COLOR  = 3   # colormap wg odległości od skanera
-    UNIFORM      = 4   # stały kolor
+    INTENSITY    = 1   # intensywnosc (wymaga _intensity)
+    GREYSCALE    = 2   # jasnosc z RGB lub intensity jako skala szarosci
+    RANGE_COLOR  = 3   # colormap wg odleglosci od skanera
+    UNIFORM      = 4   # staly kolor
+    SPLAT        = 5   # Gaussian splat (rozmiar splatu wg zasiegu i kroku katowego)
+    UNCERTAINTY  = 6   # miara niepewnosci: sigma = range * d_theta [m]
 
 
 class SphereGrid(Object):
@@ -119,6 +121,7 @@ class SphereGrid(Object):
         self._colormap_name      = 'skala'
         self.vmin                = None    # None = auto
         self.vmax                = None
+        self.splat_scale         = 1.0    # mnożnik rozmiaru splatów
 
         # Zasoby OpenGL
         self.shader_program = None
@@ -129,6 +132,7 @@ class SphereGrid(Object):
         self.fast_shader    = None         # shader dla pre-baked VBO
         self._fast_vbo      = None         # VBO z pre-baked XYZ (tylko ważne punkty)
         self._fast_vbo_count = 0
+        self.splat_shader   = None         # shader Gaussian splat
 
     # ------------------------------------------------------------------
     # Właściwości geometryczne
@@ -289,8 +293,21 @@ class SphereGrid(Object):
     # ------------------------------------------------------------------
 
     def get_colormap_range(self):
-        """Zwraca (vmin, vmax) dla aktualnego kanału koloru."""
-        if self.display_mode == DisplayMode.INTENSITY and self._intensity is not None:
+        """Zwraca (vmin, vmax) dla aktualnego kanalu koloru."""
+        # Dla SPLAT uzyj trybu koloru splatu, nie samego SPLAT
+        effective = self.display_mode
+        if effective == DisplayMode.SPLAT:
+            effective = self._splat_color_mode
+
+        if effective == DisplayMode.UNCERTAINTY:
+            # sigma_lateral = range * d_theta_rad — obliczane zawsze swiezo
+            ang = float(np.deg2rad(max(abs(self.d_azimuth), abs(self.d_elevation))))
+            valid_r = self._range[self._mask]
+            if len(valid_r):
+                return float(np.min(valid_r) * ang), float(np.max(valid_r) * ang)
+            return 0.0, 1.0
+
+        if effective == DisplayMode.INTENSITY and self._intensity is not None:
             data = self._intensity[self._mask]
         else:
             data = self._range[self._mask]
@@ -514,6 +531,9 @@ class SphereGrid(Object):
 
     def _render_vbo(self):
         """Szybkie renderowanie z pre-baked VBO przy użyciu fast_shader."""
+        if self.display_mode == DisplayMode.SPLAT:
+            self._render_vbo_splat()
+            return
         import ctypes
         glUseProgram(self.fast_shader)
 
@@ -535,7 +555,11 @@ class SphereGrid(Object):
         glUniform1i(glGetUniformLocation(self.fast_shader, "u_hasRgb"),  int(self._rgb is not None))
         glUniform1i(glGetUniformLocation(self.fast_shader, "u_hasInten"), int(self._intensity is not None))
 
-        stride = 8 * 4  # 8 floatów × 4 bajty = 32
+        # u_ang_step_rad — potrzebny dla trybu UNCERTAINTY (sigma = range * d_theta)
+        ang_step_rad = float(np.deg2rad(max(abs(self.d_azimuth), abs(self.d_elevation))))
+        glUniform1f(glGetUniformLocation(self.fast_shader, "u_ang_step_rad"), ang_step_rad)
+
+        stride = 8 * 4  # 8 floatow x 4 bajty = 32
         glBindBuffer(GL_ARRAY_BUFFER, self._fast_vbo)
         # attr 0: xyz (offset 0)
         glVertexAttribPointer(0, 3, GL_FLOAT, False, stride, ctypes.c_void_p(0))
@@ -559,6 +583,116 @@ class SphereGrid(Object):
         glDisableVertexAttribArray(2)
         glUseProgram(0)
 
+    def _render_vbo_splat(self):
+        """Renderowanie Gaussian splat."""
+        import ctypes, traceback
+        if self.splat_shader is None:
+            # Proba ponownej kompilacji (np. po bledzie przy pierwszym initializeGL)
+            self._compile_splat_shader()
+        if self.splat_shader is None:
+            print('[SphereGrid] SPLAT: brak splat_shader, pomijam render', flush=True)
+            return
+        try:
+            self._render_vbo_splat_impl(ctypes)
+        except Exception as e:
+            print(f'[SphereGrid] SPLAT render ERROR: {e}', flush=True)
+            traceback.print_exc()
+
+    def _render_vbo_splat_impl(self, ctypes):
+        glUseProgram(self.splat_shader)
+
+        modelview  = np.array(glGetFloatv(GL_MODELVIEW_MATRIX),  dtype=np.float32).T
+        projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32).T
+        mvp = projection @ modelview
+
+        glUniformMatrix4fv(glGetUniformLocation(self.splat_shader, "u_mvp"),
+                           1, GL_FALSE, mvp.T)
+        glUniformMatrix4fv(glGetUniformLocation(self.splat_shader, "u_mv"),
+                           1, GL_FALSE, modelview.T)
+
+        ang_step     = max(abs(self.d_azimuth), abs(self.d_elevation))
+        ang_step_rad = float(np.deg2rad(ang_step))
+        glUniform1f(glGetUniformLocation(self.splat_shader, "u_ang_step_rad"), ang_step_rad)
+        glUniform1f(glGetUniformLocation(self.splat_shader, "u_splat_scale"),
+                    float(self.splat_scale))
+
+        viewport = glGetIntegerv(GL_VIEWPORT)   # [x, y, w, h]
+        glUniform1f(glGetUniformLocation(self.splat_shader, "u_viewport_h"),
+                    float(viewport[3]))
+        focal_y = float(projection[1, 1])
+        glUniform1f(glGetUniformLocation(self.splat_shader, "u_focal_y"), focal_y)
+
+        # --- diagnostyka przy pierwszym wywolaniu ---
+        if not getattr(self, '_splat_diag_done', False):
+            self._splat_diag_done = True
+            valid_r = self._range[self._mask]
+            r_med   = float(np.median(valid_r)) if len(valid_r) else 1.0
+            world_r   = r_med * ang_step_rad * self.splat_scale
+            size_apx  = focal_y * float(viewport[3]) * 0.5 * (2.0 * world_r) / max(r_med, 0.001)
+            print(f'[SPLAT DIAG] ang_step={ang_step:.3f}deg  ang_step_rad={ang_step_rad:.5f}')
+            print(f'[SPLAT DIAG] focal_y={focal_y:.3f}  viewport_h={viewport[3]}')
+            print(f'[SPLAT DIAG] r_median={r_med:.3f}m  world_radius={world_r:.5f}m')
+            print(f'[SPLAT DIAG] expected_size_px~={size_apx:.2f}  n_pts={self._fast_vbo_count}',
+                  flush=True)
+
+        # Colormap
+        minVal, maxVal = self.get_colormap_range()
+        glUniform1f(glGetUniformLocation(self.splat_shader, "u_minVal"), minVal)
+        glUniform1f(glGetUniformLocation(self.splat_shader, "u_maxVal"), maxVal)
+        color_mode = self._splat_color_mode
+        glUniform1i(glGetUniformLocation(self.splat_shader, "u_color_mode"), int(color_mode))
+        glUniform3fv(glGetUniformLocation(self.splat_shader, "u_uniformColor"), 1,
+                     np.array(self.uniform_color, dtype=np.float32))
+        glUniform1i(glGetUniformLocation(self.splat_shader, "u_hasRgb"),  int(self._rgb is not None))
+        glUniform1i(glGetUniformLocation(self.splat_shader, "u_hasInten"), int(self._intensity is not None))
+
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, self.palette_tex)
+        glUniform1i(glGetUniformLocation(self.splat_shader, "u_palette"), 0)
+
+        stride = 8 * 4
+        glBindBuffer(GL_ARRAY_BUFFER, self._fast_vbo)
+        glVertexAttribPointer(0, 3, GL_FLOAT, False, stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(1, 2, GL_FLOAT, False, stride, ctypes.c_void_p(12))
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(2, 3, GL_FLOAT, False, stride, ctypes.c_void_p(20))
+        glEnableVertexAttribArray(2)
+
+        # GL_POINT_SPRITE jest wymagane w trybie kompatybilnosci OpenGL
+        # (bez niego gl_PointCoord = (0,0) dla kazdego fragmentu -> wszystko discard)
+        try:
+            glEnable(GL_POINT_SPRITE)
+        except Exception:
+            pass   # core profile: GL_POINT_SPRITE nie istnieje — ignoruj
+
+        glEnable(GL_PROGRAM_POINT_SIZE)
+        glDepthMask(GL_FALSE)
+        glDrawArrays(GL_POINTS, 0, self._fast_vbo_count)
+        glDepthMask(GL_TRUE)
+
+        try:
+            glDisable(GL_POINT_SPRITE)
+        except Exception:
+            pass
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glDisableVertexAttribArray(0)
+        glDisableVertexAttribArray(1)
+        glDisableVertexAttribArray(2)
+        glUseProgram(0)
+
+    @property
+    def _splat_color_mode(self):
+        """Tryb koloru używany wewnątrz SPLAT (oddzielna kontrolka w UI)."""
+        return getattr(self, '_splat_color_mode_val', DisplayMode.RANGE_COLOR)
+
+    @_splat_color_mode.setter
+    def _splat_color_mode(self, value):
+        self._splat_color_mode_val = DisplayMode(value)
+
     def initializeGL(self):
         self.upload_to_gpu()
         self.shader_program = create_program(
@@ -569,7 +703,21 @@ class SphereGrid(Object):
             vertex_shader_name='sphereGridFast.vert',
             fragment_shader_name='sphereGridFast.frag'
         )
+        self._compile_splat_shader()
         self.upload_palette_to_gpu()
+
+    def _compile_splat_shader(self):
+        """Kompiluje splat_shader. Oddzielna metoda, by blad nie crashowal reszty."""
+        self._splat_diag_done = False   # reset diagnostyki przy recompile
+        try:
+            self.splat_shader = create_program(
+                vertex_shader_name='sphereGridSplat.vert',
+                fragment_shader_name='sphereGridSplat.frag'
+            )
+            print('[SphereGrid] splat_shader OK', flush=True)
+        except Exception as e:
+            print(f'[SphereGrid] BLAD kompilacji splat_shader: {e}', flush=True)
+            self.splat_shader = None
 
     def renderSelf(self):
         if self.shader_program is None:

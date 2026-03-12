@@ -9,7 +9,8 @@ uniform float u_maxVal;
 uniform int   u_mode;
 uniform vec3  u_uniformColor;
 uniform bool  u_hasRgb;          // czy VBO zawiera dane RGB
-uniform bool  u_hasInten;        // czy VBO zawiera dane intensywności
+uniform bool  u_hasInten;        // czy VBO zawiera dane intensywnosci
+uniform float u_ang_step_rad;    // krok katowy [rad] - dla trybu UNCERTAINTY
 
 // --- Paleta kolorów (1D LUT 256×1 px) ---
 uniform sampler2D u_palette;
@@ -45,6 +46,10 @@ void main()
         else
             lum = clamp((v_range    - u_minVal) / (u_maxVal - u_minVal + 1e-9), 0.0, 1.0);
         color = vec3(lum);
+    } else if (u_mode == 6) {                  // UNCERTAINTY: sigma = range * d_theta
+        float sigma = v_range * u_ang_step_rad;
+        float t = clamp((sigma - u_minVal) / (u_maxVal - u_minVal + 1e-9), 0.0, 1.0);
+        color = texture(u_palette, vec2(t, 0.5)).rgb;
     } else {                                    // RANGE_COLOR (mode==3) lub fallback
         float t = clamp((v_range - u_minVal) / (u_maxVal - u_minVal + 1e-9), 0.0, 1.0);
         color = texture(u_palette, vec2(t, 0.5)).rgb;

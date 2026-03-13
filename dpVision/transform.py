@@ -118,7 +118,10 @@ class Transform(Object):
 		glPopMatrix()
 
 	def renderSelf(self):
-		if self.m_show_screw:
+		# Transformacja stosowana zawsze - również podczas WBOIT pass!
+		# Bez tego dzieci nie miałyby poprawnej macierzy modelu.
+		from .globals import AP
+		if AP.wboit_pass is None and self.m_show_screw:
 			self.renderScrew()
 		glMultMatrixf(self.matrix.astype(np.float32).T)
 

@@ -11,6 +11,7 @@ class Globals:
 			cls._instance.settings = None
 			#cls._instance.docksettings = None
 			cls._instance.mouse_key_pressed = False
+		cls._instance.wboit_pass = None  # None = normalny render, -1 = opaque-only pass, 0 = WBOIT accum, 1 = WBOIT reveal
 		return cls._instance
 
 	# def updateGlobals(self):

@@ -145,16 +145,17 @@ class BaseObject(QObject):
 		return []
 	
 	def renderSelf(self):
-		pass
+		# Podczas WBOIT pass (0 lub 1) pomijamy inne obiekty niż Mesh i Transform.
+		# Przy AP.wboit_pass = -1 (opaque-only pass) lub None (normalny render) działamy normalnie.
+		# (Mesh nadpisuje tę metodę; Transform nadpisuje żeby zawsze aplikować macierz)
+		from .globals import AP
+		if AP.wboit_pass is not None and AP.wboit_pass >= 0:
+			return
 
 	@property
 	def is_transparent(self):
 		"""Zwraca True jeśli obiekt rysuje się z przezroczystością (wymaga pass 2)."""
 		return False
-
-	def render_wboit(self, pass_idx):
-		"""WBOIT rendering (override w podklasach przezroczystych)."""
-		pass
 
 	def renderKids(self):
 		pass

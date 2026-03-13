@@ -14,6 +14,10 @@ uniform vec4      myColor;        // .a = alpha materia\u0142u
 uniform bool useTexture;
 uniform bool useFlatShading;
 uniform int  u_wboit_pass;
+uniform vec3 u_cameraPos;  // Pozycja kamery w world space
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
 
 layout(location = 0) out vec4 out0;
 
@@ -51,16 +55,17 @@ void main()
 
     if (alpha < 0.01) discard;
 
-    // WBOIT weight: strong near-surface emphasis, robust across depth ranges
-    float z = gl_FragCoord.z;
-    float w = max(1e-2, min(3e3, 10.0 /
-        (1e-5 + pow(z * 5.0, 2.0) + pow(z * 200.0, 6.0))));
+    // TESTOWA weight function: constant = 1.0
+    float w = 1.0;
 
     if (u_wboit_pass == 0) {
         // Accum pass: additive blend (GL_ONE, GL_ONE)
-        out0 = vec4(result * alpha, alpha) * w;
+        // output = (result.rgb * alpha * w, alpha * w)
+        vec4 accum_output = vec4(result * alpha, alpha) * w;
+        out0 = accum_output;
     } else {
         // Reveal pass: multiplicative blend (GL_ZERO, GL_ONE_MINUS_SRC_COLOR)
-        out0 = vec4(alpha, alpha, alpha, alpha);
+        // output.r = alpha (będzie mnożone przez (1-alpha) w blendzie)
+        out0 = vec4(alpha, 0.0, 0.0, 0.0);
     }
 }

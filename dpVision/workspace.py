@@ -16,15 +16,50 @@ class Workspace(QObject):
 		self.m_checked = []
 		self.m_currentObject = None
 
+	def _get_all_objects_recursive(self):
+		"""Zbiera wszystkie obiekty z hierarchii workspace rekurencyjnie (włącznie z children)."""
+		def collect(obj, result):
+			result.append(obj)
+			for child in obj.children():
+				collect(child, result)
+		
+		all_objects = []
+		for obj in self.m_data:
+			if obj is not None:
+				collect(obj, all_objects)
+		return all_objects
+
 	def has_transparent(self):
-		return any(obj is not None and obj.is_transparent for obj in self.m_data)
+		"""Sprawdza czy w hierarchii są jakiekolwiek przezroczyste obiekty (rekurencyjnie)."""
+		all_objects = self._get_all_objects_recursive()
+		result = any(obj.is_transparent for obj in all_objects)
+		return result
 		
 	def render(self, opaque_only=False, camera_pos=None, view_dir=None):
 		"""Two-pass render:
 		Pass 1 – obiekty nieprzezroczyste (depth write ON),
 		Pass 2 – obiekty przezroczyste posortowane back-to-front (depth write OFF).
-		Gdy opaque_only=True renderuje tylko pass 1 (WBOIT przebiegi obsługuje gLViewer).
+		Gdy opaque_only=True renderuje tylko nieprzezroczyste (WBOIT przebiegi obsługuje gLViewer).
 		"""
+		from .globals import AP
+
+		if opaque_only:
+			# Ustawiamy flagę -1: każdy Mesh sam pominie siebie jeśli jest transparent.
+			# Nie musimy tu nic dzielić - meshe w głębi hierarchii (np. wewnątrz Transform)
+			# same sprawdzają AP.wboit_pass i decydują czy się renderować.
+			AP.wboit_pass = -1
+			try:
+				for obj in self.m_data:
+					if obj is None:
+						continue
+					gl.glPushMatrix()
+					obj.render()
+					gl.glPopMatrix()
+			finally:
+				AP.wboit_pass = None
+			return
+
+		# Normalny render (bez WBOIT): two-pass z sortowaniem przezroczystych
 		opaque = []
 		transparent = []
 		for obj in self.m_data:
@@ -35,13 +70,12 @@ class Workspace(QObject):
 			else:
 				opaque.append(obj)
 
-		# --- Pass 1: nieprzezroczyste ---
 		for obj in opaque:
 			gl.glPushMatrix()
 			obj.render()
 			gl.glPopMatrix()
 
-		if opaque_only or not transparent:
+		if not transparent:
 			return
 
 		# Sortowanie back-to-front względem osi widoku
@@ -55,13 +89,8 @@ class Workspace(QObject):
 					return float(np.dot(mp - cp, vd_norm))
 				except Exception:
 					return 0.0
-			transparent.sort(key=_depth, reverse=True)  # dalsze pierwsze
+			transparent.sort(key=_depth, reverse=True)
 
-		# --- Pass 2: przezroczyste ---
-		# Depth write OFF: przezroczyste nie mogą zasłaniać ani siebie nawzajem
-		# ani obiektów nieprzezroczystych w buforze głębokości.
-		# Depth test ON: przezroczyste nadal są zasłaniane przez nieprzezroczyste
-		# obiekty które są przed nimi.
 		gl.glDepthMask(gl.GL_FALSE)
 		for obj in transparent:
 			gl.glPushMatrix()
@@ -70,12 +99,14 @@ class Workspace(QObject):
 		gl.glDepthMask(gl.GL_TRUE)
 
 	def render_transparent_wboit(self, pass_idx, camera_pos=None, view_dir=None):
-		"""Wywołuje render_wboit(pass_idx) na wszystkich przezroczystych obiektach.
-		Stan GL (blend, depthMask, DrawBuffers) jest ustawiany przez gLViewer przed wywołaniem.
-		"""
-		for obj in self.m_data:
-			if obj is not None and obj.is_transparent:
+		"""Renderuje całą scenę w trybie WBOIT (również obiekty opaque)."""
+		from .globals import AP
+		AP.wboit_pass = pass_idx
+		try:
+			for obj in self.m_data:
 				gl.glPushMatrix()
-				obj.render_wboit(pass_idx)
+				obj.render()
 				gl.glPopMatrix()
+		finally:
+			AP.wboit_pass = None
 

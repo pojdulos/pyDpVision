@@ -672,7 +672,68 @@ class GLViewer(QOpenGLWidget):
 				self._camera.dir[2] - self._camera.pos[2],
 			]
 			ws = self.mainWindow.workspace
-			ws.render(camera_pos=cam_pos, view_dir=view_dir)
+
+			# Pass 1: normalny render dla obiektów nieprzezroczystych.
+			# Renderuje opaque geometry i zapełnia depth buffer.
+			ws.render(opaque_only=True, camera_pos=cam_pos, view_dir=view_dir)
+
+			# Pass 2 (opcjonalnie): WBOIT dla przezroczystych obiektów.
+			# Uruchamiamy tylko jeśli scena ma przezroczyste obiekty.
+			if ws.has_transparent():
+				# Zainicjuj WBOIT resources jeśli potrzeba
+				w, h = self.width(), self.height()
+				if (getattr(self, '_wboit_fbo', None) is None or
+					getattr(self, '_wboit_w', 0) != w or
+					getattr(self, '_wboit_h', 0) != h):
+					self._init_wboit_resources(w, h)
+
+				if getattr(self, '_wboit_fbo', None) is not None:
+					# Zapamiętaj bieżący FBO (może być Qt-internal FBO, nie 0)
+					prev_fb = glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING)
+
+					glBindFramebuffer(GL_FRAMEBUFFER, self._wboit_fbo)
+
+					glDrawBuffer(GL_COLOR_ATTACHMENT0)
+					glClearColor(0.0, 0.0, 0.0, 0.0)
+					glClear(GL_COLOR_BUFFER_BIT)
+
+					glDrawBuffer(GL_COLOR_ATTACHMENT1)
+					glClearColor(1.0, 1.0, 1.0, 1.0)
+					glClear(GL_COLOR_BUFFER_BIT)
+
+					glClearColor(0.0, 0.0, 0.0, 0.0)
+					glClear(GL_DEPTH_BUFFER_BIT)
+
+					# Pass 0: accum (blend: GL_ONE, GL_ONE)
+					glDrawBuffer(GL_COLOR_ATTACHMENT0)
+					glDepthMask(GL_FALSE)
+					glDisable(GL_DEPTH_TEST)
+					glEnable(GL_BLEND)
+					glBlendFunc(GL_ONE, GL_ONE)
+					ws.render_transparent_wboit(0, camera_pos=cam_pos, view_dir=view_dir)
+
+					# Pass 1: reveal (blend: GL_ZERO, GL_ONE_MINUS_SRC_COLOR)
+					glDrawBuffer(GL_COLOR_ATTACHMENT1)
+					glDepthMask(GL_FALSE)
+					glDisable(GL_DEPTH_TEST)
+					glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR)
+					ws.render_transparent_wboit(1, camera_pos=cam_pos, view_dir=view_dir)
+
+					# Composite: nałóż WBOIT transparent na główny bufor
+					glBindFramebuffer(GL_FRAMEBUFFER, prev_fb)
+					glDepthMask(GL_TRUE)
+					glDisable(GL_DEPTH_TEST)
+					glEnable(GL_BLEND)
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+					self._composite_wboit()
+					glEnable(GL_DEPTH_TEST)
+					glDepthFunc(GL_LEQUAL)
+
+					glClearColor(
+						self._fBgColor.redF(),
+						self._fBgColor.greenF(),
+						self._fBgColor.blueF(),
+						self._fBgColor.alphaF())
 		finally:
 			glPopMatrix()
 			# Upewnij się że stos attribs jest czysty po renderowaniu obiektów

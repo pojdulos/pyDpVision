@@ -566,9 +566,17 @@ class Mesh(PointCloud):
 
 	@property
 	def is_transparent(self):
-		return self.materials[self.currentMaterial].alpha < 0.999
+		alpha = self.materials[self.currentMaterial].alpha
+		result = alpha < 0.999
+		# Debug: print tylko gdy się zmienia
+		if not hasattr(self, '_last_is_transparent') or self._last_is_transparent != result:
+			print(f"[MESH] '{self.label}' is_transparent changed: {getattr(self, '_last_is_transparent', None)} -> {result} (alpha={alpha:.3f})")
+			self._last_is_transparent = result
+		return result
 
 	def _compile_wboit_shader(self):
+		"""Kompiluje shader WBOIT dla tego mesha."""
+		print(f"[WBOIT] Kompilowanie WBOIT shader...")
 		try:
 			vs = load_and_compile_shader('mesh.vert', GL_VERTEX_SHADER)
 			fs = load_and_compile_shader('wboit_mesh.frag', GL_FRAGMENT_SHADER)
@@ -582,6 +590,11 @@ class Mesh(PointCloud):
 				return
 			glDeleteShader(vs)
 			glDeleteShader(fs)
+			
+			# USUŃ stary shader jeśli istnieje
+			if self.wboit_shader is not None:
+				glDeleteProgram(self.wboit_shader)
+				
 			self.wboit_shader = prog
 			self.wboit_uniform_locs = {
 				'model':          glGetUniformLocation(prog, 'model'),
@@ -594,14 +607,25 @@ class Mesh(PointCloud):
 				'useFlatShading': glGetUniformLocation(prog, 'useFlatShading'),
 				'texture1':       glGetUniformLocation(prog, 'texture1'),
 				'u_wboit_pass':   glGetUniformLocation(prog, 'u_wboit_pass'),
+				'u_cameraPos':    glGetUniformLocation(prog, 'u_cameraPos'),
 			}
+			print(f"[WBOIT] Shader skompilowany: program={prog}")
 		except Exception as e:
 			print(f"WBOIT mesh shader error: {e}")
+			self._shader_failed = True
 
-	def render_wboit(self, pass_idx):
-		"""WBOIT rendering (called by workspace in transparent WBOIT passes)."""
+	def render_wboit(self, pass_idx, cull_mode=None, camera_pos=None):
+		"""WBOIT rendering – tylko dla przezroczystych mesha (is_transparent=True).
+		Wywoływane gdy AP.wboit_pass >= 0.
+		"""
+		# Renderujemy wyłącznie przezroczyste meshe – nieprzezroczyste są obsługiwane
+		# w normalnym opaque pass z poprawnym depth testem.
+		if not self.is_transparent:
+			return
+		
 		if not len(self.m_faces):
 			return
+		
 		if getattr(self, '_shader_failed', False):
 			return
 		if self.wboit_shader is None:
@@ -614,9 +638,13 @@ class Mesh(PointCloud):
 			glDepthMask(GL_FALSE)
 			self.renderWithShaders2()
 			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+			# Przywróć WBOIT state - renderWithShaders2() może zmieniać GL state
+			glDepthMask(GL_FALSE)
+			glDisable(GL_DEPTH_TEST)
 		if self.vao is None:
 			return
 
+		# Workspace ustawia stan OpenGL - mesh tylko używa
 		glUseProgram(self.wboit_shader)
 		glUniform1i(self.wboit_uniform_locs['u_wboit_pass'], pass_idx)
 
@@ -649,13 +677,41 @@ class Mesh(PointCloud):
 		glUniformMatrix4fv(self.wboit_uniform_locs['model'],      1, GL_FALSE, model)
 		glUniformMatrix4fv(self.wboit_uniform_locs['view'],       1, GL_FALSE, view)
 		glUniformMatrix4fv(self.wboit_uniform_locs['projection'], 1, GL_FALSE, projection)
+		
+		# Przekaż pozycję kamery do weight function
+		if camera_pos is not None:
+			glUniform3f(self.wboit_uniform_locs['u_cameraPos'], *camera_pos)
+		else:
+			# Fallback - użyj (0, 0, 200) jako domyślna pozycja kamery
+			glUniform3f(self.wboit_uniform_locs['u_cameraPos'], 0.0, 0.0, 200.0)
 
 		glBindVertexArray(self.vao)
+		
+		# Workspace ustawia culling - mesh tylko rysuje
+		# (Nie robimy tutaj włączania/wyłączania culling ani dwóch draw calls)
 		glDrawElements(GL_TRIANGLES, len(self.iBuf), GL_UNSIGNED_INT, None)
+		
 		glBindVertexArray(0)
 		glUseProgram(0)
 
 	def renderSelf(self):
+		from .globals import AP
+		
+		if AP.wboit_pass is not None:
+			if AP.wboit_pass >= 0:
+				# WBOIT passes (0=accum, 1=reveal): tylko przezroczyste meshe przez WBOIT shader.
+				# Nieprzezroczyste są już wyrenderowane w opaque pass – pomijamy je tutaj.
+				if self.is_transparent:
+					self.render_wboit(AP.wboit_pass)
+				return
+			else:
+				# AP.wboit_pass == -1: opaque-only pass.
+				# Pomijamy przezroczyste – zostaną wyrenderowane przez WBOIT.
+				if self.is_transparent:
+					return
+				# Nieprzezroczyste: przepadaj do normalnego renderowania poniżej.
+		
+		# Normalne renderowanie
 		if not len(self.m_faces):
 			PointCloud.renderSelf(self)
 		else:

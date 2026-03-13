@@ -1,5 +1,6 @@
 import numpy as np
 from collections import defaultdict, deque
+from .colormaps import make_colormap
 
 
 class MeshUncertaintyModel:
@@ -29,6 +30,18 @@ class MeshUncertaintyModel:
         boundary_penalty_strength=0.35,
         eps=1e-12,
     ):
+        """
+        Parameters
+        ----------
+        mesh                      : obiekt z atrybutami m_vertices (N,3), m_faces (F,3)
+                                    i opcjonalnie m_vnormals (N,3).
+        min_neighbors             : minimalna liczba sąsiadów do wyznaczenia PCA (default 6).
+        use_existing_normals      : czy orientować normalne PCA wg m_vnormals (default True).
+        tangent_scale             : mnożnik σ_t kowariancji stycznej (default 0.35).
+        normal_scale              : mnożnik σ_n kowariancji normalnej (default 1.0).
+        boundary_penalty_strength : siła kary przy krawędziach brzegowych (default 0.35).
+        eps                       : wartość zabezpieczająca przed dzieleniem przez zero.
+        """
         self.mesh = mesh
         self.V = np.asarray(mesh.m_vertices, dtype=np.float64)
         self.F = np.asarray(mesh.m_faces, dtype=np.int64)
@@ -56,10 +69,80 @@ class MeshUncertaintyModel:
     # PUBLIC API
     # ============================================================
 
+    def compute_confidence(self):
+        """
+        Skrót: zwraca jedynie tablicę confidence (N,) [0..1].
+        Wartość 1.0 = doskonała jakość geometryczna, 0.0 = duża niepewność.
+        Uruchamia pełny potok (łącznie z budową topologii).
+        """
+        return self.analyze()["confidence"]
+
+    def compute_face_quality(self):
+        """
+        Zwraca metryki jakości ścian bez budowania macierzy kowariancji.
+        Buduje topologię jeśli nie była jeszcze zbudowana.
+
+        Returns
+        -------
+        dict z kluczami:
+            face_area          : (M,) – pole powierzchni trójkąta
+            face_max_edge      : (M,) – długość najdłuższej krawędzi
+            face_min_edge      : (M,) – długość najkrótszej krawędzi
+            face_aspect_ratio  : (M,) – max_edge / min_edge (1.0 = równoboczny)
+            face_min_dihedral  : (M,) – minimalny kąt dwuścienny z sąsiadami [rad]
+            face_mean_dihedral : (M,) – średni kąt dwuścienny z sąsiadami [rad]
+        """
+        if self.neighbors is None:
+            self._build_topology()
+        fm = self._compute_face_metrics()
+        min_dih, mean_dih = self._compute_face_dihedral_stats()
+        return {**fm, "face_min_dihedral": min_dih, "face_mean_dihedral": mean_dih}
+
+    def compute_vertex_quality(self):
+        """
+        Zwraca metryki jakości wierzchołków bez budowania macierzy kowariancji.
+        Buduje topologię jeśli nie była jeszcze zbudowana.
+
+        Returns
+        -------
+        dict z kluczami:
+            vertex_spacing            : (N,) – średnia odległość do sąsiadów
+            vertex_planarity_residual : (N,) – odchylenie od płaszczyzny PCA
+            vertex_curvature          : (N,) – krzywizna PCA (λ_min / Σλ)
+            vertex_normal_variation   : (N,) – średni kąt [rad] między normalnymi sąsiadów
+            vertex_valence            : (N,) – liczba sąsiednich wierzchołków
+            vertex_boundary_distance  : (N,) – topologiczna odległość od krawędzi brzegowej
+        """
+        if self.neighbors is None:
+            self._build_topology()
+        normals, _, pca_eigvals = self._compute_vertex_normals_and_pca()
+        return {
+            "vertex_spacing":            self._compute_vertex_spacing(),
+            "vertex_planarity_residual": self._compute_planarity_residual(normals),
+            "vertex_curvature":          self._compute_vertex_curvature_from_pca(pca_eigvals),
+            "vertex_normal_variation":   self._compute_vertex_normal_variation(normals),
+            "vertex_valence":            self._compute_vertex_valence(),
+            "vertex_boundary_distance":  self._compute_boundary_distance(),
+        }
+
     def analyze(self):
+        """
+        Uruchamia pełną analizę: buduje topologię, oblicza metryki wierzchołków
+        i ścian, macierze kowariancji oraz confidence.
+
+        Returns
+        -------
+        dict z kluczami:
+            centers     : (N,3) – współrzędne wierzchołków
+            normals     : (N,3) – normalne wierzchołków (z PCA, wyrównane do m_vnormals)
+            covariances : (N,3,3) – macierze kowariancji niepewności geometrycznej
+            confidence  : (N,) – jakość geometryczna [0..1], 1.0 = najlepsza
+            metrics     : dict ze wszystkimi polami face_* i vertex_*
+        """
         self._build_topology()
 
         face_metrics = self._compute_face_metrics()
+        face_min_dihedral, face_mean_dihedral = self._compute_face_dihedral_stats()
 
         normals, pca_basis, pca_eigvals = self._compute_vertex_normals_and_pca()
         spacing = self._compute_vertex_spacing()
@@ -104,7 +187,10 @@ class MeshUncertaintyModel:
                 "vertex_pca_eigenvalues": pca_eigvals,
                 "face_area": face_metrics["face_area"],
                 "face_max_edge": face_metrics["face_max_edge"],
+                "face_min_edge": face_metrics["face_min_edge"],
                 "face_aspect_ratio": face_metrics["face_aspect_ratio"],
+                "face_min_dihedral": face_min_dihedral,
+                "face_mean_dihedral": face_mean_dihedral,
                 "boundary_vertices_mask": self.boundary_vertices.copy(),
             },
         }
@@ -169,8 +255,69 @@ class MeshUncertaintyModel:
         return {
             "face_area": face_area,
             "face_max_edge": face_max_edge,
+            "face_min_edge": face_min_edge,
             "face_aspect_ratio": face_aspect_ratio,
         }
+
+    def _compute_face_dihedral_stats(self):
+        """
+        Per-face: minimalny i średni kąt dwuścienny z sąsiadującymi trójkątami [rad].
+
+        Kąt 0 = ściany płaskie (równoległe normalne), π = ściany odwrócone.
+        Krawędzie brzegowe (tylko jedna ściana) nie wchodzą do agregacji.
+
+        Returns
+        -------
+        face_min_dihedral  : (M,) – min kąt na każdej ścianie
+        face_mean_dihedral : (M,) – mean kąt na każdej ścianie
+        """
+        # normalne ścian (M, 3)
+        v0 = self.V[self.F[:, 0]]
+        v1 = self.V[self.F[:, 1]]
+        v2 = self.V[self.F[:, 2]]
+        cross = np.cross(v1 - v0, v2 - v0)
+        norms = np.linalg.norm(cross, axis=1, keepdims=True)
+        face_normals = cross / np.maximum(norms, self.eps)
+
+        # krawędzie jako (3M, 3): [min_v, max_v, face_idx]
+        fi = np.arange(self.M, dtype=np.int64)
+        e0 = np.stack([np.minimum(self.F[:, 0], self.F[:, 1]),
+                       np.maximum(self.F[:, 0], self.F[:, 1]), fi], axis=1)
+        e1 = np.stack([np.minimum(self.F[:, 1], self.F[:, 2]),
+                       np.maximum(self.F[:, 1], self.F[:, 2]), fi], axis=1)
+        e2 = np.stack([np.minimum(self.F[:, 2], self.F[:, 0]),
+                       np.maximum(self.F[:, 2], self.F[:, 0]), fi], axis=1)
+        all_edges = np.concatenate([e0, e1, e2], axis=0)  # (3M, 3)
+
+        # stable sort po krawędzi → sąsiadujące wiersze = ta sama krawędź
+        order = np.lexsort((all_edges[:, 1], all_edges[:, 0]))
+        all_edges = all_edges[order]
+
+        same = np.all(all_edges[:-1, :2] == all_edges[1:, :2], axis=1)
+        pair_idx = np.where(same)[0]
+
+        fi_a = all_edges[pair_idx,     2]
+        fi_b = all_edges[pair_idx + 1, 2]
+
+        dots   = np.clip(np.sum(face_normals[fi_a] * face_normals[fi_b], axis=1), -1.0, 1.0)
+        angles = np.arccos(dots)
+
+        face_min_dihedral  = np.full(self.M, np.pi, dtype=np.float64)
+        face_mean_dihedral = np.zeros(self.M, dtype=np.float64)
+        counts = np.zeros(self.M, dtype=np.int64)
+
+        np.minimum.at(face_min_dihedral, fi_a, angles)
+        np.minimum.at(face_min_dihedral, fi_b, angles)
+        np.add.at(face_mean_dihedral, fi_a, angles)
+        np.add.at(face_mean_dihedral, fi_b, angles)
+        np.add.at(counts, fi_a, 1)
+        np.add.at(counts, fi_b, 1)
+
+        mask = counts > 0
+        face_mean_dihedral[mask] /= counts[mask]
+        face_min_dihedral[~mask]  = 0.0  # ściana bez żadnego sąsiada
+
+        return face_min_dihedral, face_mean_dihedral
 
     # ============================================================
     # NORMALS + PCA
@@ -240,15 +387,21 @@ class MeshUncertaintyModel:
     # ============================================================
 
     def _compute_vertex_spacing(self):
+        # Wszystkie skierowane krawędzie z trójkątów (3M, 2)
+        edges = np.concatenate([
+            self.F[:, [0, 1]],
+            self.F[:, [1, 2]],
+            self.F[:, [2, 0]],
+        ], axis=0)
+        a, b = edges[:, 0], edges[:, 1]
+        lengths = np.linalg.norm(self.V[a] - self.V[b], axis=1)
+
         spacing = np.zeros(self.N, dtype=np.float64)
-
-        for i in range(self.N):
-            neigh = self.neighbors.get(i, np.empty((0,), dtype=np.int64))
-            if len(neigh) == 0:
-                continue
-            d = np.linalg.norm(self.V[neigh] - self.V[i], axis=1)
-            spacing[i] = d.mean()
-
+        counts  = np.zeros(self.N, dtype=np.int64)
+        np.add.at(spacing, a, lengths)
+        np.add.at(counts,  a, 1)
+        mask = counts > 0
+        spacing[mask] /= counts[mask]
         return spacing
 
     def _compute_planarity_residual(self, normals):
@@ -278,19 +431,22 @@ class MeshUncertaintyModel:
         return curvature
 
     def _compute_vertex_normal_variation(self, normals):
-        var = np.zeros(self.N, dtype=np.float64)
+        # Wszystkie skierowane krawędzie z trójkątów (3M, 2)
+        edges = np.concatenate([
+            self.F[:, [0, 1]],
+            self.F[:, [1, 2]],
+            self.F[:, [2, 0]],
+        ], axis=0)
+        a, b = edges[:, 0], edges[:, 1]
+        dots   = np.clip(np.sum(normals[a] * normals[b], axis=1), -1.0, 1.0)
+        angles = np.arccos(dots)
 
-        for i in range(self.N):
-            neigh = self.neighbors.get(i, np.empty((0,), dtype=np.int64))
-            if len(neigh) == 0:
-                continue
-
-            n0 = normals[i]
-            nn = normals[neigh]
-            dots = np.clip(nn @ n0, -1.0, 1.0)
-            angles = np.arccos(dots)
-            var[i] = angles.mean()
-
+        var    = np.zeros(self.N, dtype=np.float64)
+        counts = np.zeros(self.N, dtype=np.int64)
+        np.add.at(var,    a, angles)
+        np.add.at(counts, a, 1)
+        mask = counts > 0
+        var[mask] /= counts[mask]
         return var
 
     def _compute_vertex_valence(self):
@@ -363,30 +519,38 @@ class MeshUncertaintyModel:
         sigma_n = np.maximum(sigma_n, 0.15 * sigma_t)
         sigma_n = sigma_n * boundary_factor
 
-        for i in range(self.N):
-            n = normals[i]
-            n_norm = np.linalg.norm(n)
-            if n_norm <= self.eps:
-                n = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-            else:
-                n = n / n_norm
+        # --- znormalizowane normalne -----------------------------------------
+        n = normals.copy()
+        n_norms = np.linalg.norm(n, axis=1)
+        bad_n = n_norms <= self.eps
+        n /= np.maximum(n_norms, self.eps)[:, np.newaxis]
+        n[bad_n] = [0.0, 0.0, 1.0]
 
-            # baza styczna
-            e1 = pca_basis[i, :, 0]
-            e2 = pca_basis[i, :, 1]
+        # --- baza styczna z pca_basis ----------------------------------------
+        e1 = pca_basis[:, :, 0].copy()
+        e2 = pca_basis[:, :, 1].copy()
 
-            if np.linalg.norm(e1) <= self.eps or np.linalg.norm(e2) <= self.eps:
-                e1, e2 = self._orthonormal_basis_from_normal(n)
-            else:
-                e1 = e1 / max(np.linalg.norm(e1), self.eps)
-                e2 = e2 - np.dot(e2, e1) * e1
-                e2 = e2 / max(np.linalg.norm(e2), self.eps)
+        e1_norms = np.linalg.norm(e1, axis=1)
+        need_fallback = e1_norms <= self.eps
 
-            st2 = sigma_t[i] ** 2
-            sn2 = sigma_n[i] ** 2
+        e1 /= np.maximum(e1_norms, self.eps)[:, np.newaxis]
+        # Gram-Schmidt
+        e2 -= np.sum(e2 * e1, axis=1, keepdims=True) * e1
+        e2 /= np.maximum(np.linalg.norm(e2, axis=1), self.eps)[:, np.newaxis]
 
-            cov = st2 * (np.outer(e1, e1) + np.outer(e2, e2)) + sn2 * np.outer(n, n)
-            covariances[i] = cov
+        # fallback dla zdegenerowanych wierzchołków
+        if np.any(need_fallback):
+            for i in np.where(need_fallback)[0]:
+                e1[i], e2[i] = self._orthonormal_basis_from_normal(n[i])
+
+        # --- kowariancje przez einsum (bez pętli Pythona) ---------------------
+        st2 = sigma_t ** 2
+        sn2 = sigma_n ** 2
+        covariances = (
+            np.einsum('i,ij,ik->ijk', st2, e1, e1)
+            + np.einsum('i,ij,ik->ijk', st2, e2, e2)
+            + np.einsum('i,ij,ik->ijk', sn2, n,  n)
+        )
 
         return covariances, sigma_t, sigma_n
 
@@ -461,31 +625,18 @@ class MeshUncertaintyModel:
     
 
 
-def confidence_to_rgba(confidence, cmap="turbo"):
+def confidence_to_rgba(confidence, cmap="skala"):
     """
     Zamienia confidence (0..1) na kolory RGBA (uint8).
+    Korzysta z make_colormap; domyślna paleta: 'skala'.
+    Dostępne: 'skala', 'jet', 'rainbow', 'hot', 'cool', 'gray', 'terrain'.
     """
-
     c = np.clip(confidence, 0.0, 1.0)
-
-    if cmap == "turbo":
-        # szybka implementacja colormap turbo (przybliżona)
-        r = np.clip(1.5 - np.abs(4*c - 3), 0, 1)
-        g = np.clip(1.5 - np.abs(4*c - 2), 0, 1)
-        b = np.clip(1.5 - np.abs(4*c - 1), 0, 1)
-
-    elif cmap == "heat":
-        r = c
-        g = c**0.5
-        b = 0.3*(1-c)
-
-    elif cmap == "gray":
-        r = g = b = c
-
-    else:
-        raise ValueError("Unknown colormap")
-
-    rgba = np.stack([r, g, b, np.ones_like(r)], axis=1)
+    lut = make_colormap(cmap, n=256)                          # (256, 3) float32
+    idx = np.clip(np.round(c * 255).astype(np.int32), 0, 255)
+    rgb = lut[idx]                                            # (N, 3) float32
+    alpha = np.ones((len(c), 1), dtype=np.float32)
+    rgba = np.concatenate([rgb, alpha], axis=1)
     return (rgba * 255).astype(np.uint8)	
 
 

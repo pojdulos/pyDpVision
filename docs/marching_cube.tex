@@ -1,0 +1,879 @@
+\documentclass[12pt,a4paper]{article}
+
+%% ─────────────────────────────── pakiety ────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[polish]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\usepackage{amsmath, amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{parskip}
+
+%% TikZ + flowchart
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc, backgrounds}
+
+%% algorytmy
+\usepackage[ruled, linesnumbered, vlined]{algorithm2e}
+\SetKwInput{KwIn}{Wejście}
+\SetKwInput{KwOut}{Wyjście}
+\SetKwComment{Comment}{// }{}
+
+%% listingi Pythona
+\lstdefinestyle{python}{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{orange!80!black},
+  showstringspaces=false,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  rulecolor=\color{gray!40},
+  backgroundcolor=\color{gray!5},
+  tabsize=4,
+}
+
+%% style węzłów TikZ
+\tikzstyle{startstop} = [rectangle, rounded corners=8pt, minimum width=3.5cm,
+                         minimum height=0.9cm, text centered, draw=black,
+                         fill=teal!20, font=\small\bfseries]
+\tikzstyle{process}   = [rectangle, minimum width=3.5cm, minimum height=0.9cm,
+                         text centered, draw=black, fill=blue!10, font=\small]
+\tikzstyle{decision}  = [diamond, aspect=2.2, minimum width=3.5cm,
+                         minimum height=0.9cm, text centered, draw=black,
+                         fill=orange!20, font=\small]
+\tikzstyle{io}        = [trapezium, trapezium left angle=70, trapezium right angle=110,
+                         minimum width=3.5cm, minimum height=0.9cm, text centered,
+                         draw=black, fill=green!10, font=\small]
+\tikzstyle{arrow}     = [thick, ->, >=Stealth]
+\tikzstyle{darrow}    = [thick, ->, >=Stealth, dashed]
+
+%% ─────────────────────────────── dokument ────────────────────────────────────
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\LARGE\bfseries pyDpVision \par}
+  \vspace{0.5cm}
+  {\large Dokumentacja algorytmu \par}
+  \vspace{0.3cm}
+  {\huge\ttfamily Volumetric.marching\_cube() \par}
+  \vspace{1cm}
+  \rule{0.6\textwidth}{0.4pt}
+  \vspace{0.5cm}
+  \par
+  {\large Rekonstrukcja siatki trójkątów z danych wolumetrycznych\\ (CBCT / CT) metodą Marching Cubes \par}
+  \vfill
+  {\small \today}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Wprowadzenie}
+
+Metoda \texttt{Volumetric.marching\_cube()} jest głównym interfejsem do ekstrakcji
+trójwymiarowej siatki izopowierzchni z wolumetrycznych danych obrazowych (CT / CBCT).
+Algorytm przetwarza dane przechowywane w obiekcie klasy \texttt{Volumetric} i
+zwraca mesha (\texttt{Mesh}) reprezentującego powierzchnię o wybranej wartości
+intensywności (w jednostkach Hounsfielda~-- HU).
+
+Implementacja składa się z dwóch warstw:
+\begin{itemize}
+  \item \textbf{\texttt{Volumetric.marching\_cube()}} -- publiczny wrapper Qt-aware:
+    wywołuje wersję obliczeniową, tworzy obiekt \texttt{Mesh} i dodaje go do sceny.
+  \item \textbf{\texttt{Volumetric.marching\_cube\_compute()}} -- czyste obliczenia
+    bez zależności od Qt; bezpieczne do uruchamiania w wątkach roboczych.
+\end{itemize}
+
+Cały pipeline pomocniczy zdefiniowany jest w module
+\texttt{dpVision/marchingCubes.py} jako zestaw niezależnych funkcji
+(\texttt{mc\_preprocess}, \texttt{mc\_gradient}, \texttt{mc\_estimate\_threshold},
+\texttt{mc\_segment}, \texttt{mc\_sharpen}, \texttt{mc\_to\_world},
+\texttt{taubin\_smooth}).
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Sygnatura i parametry}
+
+\begin{lstlisting}[style=python, caption={Sygnatura metody \texttt{marching\_cube}}]
+def marching_cube(
+    self,
+    factor        = 1,          # wspolczynnik podprobkowania
+    close_boundary= True,       # domykanie granicy wolumenu
+    sigma_mm      = None,       # sigma filtru Gaussa [mm]
+    threshold     = None,       # prog HU (None = auto)
+    threshold_min = 300.0,      # minimalna dopuszczalna wartosc progu HU
+    min_volume    = 50,         # min. objetosc skladowej [mm^3]
+    sharpening    = False,      # voxel sharpening
+    taubin_iterations = 10,     # kroki wygladzania Taubina
+    denoise       = True,       # TV denoising 2D (warstwy rownolegle)
+    fill_holes    = True,       # wypelnianie otworow w warstwie 2D
+    denoise_iter  = 50,         # liczba iteracji TV denoisingu
+    denoise_3d    = False,      # TV denoising 3D (zamiast 2D)
+)
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{Opis parametrów metody \texttt{marching\_cube}}
+\begin{tabular}{@{}llp{8cm}@{}}
+\toprule
+\textbf{Parametr} & \textbf{Domyślnie} & \textbf{Opis} \\
+\midrule
+\texttt{factor}           & \texttt{1}     & Współczynnik podpróbkowania wolumenu (np. \texttt{2} → co drugi voxel). Przyspiesza obliczenia kosztem rozdzielczości. \\
+\texttt{close\_boundary}  & \texttt{True}  & Dodaje warstwę zer wokół wolumenu, wymuszając zamknięcie powierzchni na krawędziach. \\
+\texttt{sigma\_mm}        & \texttt{None}  & Sigma filtru Gaussa w~mm. Gdy \texttt{None} i~\texttt{factor > 1}, obliczana automatycznie jako $0.8 \cdot p_{xy}$. \\
+\texttt{threshold}        & \texttt{None}  & Próg izopowierzchni w~HU. \texttt{None} = automatyczna estymacja na podstawie gradientu. \\
+\texttt{threshold\_min}   & \texttt{300.0} & Dolna granica bezpieczeństwa dla progu w trybie auto. \\
+\texttt{min\_volume}      & \texttt{50}    & Minimalna objętość składowej spójnej [mm³]. Mniejsze składowe są usuwane. \\
+\texttt{sharpening}       & \texttt{False} & Włącza subvoxel sharpening -- przesuwa wierzchołki na dokładną izopowierzchnię. \\
+\texttt{taubin\_iterations} & \texttt{10}  & Liczba iteracji wygładzania Taubina (0 = wyłączone). \\
+\texttt{denoise}          & \texttt{True}  & TV denoising 2D warstwa po warstwie (wieloprocesowy). \\
+\texttt{fill\_holes}      & \texttt{True}  & Wypełnianie otworów wewnątrz maski binarnej w~każdej warstwie 2D. \\
+\texttt{denoise\_iter}    & \texttt{50}    & Liczba iteracji algorytmu TV dla denoisingu. \\
+\texttt{denoise\_3d}      & \texttt{False} & Zamiennik \texttt{denoise}: TV denoising na całym wolumenie 3D (wolniejsze, dokładniejsze). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Schemat blokowy algorytmu}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.7cm and 2.2cm]
+
+  %% ── węzły wysokiego poziomu ───────────────────────────────────────────────
+  \node (start)  [startstop]                   {START};
+  \node (roi)    [process,  below=of start]    {\textbf{1.} Ekstrakcja ROI
+                                                \footnotesize(alg.~\ref{alg:roi})};
+  \node (prep)   [process,  below=of roi]      {\textbf{2.} Preprocessing
+                                               \footnotesize TV~denoising $\to$ Z-upsamp.
+                                                \footnotesize $\to$ Gauss $\to$ subsampling
+                                                \footnotesize(alg.~\ref{alg:preproc}, rys.~\ref{fig:preproc})};
+  \node (grad)   [process,  below=of prep]     {\textbf{3.} Gradient $\|\nabla I\|$
+                                                \footnotesize(alg.~\ref{alg:grad})};
+  \node (thr)    [process,  below=of grad]     {\textbf{4.} Wyznaczenie progu $\tau$
+                                                \footnotesize auto lub manualny
+                                                \footnotesize(alg.~\ref{alg:thr})};
+  \node (seg)    [process,  below=of thr]      {\textbf{5.} Segmentacja morfologiczna
+                                                \footnotesize opening / closing / CC / fill
+                                                \footnotesize(alg.~\ref{alg:seg})};
+  \node (mc)     [process,  below=of seg]      {\textbf{6.} Marching Cubes
+                                                \footnotesize(alg.~\ref{alg:mc}, rys.~\ref{fig:mc_cube})};
+  \node (sharp)  [decision, below=of mc]       {\texttt{sharpening}?};
+  \node (sharpn) [process,  right=2.4cm of sharp] {Voxel Sharpening
+                                                \footnotesize(alg.~\ref{alg:sharp})};
+  \node (world)  [process,  below=of sharp]    {\textbf{7.} Transformacja world
+                                                \footnotesize DICOM~mm, korekcja gantry
+                                                \footnotesize(alg.~\ref{alg:world})};
+  \node (taub)   [decision, below=of world]    {\texttt{taubin\_iter}$>0$?};
+  \node (taubn)  [process,  right=2.4cm of taub]  {Taubin Smoothing
+                                                \footnotesize $\lambda/\mu$
+                                                \footnotesize(alg.~\ref{alg:taubin})};
+  \node (mesh)   [io,       below=of taub]     {Utwórz \texttt{Mesh}};
+  \node (stop)   [startstop, below=of mesh]    {KONIEC};
+
+  %% ── strzałki ──────────────────────────────────────────────────────────────
+  \draw[arrow] (start) -- (roi);
+  \draw[arrow] (roi)   -- (prep);
+  \draw[arrow] (prep)  -- (grad);
+  \draw[arrow] (grad)  -- (thr);
+  \draw[arrow] (thr)   -- (seg);
+  \draw[arrow] (seg)   -- (mc);
+  \draw[arrow] (mc)    -- (sharp);
+  \draw[arrow] (sharp) -- node[above]{\footnotesize Tak} (sharpn);
+  \draw[arrow] (sharp) -- node[right]{\footnotesize Nie} (world);
+  \draw[darrow](sharpn.south) -- ++(0,-0.4) -| (world.north);
+  \draw[arrow] (world) -- (taub);
+  \draw[arrow] (taub)  -- node[above]{\footnotesize Tak} (taubn);
+  \draw[arrow] (taub)  -- node[right]{\footnotesize Nie} (mesh);
+  \draw[darrow](taubn.south) -- ++(0,-0.4) -| (mesh.north);
+  \draw[arrow] (mesh)  -- (stop);
+\end{tikzpicture}
+\caption{Uproszczony schemat blokowy pipeline'u \texttt{marching\_cube}.
+  Każdy blok odpowiada jednemu pod-algorytmowi opisanemu w sekcji~\ref{sec:stages}.
+  Przerywane strzałki oznaczają ścieżki opcjonalne.}
+\label{fig:flowchart}
+\end{figure}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Pseudokod algorytmu}
+
+% ── algorytm główny ────────────────────────────────────────────────────────────
+\begin{algorithm}[H]
+\caption{Volumetric.marching\_cube\_compute() -- algorytm główny}
+\KwIn{Wolumen $V$, metadane skanera, parametry (patrz tab.~1)}
+\KwOut{Siatka trójkątów $(\mathbf{V}_{\text{world}},\, F)$}
+\BlankLine
+$V_{\text{roi}} \leftarrow \textsc{ExtractROI}(V)$
+  \tcp*{alg.~\ref{alg:roi}}
+$(V_{\text{proc}},\, V_{\text{full}},\, \textit{zoom\_z},\, p_{z,\text{eff}})
+  \leftarrow \textsc{Preprocess}(V_{\text{roi}})$
+  \tcp*{alg.~\ref{alg:preproc}}
+$(G,\, \nabla V_{\text{full}}) \leftarrow \textsc{Gradient}(V_{\text{proc}},\, V_{\text{full}})$
+  \tcp*{alg.~\ref{alg:grad}}
+$\tau \leftarrow \textsc{EstimateThreshold}(V_{\text{proc}},\, G)$
+  \tcp*{alg.~\ref{alg:thr}}
+$V_{\text{clean}} \leftarrow \textsc{Segment}(V_{\text{proc}},\, \tau)$
+  \tcp*{alg.~\ref{alg:seg}}
+$(\mathbf{P},\, F) \leftarrow \textsc{MarchingCubes}(V_{\text{clean}},\, \tau)$
+  \tcp*{alg.~\ref{alg:mc}}
+\If{\emph{sharpening}}{
+  $\mathbf{P} \leftarrow \textsc{Sharpen}(\mathbf{P},\, V_{\text{full}},\, \nabla V_{\text{full}},\, \tau)$
+    \tcp*{alg.~\ref{alg:sharp}}
+}
+$\mathbf{V}_{\text{world}} \leftarrow \textsc{ToWorld}(\mathbf{P},\, \text{origin},\, p_z,\, \phi,\, \textit{zoom\_z},\, f)$
+  \tcp*{alg.~\ref{alg:world}}
+\If{$\textit{taubin\_iterations} > 0$}{
+  $\mathbf{V}_{\text{world}} \leftarrow \textsc{TaubinSmooth}(\mathbf{V}_{\text{world}},\, F)$
+    \tcp*{alg.~\ref{alg:taubin}}
+}
+\Return $(\mathbf{V}_{\text{world}},\; F)$\;
+\end{algorithm}
+
+\bigskip
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Szczegółowy opis etapów przetwarzania}
+\label{sec:stages}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 1 -- Ekstrakcja ROI (\textit{Region of Interest})}
+\label{sec:roi}
+
+Cały wolumen $V$ jest przycinany do obszaru zainteresowania zdefiniowanego przez
+granice \texttt{m\_minSlice / m\_maxSlice}, \texttt{m\_minRow / m\_maxRow} oraz
+\texttt{m\_minColumn / m\_maxColumn}.
+
+Granice są wyrównywane do wielokrotności parametru \texttt{factor}:
+\[
+  z_{\min} = \textit{factor} \cdot \left\lfloor \frac{m\_minSlice}{\textit{factor}} \right\rfloor
+\]
+(analogicznie dla osi $Y$ i $X$). Tworzona jest nowa tablica NumPy
+\texttt{float32} o kształcie $(S_{\text{roi}} \times R_{\text{roi}} \times C_{\text{roi}})$.
+
+\textbf{Cel:} ograniczenie obszaru obliczeń i~pamięci operacyjnej, przyspieszenie
+dalszych etapów.
+
+\begin{algorithm}[H]
+\caption{\textsc{ExtractROI} -- ekstrakcja obszaru zainteresowania}
+\label{alg:roi}
+\KwIn{$V \in \mathbb{R}^{S\times R\times C}$, granice ROI, \textit{factor}}
+\KwOut{$V_{\text{roi}}$ -- przycięty wolumen \texttt{float32}}
+\BlankLine
+$z_{\min} \leftarrow f \cdot \lfloor m\_minSlice / f \rfloor$\;
+$r_{\min} \leftarrow f \cdot \lfloor m\_minRow    / f \rfloor$\;
+$c_{\min} \leftarrow f \cdot \lfloor m\_minColumn / f \rfloor$\;
+$V_{\text{roi}} \leftarrow V[z_{\min}:z_{\max}+1,\; r_{\min}:r_{\max}+1,\; c_{\min}:c_{\max}+1]
+  \;\text{jako \texttt{float32}}$\;
+\Return $V_{\text{roi}}$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 2 -- Preprocessing}
+\label{sec:preproc}
+
+Funkcja \texttt{mc\_preprocess()} realizuje cztery sub-etapy w stałej kolejności:
+
+\subsubsection*{2a. TV Denoising -- odszumianie Total Variation}
+
+Odszumianie TV minimalizuje całkę:
+\[
+  \min_u \left\{ \int |\nabla u|\, dx + \lambda \int (u - f)^2\, dx \right\}
+\]
+gdzie $f$ to wejściowy obraz, $\lambda = 0.02$ (parametr \texttt{weight}) steruje
+kompromisem między wygładzaniem a wiernością danych.
+
+\textbf{Tryb 2D} (\texttt{denoise=True}): każda warstwa aksjalnej CT jest
+odszumiana niezależnie; warstwy przetwarzane są równolegle przez
+\texttt{ProcessPoolExecutor}.
+
+\textbf{Tryb 3D} (\texttt{denoise\_3d=True}): cały wolumen traktowany jako jeden
+obiekt 3D -- dokładniejsze, ale ok.\ $3\times$ wolniejsze od trybu 2D.
+
+W~obu trybach dane są normalizowane do $[0, 1]$ przed TV i~denormalizowane po:
+\[
+  f_{\text{norm}} = \frac{f - f_{\min}}{f_{\max} - f_{\min}}, \qquad
+  f_{\text{out}} = f_{\text{norm}} \cdot (f_{\max} - f_{\min}) + f_{\min}
+\]
+
+\subsubsection*{2b. Z-Upsampling}
+
+Typowe skany CT/CBCT mają wyraźnie grubsze warstwy aksjalnej ($p_z$) niż
+rozdzielczość wewnątrzwarstwową ($p_x, p_y$). Gdy:
+\[
+  \textit{zoom\_z} = \frac{p_z}{p_{xy}} > 1.5
+\]
+wolumen jest powiększany wzdłuż osi Z ze współczynnikiem \textit{zoom\_z}
+(interpolacja sześcienna \texttt{scipy.ndimage.zoom}, order=3), aby wyrównać
+rozdzielczość izotropową.
+
+\subsubsection*{2c. Filtr Gaussa -- anti-aliasing}
+
+Gdy \texttt{factor > 1} (nastąpi podpróbkowanie), stosowany jest filtr Gaussa
+z~wektorową sigmą:
+\[
+  \boldsymbol{\sigma} = \left(\frac{\sigma_{\text{mm}}}{p_{z,\text{eff}}},\;
+    \frac{\sigma_{\text{mm}}}{p_y},\; \frac{\sigma_{\text{mm}}}{p_x}\right)
+\]
+gdzie $\sigma_{\text{mm}} = 0.8\,p_{xy}$ (domyślnie). Parametr można nadpisać
+argumentem \texttt{sigma\_mm}.
+
+\subsubsection*{2d. Podpróbkowanie (subsampling)}
+
+Wolumen jest redukowany przez ,,\textit{stride sampling}'':
+\[
+  V_{\text{sub}} = V[\text{::f},\;\text{::f},\;\text{::f}]
+\]
+gdzie $f = \texttt{factor}$. Operacja zmniejsza liczbę voxeli $f^3$-krotnie,
+co znacząco przyspiesza etap Marching Cubes.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.5cm and 0.3cm, every node/.style={font=\small}]
+  \node (in)   [io]                             {Wolumen ROI};
+  \node (dn3d) [decision, below=0.45cm of in]   {denoise\_3d?};
+  \node (tv3d) [process, left=1.6cm of dn3d]  {TV 3D};
+  \node (dn2d) [decision, below=1.1cm of dn3d] {denoise?};
+  \node (tv2d) [process,  right=1.6cm of dn2d]  {TV 2D parallel};
+  \node (merge1) [coordinate, below=0.65cm of dn2d] {};
+  \node (zd)   [decision, below=0.45cm of merge1] {$p_z/p_{xy}>1.5$?};
+  \node (zup)  [process, right=1.6cm of zd]    {Z-upsamp.\ ×zoom};
+  \node (merge2) [coordinate, below=0.65cm of zd] {};
+  \node (fd)   [decision, below=0.45cm of merge2]   {factor>1?};
+  \node (gf)   [process, right=1.6cm of fd]    {Gauss $\sigma$};
+  %%\node (ss)   [process, below=0.45cm of fd, right=0cm of fd] {};
+  \node (merge3) [coordinate, below=0.65cm of fd] {};
+  \node (out)  [io, below=0.45cm of merge3] {Wolumen przetworzony};
+
+  \draw[arrow](in)   -- (dn3d);
+  \draw[arrow](dn3d) -- node[above]{\footnotesize T} (tv3d);
+  \draw[arrow](dn3d) -- node[right]{\footnotesize N} (dn2d);
+  \draw[darrow](tv3d.south) -- (tv3d.south |- merge1) -- (merge1);
+  \draw[arrow](dn2d) -- node[above]{\footnotesize T} (tv2d);
+  \draw[arrow](dn2d) -- node[above left]{\footnotesize N} (zd);
+  \draw[darrow](tv2d.south)  -- (tv2d.south |- merge1) -- (merge1);
+  %%\draw[arrow](merge1)   -- (zd);
+  \draw[arrow](zd)   -- node[above]{\footnotesize T} (zup);
+  \draw[arrow](zd)   -- node[above left]{\footnotesize N} (fd);
+  \draw[darrow](zup.south) -- (zup.south |- merge2) -- (merge2);
+  \draw[arrow](fd)   -- node[above]{\footnotesize T} (gf);
+  \draw[arrow](fd)   -- node[above left]{\footnotesize N} (out);
+  \draw[darrow](gf.south) -- (gf.south |- merge3) -- (merge3);
+\end{tikzpicture}
+\caption{Schemat sub-etapów preprocessingu (funkcja \texttt{mc\_preprocess}).}
+\label{fig:preproc}
+\end{figure}
+
+\begin{algorithm}[H]
+\caption{\textsc{Preprocess} -- odszumianie, wyrównanie skali Z, anti-aliasing, subsampling}
+\label{alg:preproc}
+\KwIn{$V$, $p_x, p_y, p_z$, \textit{factor}, $\sigma_{\text{mm}}$, \textit{denoise}, \textit{denoise\_3d}, \textit{denoise\_iter}, \textit{sharpening}}
+\KwOut{$V_{\text{out}}$, $V_{\text{full}}$, \textit{zoom\_z}, $p_{z,\text{eff}}$}
+\BlankLine
+\tcp{TV denoising}
+\If{\emph{denoise\_3d}}{
+  $V \leftarrow \mathrm{TV}_{\lambda=0.02}^{\text{3D}}(V,\;\text{iter}=\textit{denoise\_iter})$\;
+}
+\ElseIf{\emph{denoise}}{
+  \ForEach{warstwa $i$ \emph{(równolegle)}}{
+    $V[i] \leftarrow \mathrm{TV}_{\lambda=0.02}^{\text{2D}}(V[i],\;\text{iter}=\textit{denoise\_iter})$\;
+  }
+}
+\tcp{Z-upsampling}
+$\textit{zoom\_z} \leftarrow p_z / p_{xy}$;\quad $p_{z,\text{eff}} \leftarrow p_z$\;
+\If{$\textit{zoom\_z} > 1.5$}{
+  $V \leftarrow \mathrm{zoom}(V,\;[\textit{zoom\_z},1,1],\;\text{order}=3)$;\quad
+  $p_{z,\text{eff}} \leftarrow p_{xy}$\;
+}
+\tcp{Filtr Gaussa + subsampling}
+$V_{\text{full}} \leftarrow V.\mathrm{copy}()$ \textbf{jeśli} \emph{sharpening} \textbf{inaczej} \texttt{None}\;
+\If{$\textit{factor} > 1$}{
+  $\boldsymbol{\sigma} \leftarrow (\sigma_{\text{mm}}/p_{z,\text{eff}},\; \sigma_{\text{mm}}/p_y,\; \sigma_{\text{mm}}/p_x)$\;
+  $V \leftarrow G_{\boldsymbol{\sigma}} * V$\;
+  $V \leftarrow V[\text{::}f,\;\text{::}f,\;\text{::}f]$\;
+}
+\Return $V,\; V_{\text{full}},\; \textit{zoom\_z},\; p_{z,\text{eff}}$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 3 -- Obliczenie gradientu}
+\label{sec:gradient}
+
+Funkcja \texttt{mc\_gradient()} oblicza numeryczne pochodne cząstkowe metodą
+różnic centralnych (\texttt{numpy.gradient}):
+\[
+  (G_z, G_y, G_x) = \nabla I
+\]
+
+Magntiuda gradientu:
+\[
+  G = \|\nabla I\|_2 = \sqrt{G_x^2 + G_y^2 + G_z^2}
+\]
+
+Gdy \texttt{sharpening=True}, obliczany jest dodatkowo gradient z~pełnorozdzielczościowej
+kopii (przed podpróbkowaniem) $V_{\text{full}}$ w~jednostkach \texttt{HU/mm}:
+\[
+  (G_z^{\mathrm{full}}, G_y^{\mathrm{full}}, G_x^{\mathrm{full}}) =
+    \nabla_{p_{z,\text{eff}},\, p_y,\, p_x} V_{\text{full}}
+\]
+
+\textbf{Rola gradientu:}
+\begin{enumerate}
+  \item Ważone wyznaczanie histogramu w~auto-estymacji progu (etap~4).
+  \item Kontrola jakości sieci~-- konfidencja gradientowa wyświetlana po MC
+    (etap~8 w~\texttt{marching\_cube\_compute}).
+  \item Podpórowierz sharpening (etap~7).
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{\textsc{Gradient} -- magntiuda gradientu i gradienty kierunkowe}
+\label{alg:grad}
+\KwIn{$V$, $V_{\text{full}}$, $p_x, p_y, p_{z,\text{eff}}$, \textit{sharpening}}
+\KwOut{$G$ -- magntiuda gradientu; $\nabla V_{\text{full}}$ (gdy \emph{sharpening})}
+\BlankLine
+$(G_z, G_y, G_x) \leftarrow \nabla V$ \tcp*{różnice centralne}
+$G \leftarrow \sqrt{G_x^2 + G_y^2 + G_z^2}$\;
+\If{\emph{sharpening}}{
+  $(G_z^f, G_y^f, G_x^f) \leftarrow \nabla_{p_{z,\text{eff}},p_y,p_x}\, V_{\text{full}}$\;
+}
+\Return $G,\; (G_x^f, G_y^f, G_z^f)$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 4 -- Wyznaczenie progu izopowierzchni}
+\label{sec:threshold}
+
+Funkcja \texttt{mc\_estimate\_threshold()} realizuje dwa tryby:
+
+\subsubsection*{Tryb manualny}
+Gdy \texttt{threshold} $\neq$ \texttt{None}: parametr jest zwracany bez zmian.
+
+\subsubsection*{Tryb automatyczny}
+\begin{enumerate}
+  \item Oblicz percentyl 95. gradientu: $g_{\tau} = P_{95}(G)$.
+  \item Zbuduj maskę voxeli o~silnym gradiencie i~wartości w~przedziale
+    typowym dla kości:
+    \[
+      M_{\text{grad}} = \{G \geq g_{\tau}\} \cap
+        \{V > \textit{threshold\_min}\} \cap \{V < 6000\}
+    \]
+  \item Wyznacz ważony histogramem gradient-intensywność:
+    \[
+      (\text{hist},\, \text{edges}) = \mathrm{histogram}(V[M_{\text{grad}}],\;
+        \text{bins}=256,\; \text{weights}=G[M_{\text{grad}}])
+    \]
+  \item Próg to środek binu z~maksymalną sumą gradientów:
+    \[
+      \tau = \tfrac{1}{2}(\text{edges}[\hat{k}] + \text{edges}[\hat{k}+1])
+      \quad \text{gdzie} \quad
+      \hat{k} = \arg\max_k \text{hist}[k]
+    \]
+  \item Obcięcie od dołu: $\tau \leftarrow \max(\tau,\; \textit{threshold\_min})$.
+\end{enumerate}
+
+Metoda opiera się na założeniu, że kość kortykalna -- z~dużą zmianą HU na
+granicy -- odpowiada skupisku w~histogramie ważonym gradientem.
+
+\begin{algorithm}[H]
+\caption{\textsc{EstimateThreshold} -- automatyczne wyznaczenie progu HU}
+\label{alg:thr}
+\KwIn{$V$, $G$, \textit{threshold}, \textit{threshold\_min}}
+\KwOut{$\tau$ -- próg izopowierzchni [HU]}
+\BlankLine
+\If{$\textit{threshold} \neq \mathrm{None}$}{\Return $\textit{threshold}$\;}
+$g_{\tau} \leftarrow P_{95}(G)$\;
+$M \leftarrow \{G \geq g_{\tau}\} \cap \{V > \textit{threshold\_min}\} \cap \{V < 6000\}$\;
+$\mathrm{hist} \leftarrow \mathrm{histogram}(V[M],\;\mathrm{bins}=256,\;\mathrm{weights}=G[M])$\;
+$\hat{k} \leftarrow \arg\max_k\,\mathrm{hist}[k]$\;
+$\tau \leftarrow \tfrac{1}{2}(\mathrm{edges}[\hat{k}] + \mathrm{edges}[\hat{k}+1])$\;
+\Return $\max(\tau,\;\textit{threshold\_min})$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 5 -- Segmentacja wolumenu}
+\label{sec:seg}
+
+Funkcja \texttt{mc\_segment()} usuwa z~wolumenu tkanki miękkie i~artefakty:
+
+\begin{enumerate}
+  \item \textbf{Progowanie}: $M = V > \tau$ -- binarna maska kości.
+  \item \textbf{Opening morfologiczny}: eliminuje drobne izolowane voxele:\\
+    \[
+      M \leftarrow \mathrm{opening}(M,\; \mathcal{S}_{6},\; \text{it}=1)
+    \]
+  \item \textbf{Closing morfologiczny}: wypełnia małe szczeliny wewnątrz kości:\\
+    \[
+      M \leftarrow \mathrm{closing}(M,\; \mathcal{S}_{6},\; \text{it}=2)
+    \]
+    gdzie $\mathcal{S}_6$ to elementarny sześciosąsiad (6-connectivity).
+  \item \textbf{Analiza składowych spójnych} (\texttt{scipy.ndimage.label}):
+    etykietowanie + obliczenie objętości każdej składowej:
+    \[
+      \mathrm{vol}_k = |\text{CC}_k| \cdot p_x p_y p_{z,\text{eff}}\;[\text{mm}^3]
+    \]
+    Zachowywane są tylko składowe z~$\mathrm{vol}_k \geq \textit{min\_volume}$.
+  \item \textbf{Wypełnianie otworów 2D} (gdy \texttt{fill\_holes=True}):
+    \texttt{binary\_fill\_holes} na każdej warstwie aksjalnej -- odpowiada za
+    zamknięcie przekrojów kostnych z~kanałem szpikowym.
+  \item Voxele poza czystą maską są zerowane do $\tau - 1$:
+    \[
+      V_{\text{clean}}[\lnot M_{\text{clean}}] = \tau - 1
+    \]
+\end{enumerate}
+
+\begin{algorithm}[H]
+\caption{\textsc{Segment} -- segmentacja morfologiczna i filtracja składowych}
+\label{alg:seg}
+\KwIn{$V$, $\tau$, $p_x, p_y, p_{z,\text{eff}}$, \textit{min\_volume}, \textit{fill\_holes}}
+\KwOut{$V_{\text{clean}}$ -- wolumen z wyzerowanymi voxelami poza kością}
+\BlankLine
+$M \leftarrow V > \tau$\;
+$M \leftarrow \mathrm{opening}(M,\;\mathcal{S}_6,\;\text{it}=1)$\;
+$M \leftarrow \mathrm{closing}(M,\;\mathcal{S}_6,\;\text{it}=2)$\;
+$(L,\,n) \leftarrow \mathrm{label}(M)$\tcp*{składowe spójne}
+\ForEach{składowa $k = 1,\ldots,n$}{
+  \lIf{$|CC_k| \cdot p_x p_y p_{z,\text{eff}} < \textit{min\_volume}$}{$M[L{=}k] \leftarrow 0$}
+}
+\If{\emph{fill\_holes}}{
+  \ForEach{warstwa $i$}{ $M[i] \leftarrow \mathrm{FillHoles}(M[i])$ }
+}
+$V_{\text{clean}} \leftarrow V.\mathrm{copy}()$;\quad $V_{\text{clean}}[\lnot M] \leftarrow \tau - 1$\;
+\Return $V_{\text{clean}}$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 6 -- Algorytm Marching Cubes}
+\label{sec:mc}
+
+Właściwy Marching Cubes pochodzi z~biblioteki \texttt{mcubes}. Algorytm:
+\begin{enumerate}
+  \item Opcjonalnie obrąbkuje wolumen jedną warstwą zer z~każdej strony
+    (gdy \texttt{close\_boundary=True}), gwarantując zamknięcie siatki.
+  \item Iteruje po sześcianach (,,kostkach'') zdefiniowanych przez $2 \times 2 \times 2$
+    sąsiednich voxeli.
+  \item Dla każdej kostki wyznacza 8-bitowy wskaźnik konfiguracji:
+    \[
+      \text{idx} = \sum_{i=0}^{7} \mathbf{1}[V_i > \tau] \cdot 2^i
+    \]
+  \item Na podstawie tablicy trójkątów (\textit{lookup table}) wyznacza
+    trójkąty przecinające izopowierzchnię $\tau$.
+  \item Współrzędne wierzchołków wyznaczane są przez interpolację liniową
+    wzdłuż krawędzi:
+    \[
+      P = v_A + \frac{\tau - V_A}{V_B - V_A} (v_B - v_A)
+    \]
+  \item Wynik: tablice \texttt{points} (kształt $N \times 3$, indeksy voxeli)
+    i~\texttt{faces} (kształt $M \times 3$, indeksy wierzchołków).
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.2]
+  % kostka 2x2x2
+  \def\a{1.5}
+  % tylne ściany
+  \draw[gray!50, dashed] (0,0,0) -- (\a,0,0);
+  \draw[gray!50, dashed] (0,0,0) -- (0,\a,0);
+  \draw[gray!50, dashed] (0,0,0) -- (0,0,\a);
+  % przednie krawędzie
+  \draw[thick] (\a,0,0) -- (\a,\a,0) -- (0,\a,0);
+  \draw[thick] (\a,0,0) -- (\a,0,\a);
+  \draw[thick] (\a,\a,0) -- (\a,\a,\a);
+  \draw[thick] (0,\a,0) -- (0,\a,\a);
+  \draw[thick] (\a,0,\a) -- (\a,\a,\a) -- (0,\a,\a);
+  \draw[thick] (\a,0,\a) -- (0,0,\a) -- (0,\a,\a);
+  \draw[thick] (0,0,\a) -- (0,0,0);
+
+  % wierzchołki – przykład: 3 wewnątrz (pomarańczowe), 5 na zewnątrz (niebieskie)
+  \foreach \x/\y/\z/\c in {
+      0/0/\a/orange,       % 0 – wewnątrz
+      \a/0/\a/orange,      % 1 – wewnątrz
+      0/\a/\a/orange,      % 2 – wewnątrz
+      \a/\a/\a/blue!60,    % 3 – na zewnątrz
+      0/0/0/blue!60,       % 4
+      \a/0/0/blue!60,      % 5
+      0/\a/0/blue!60,      % 6
+      \a/\a/0/blue!60      % 7
+    }{
+    \fill[\c] (\x,\y,\z) circle (3pt);
+  }
+
+  % przykładowa izopowierzchnia (uproszczony trójkąt)
+  \coordinate (e1) at ($(0,0,\a)!0.5!(\a,0,\a)$);       % krawędź dolna-przód
+  \coordinate (e2) at ($(0,0,\a)!0.5!(0,\a,\a)$);       % krawędź lewa-przód
+  \coordinate (e3) at ($(\a,0,\a)!0.5!(\a,\a,\a)$);     % krawędź prawa
+
+  \fill[teal!40, opacity=0.7] (e1) -- (e2) -- (e3) -- cycle;
+  \draw[teal!70, thick] (e1) -- (e2) -- (e3) -- cycle;
+
+  % legenda
+  \node[orange, right] at (1.8, 0.9) {\small $V_i > \tau$};
+  \node[blue!60, right] at (1.8, 0.5) {\small $V_i \leq \tau$};
+  \node[teal!70, right] at (1.8, 0.1) {\small izopowierzchnia};
+\end{tikzpicture}
+\caption{Przykładowa kostka MC: wierzchołki powyżej progu $\tau$ (pomarańczowe)
+  i~poniżej (niebieskie). Trójkąt (zielony) jest wyznaczony przez interpolację
+  na krawędziach granicznych.}
+\label{fig:mc_cube}
+\end{figure}
+
+\begin{algorithm}[H]
+\caption{\textsc{MarchingCubes} -- ekstrakcja izopowierzchni}
+\label{alg:mc}
+\KwIn{$V_{\text{clean}}$, $\tau$, \textit{close\_boundary}}
+\KwOut{$\mathbf{P}$ -- wierzchołki [indeksy voxeli]; $F$ -- trójkąty}
+\BlankLine
+\If{\emph{close\_boundary}}{
+  $V_{\text{mc}} \leftarrow \mathrm{pad}(V_{\text{clean}},\;1,\;\mathrm{val}=0)$\;
+}
+\ForEach{kostka $(i,j,k)$ w $V_{\text{mc}}$}{
+  $\mathrm{idx} \leftarrow \sum_{b=0}^{7} \mathbf{1}[V_b > \tau]\cdot 2^b$\;
+  odczytaj trójkąty z tablicy LUT$[\mathrm{idx}]$\;
+  \ForEach{krawędź trójkąta $(A,B)$}{
+    $P \leftarrow v_A + \dfrac{\tau - V_A}{V_B - V_A}(v_B - v_A)$
+    \tcp*{interpolacja liniowa}
+  }
+}
+\Return $\mathbf{P},\; F$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 7 -- Voxel Sharpening (opcjonalny)}
+\label{sec:sharpen}
+
+Gdy \texttt{sharpening=True}, funkcja \texttt{mc\_sharpen()} przesuwa każdy
+wierzchołek siatki na dokładną izopowierzchnię $V = \tau$ w~wolumenie
+pełnorozdzielczościowym $V_{\text{full}}$.
+
+Dla wierzchołka $\mathbf{p}$:
+\begin{enumerate}
+  \item Interpoluj intensywność:
+    $I = V_{\text{full}}(\mathbf{p})$.
+  \item Interpoluj gradient w~mm/HU:
+    $\mathbf{g} = \nabla V_{\text{full}}(\mathbf{p})$.
+  \item Oblicz przesunięcie wzdłuż gradientu:
+    \[
+      \delta = \frac{\tau - I}{\|\mathbf{g}\|^2}
+      \quad \text{(obcięte do } [-0.25,\, 0.25] \text{ voxela)}
+    \]
+  \item Zastosuj tylko gdy $\|\mathbf{g}\| > 50\;\text{HU/mm}$:
+    \[
+      \mathbf{p}' = \mathbf{p} + \delta\,\mathbf{g}
+    \]
+\end{enumerate}
+
+Jest to krok Newton'a w~kierunku izopowierzchni; jeden krok wystarcza, gdy
+MC dostarczył dobrego przybliżenia.
+
+\begin{algorithm}[H]
+\caption{\textsc{Sharpen} -- voxel sharpening (subpikselowe przesunięcie wierzchołków)}
+\label{alg:sharp}
+\KwIn{$\mathbf{P}$, $V_{\text{full}}$, $(G_x^f, G_y^f, G_z^f)$, $\tau$}
+\KwOut{$\mathbf{P}'$ -- skorygowane wierzchołki}
+\BlankLine
+\ForEach{wierzchołek $\mathbf{p} \in \mathbf{P}$}{
+  $I \leftarrow V_{\text{full}}(\mathbf{p})$;\quad
+  $\mathbf{g} \leftarrow (G_x^f(\mathbf{p}),\, G_y^f(\mathbf{p}),\, G_z^f(\mathbf{p}))$\tcp*{interpolacja trójliniowa}
+  \If{$\|\mathbf{g}\| > 50\;\mathrm{HU/mm}$}{
+    $\delta \leftarrow \mathrm{clip}\!\left(\dfrac{\tau - I}{\|\mathbf{g}\|^2},\;{-0.25},\;0.25\right)$\;
+    $\mathbf{p}' \leftarrow \mathbf{p} + \delta\,\mathbf{g}$\;
+  }
+}
+\Return $\mathbf{P}'$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 8 -- Diagnostyka gradient confidence}
+\label{sec:diagn}
+
+Po opcjonalnym sharpeningu na każdy wierzchołek interpolowana jest magntiuda
+gradientu $G(\mathbf{p})$. Wyprowadzane są statystyki:
+\[
+  G_{\min},\quad G_{\text{mean}},\quad G_{\max}
+\]
+Niskie wartości $G_{\text{mean}}$ sugerują, że izopowierzchnia przebiega przez
+jednorodne obszary, co wskazuje na problem z~progiem lub danymi wejściowymi.
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 9 -- Transformacja do układu współrzędnych world}
+\label{sec:world}
+
+Funkcja \texttt{mc\_to\_world()} przekształca indeksy voxeli wyjściowe z~MC
+do fizycznych współrzędnych w~mm, zgodnie z~metadanymi DICOM.
+
+\subsubsection*{Krok siatki Z z uwzględnieniem upsamplu:}
+\[
+  s_z = \frac{d_{\text{slice}}}{\textit{zoom\_z}} \cdot \textit{factor}
+\]
+
+\subsubsection*{Skala wyjściowa:}
+\[
+  \mathbf{scale} = (p_x \cdot f,\; p_y \cdot f,\; s_z)
+\]
+
+\subsubsection*{Indeksy voxeli → mm:}
+\[
+  \begin{bmatrix} x \\ y \\ z \end{bmatrix} =
+  \begin{bmatrix} P_{\text{col}} \cdot \mathrm{scale}_x \\
+                  P_{\text{row}} \cdot \mathrm{scale}_y \\
+                  P_{\text{sli}} \cdot \mathrm{scale}_z \end{bmatrix}
+  + \text{origin}
+\]
+
+\subsubsection*{Korekcja przechyłu gantry:}
+Gdy $\phi_{\text{gantry}} \neq 0$:
+\[
+  y' = y + z \cdot \tan(\phi_{\text{gantry}})
+\]
+
+Wartość \texttt{origin} jest obliczana z~danych DICOM
+\texttt{ImagePositionPatient} pierwszej warstwy ROI:
+\[
+  \text{origin} = \big[p_x\!\cdot\!c_{\min},\;
+                       p_y\!\cdot\!r_{\min},\;
+                       z_{\text{DICOM}}(s_{\min})\big]
+\]
+
+\begin{algorithm}[H]
+\caption{\textsc{ToWorld} -- transformacja do układu współrzędnych world [mm]}
+\label{alg:world}
+\KwIn{$\mathbf{P}$, origin, $p_x, p_y, p_z$, $\phi_{\text{gantry}}$, \textit{zoom\_z}, $f$, \textit{close\_boundary}}
+\KwOut{$\mathbf{V}_{\text{world}}$ -- wierzchołki w mm (układ DICOM)}
+\BlankLine
+$s_z \leftarrow (p_z / \textit{zoom\_z}) \cdot f$\;
+\If{\emph{close\_boundary}}{
+  $\text{origin} \leftarrow \text{origin} - (p_x f,\; p_x f,\; s_z)$\;
+}
+$\mathbf{V}_{\text{world}}[:,0] \leftarrow \mathbf{P}[:,2] \cdot p_x f + \text{origin}_x$\;
+$\mathbf{V}_{\text{world}}[:,1] \leftarrow \mathbf{P}[:,1] \cdot p_y f + \text{origin}_y$\;
+$\mathbf{V}_{\text{world}}[:,2] \leftarrow \mathbf{P}[:,0] \cdot s_z   + \text{origin}_z$\;
+\If{$\phi_{\text{gantry}} \neq 0$}{
+  $\mathbf{V}_{\text{world}}[:,1] \mathrel{+}= \mathbf{V}_{\text{world}}[:,2] \cdot \tan\phi_{\text{gantry}}$\;
+}
+\Return $\mathbf{V}_{\text{world}}$\;
+\end{algorithm}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\subsection{Etap 10 -- Taubin Smoothing}
+\label{sec:taubin}
+
+Wygładzanie Taubina \cite{taubin1995} usunię szumy wysokoczęstotliwościowe
+siatki bez efektu kurczenia charakterystycznego dla zwykłego Laplacian smoothing.
+
+Jeden krok wygładzania Laplace'a:
+\[
+  \mathbf{v}_i' = \mathbf{v}_i + f \, \sum_{j \in \mathcal{N}(i)}
+    w_{ij} (\mathbf{v}_j - \mathbf{v}_i),
+  \qquad w_{ij} = \frac{1}{\deg(i)}
+\]
+
+Schemat Taubina -- naprzemiennie z parametrami $\lambda > 0$ i $\mu < 0$:
+\[
+  \mathbf{V}' = \mathbf{V} + \lambda (A_{\text{norm}} \mathbf{V} - \mathbf{V})
+  \quad \xrightarrow{\text{krok }\mu} \quad
+  \mathbf{V}'' = \mathbf{V}' + \mu (A_{\text{norm}} \mathbf{V}' - \mathbf{V}')
+\]
+Domyślne wartości: $\lambda = 0.5$, $\mu = -0.53$.
+Warunek zbieżności: $\frac{1}{\lambda} + \frac{1}{\mu} > 2$ -- zachowuje energię siatki.
+
+Macierz sąsiedztwa $A_{\text{norm}}$ konstruowana jest jako rzadka macierz
+\texttt{scipy.sparse} z~normalizacją wierszy według stopni wierzchołków.
+
+\begin{algorithm}[H]
+\caption{\textsc{TaubinSmooth} -- wygładzanie Taubina bez kurczenia}
+\label{alg:taubin}
+\KwIn{$\mathbf{V}$, $F$, $\lambda=0.5$, $\mu=-0.53$, \textit{iterations}}
+\KwOut{$\mathbf{V}'$ -- wygładzone wierzchołki}
+\BlankLine
+Zbuduj rzadką macierz sąsiedztwa $A_{\text{norm}}$ (normalizacja wierszy wg stopni)\;
+\For{$t \leftarrow 1$ \KwTo \textit{iterations}}{
+  $\mathbf{V} \leftarrow \mathbf{V} + \lambda\,(A_{\text{norm}}\,\mathbf{V} - \mathbf{V})$
+    \tcp*{krok wygładzający}
+  $\mathbf{V} \leftarrow \mathbf{V} + \mu\,(A_{\text{norm}}\,\mathbf{V} - \mathbf{V})$
+    \tcp*{krok kompensujący kurczenie}
+}
+\Return $\mathbf{V}$\;
+\end{algorithm}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Wyjście metody}
+
+\texttt{marching\_cube()} nie zwraca wartości -- tworzy obiekt \texttt{Mesh}
+i~dodaje go do sceny przez \texttt{AP.addObject(mesh, self)}.
+
+\texttt{marching\_cube\_compute()} zwraca krotkę:
+\[
+  (\mathbf{V}_{\text{world}},\; F)
+\]
+gdzie:
+\begin{itemize}
+  \item $\mathbf{V}_{\text{world}} \in \mathbb{R}^{N \times 3}$ -- wierzchołki
+    w~mm w~układzie DICOM,
+  \item $F \in \mathbb{Z}^{M \times 3}$ -- macierz trójkątów (indeksy wierzchołków).
+\end{itemize}
+
+Normalnie powierzchnia ma odwrócone normalne (\texttt{invert\_normals=True})
+aby zapewnić poprawne oświetlenie w~OpenGL (kamera patrzy do wewnątrz kości).
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Zależności}
+
+\begin{table}[H]
+\centering
+\caption{Biblioteki zewnętrzne używane przez pipeline MC}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Biblioteka} & \textbf{Wersja} & \textbf{Zastosowanie} \\
+\midrule
+\texttt{mcubes}          & $\geq$ 0.1    & Właściwy algorytm Marching Cubes \\
+\texttt{numpy}           & $\geq$ 1.20   & Operacje tablicowe \\
+\texttt{scipy}           & $\geq$ 1.7    & Filtracja, morfologia, interpolacja, macierze rzadkie \\
+\texttt{scikit-image}    & $\geq$ 0.19   & TV denoising (\texttt{denoise\_tv\_chambolle}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section*{Literatura}
+\addcontentsline{toc}{section}{Literatura}
+
+\begin{thebibliography}{9}
+
+\bibitem{lorensen1987}
+  W.~E.~Lorensen, H.~E.~Cline,
+  \textit{Marching Cubes: A High Resolution 3D Surface Construction Algorithm},
+  ACM SIGGRAPH Computer Graphics, 21(4):163--169, 1987.
+
+\bibitem{taubin1995}
+  G.~Taubin,
+  \textit{A Signal Processing Approach to Fair Surface Design},
+  Proceedings of SIGGRAPH '95, pp.~351--358, 1995.
+
+\bibitem{rudin1992}
+  L.~I.~Rudin, S.~Osher, E.~Fatemi,
+  \textit{Nonlinear total variation based noise removal algorithms},
+  Physica D: Nonlinear Phenomena, 60(1-4):259--268, 1992.
+
+\bibitem{chambolle2004}
+  A.~Chambolle,
+  \textit{An Algorithm for Total Variation Minimization and Applications},
+  Journal of Mathematical Imaging and Vision, 20(1-2):89--97, 2004.
+
+\end{thebibliography}
+
+\end{document}

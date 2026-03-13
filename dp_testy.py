@@ -3,7 +3,7 @@ from dpVision import AP, Transform, Image, AnnotationPoint, AnnotationSphere, An
 from PyQt5.QtCore import QTimer
 
 from dpVision.mesh import Mesh
-from dpVision.meshUncertaintyModel import MeshUncertaintyModel, colorize_mesh_by_confidence, uncertainty_colormap
+from dpVision.meshUncertaintyModel import MeshUncertaintyModel, colorize_mesh_by_confidence, confidence_to_rgba, uncertainty_colormap
 from dpVision.volumetric import Volumetric
 
 def fastTest1():
@@ -411,24 +411,25 @@ def test_sphere_grid():
 	sg_lidar.use_uniform_color  = False
 	sg_lidar.color_by_intensity = True   # colormap po intensywności
 	sg_lidar.set_colormap('skala')
-	AP.addObject(sg_lidar)
+	# AP.addObject(sg_lidar)
 
 	# ------------------------------------------------------------------
 	# 3. PointCloud z LiDAR-a — porównanie reprezentacji
 	# ------------------------------------------------------------------
 	pc = sg_lidar.to_point_cloud()
 	pc.label = "PointCloud – z LiDAR (z SphereGrid)"
-	AP.addObject(pc)
+	# AP.addObject(pc)
 
 	AP.updateAllViews()
 
-# test_sphere_grid()
+#test_sphere_grid()
 
 
 def test_uncertainty():
 	def colorize_mesh_by_uncertainty(mesh, uncertainty):
 
-		colors = uncertainty_colormap(uncertainty)
+		# colors = uncertainty_colormap(uncertainty)
+		colors = confidence_to_rgba(uncertainty, cmap="skala")
 
 		mesh.m_vcolors = colors
 		
@@ -486,8 +487,8 @@ def test_uncertainty():
 
 		AP.updateAllViews()
 
-	# filename = "d:\\praca\\dane\\190911100545.obj"
-	filename = "d:\\praca\\dane\\zdeb\\1000000008.obj"
+	filename = "d:\\praca\\dane\\190911100545.obj"
+	# filename = "d:\\praca\\dane\\zdeb\\1000000008.obj"
 	AP.load(filename, on_success=analyse_mesh)
 
-test_uncertainty()
+# test_uncertainty()

@@ -37,6 +37,7 @@ class PropVolumetric(PropWidget):
 	def blockAll(self, b):
 		for w in {self.spinWinMin, self.spinWinMax,
 			self.fastDrawCheckBox, self.renderBoxesCheckBox,
+			self.renderSplatsCheckBox, self.splatAdditiveCheckBox, self.splatScaleSpin,
 			self.xBspin, self.xEspin,
 			self.yBspin, self.yEspin,
 			self.zBspin, self.zEspin,
@@ -91,6 +92,10 @@ class PropVolumetric(PropWidget):
 
 		self.fastDrawCheckBox.setChecked(obj.m_fastDraw)
 		self.renderBoxesCheckBox.setChecked(obj.m_renderBoxes)
+		self.renderSplatsCheckBox.setChecked(obj.m_renderSplats)
+		self.splatAdditiveCheckBox.setChecked(obj.m_splat_additive)
+		self.splatScaleSpin.setValue(obj.m_splat_scale)
+		self._update_splat_color_button()
 
 		self.blockAll(False)
 
@@ -140,6 +145,42 @@ class PropVolumetric(PropWidget):
 		print(f"render boxes: {b}")
 		obj.remove_shader_program()
 		AP.updateAllViews()
+
+	@pyqtSlot(bool)
+	def on_render_splats_checkbox(self, b):
+		obj = self.obj_ref()
+		obj.m_renderSplats = b
+		print(f"gaussian splats: {b}")
+		AP.updateAllViews()
+
+	@pyqtSlot(bool)
+	def on_splat_additive_checkbox(self, b):
+		obj = self.obj_ref()
+		obj.m_splat_additive = b
+		AP.updateAllViews()
+
+	@pyqtSlot(float)
+	def on_splat_scale_changed(self, val):
+		obj = self.obj_ref()
+		obj.m_splat_scale = val
+		AP.updateAllViews()
+
+	def _update_splat_color_button(self):
+		obj = self.obj_ref()
+		r, g, b = (int(c * 255) for c in obj.m_splat_tint)
+		self.splatColorButton.setStyleSheet(f"background-color: rgb({r},{g},{b});")
+
+	@pyqtSlot()
+	def on_splat_color_button(self):
+		from PyQt5.QtWidgets import QColorDialog
+		from PyQt5.QtGui import QColor
+		obj = self.obj_ref()
+		r, g, b = (int(c * 255) for c in obj.m_splat_tint)
+		color = QColorDialog.getColor(QColor(r, g, b), self)
+		if color.isValid():
+			obj.m_splat_tint = [color.redF(), color.greenF(), color.blueF()]
+			self._update_splat_color_button()
+			AP.updateAllViews()
 
 
 	@pyqtSlot(bool)

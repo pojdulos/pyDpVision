@@ -7,19 +7,19 @@
     <x>0</x>
     <y>0</y>
     <width>200</width>
-    <height>550</height>
+    <height>650</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
     <width>200</width>
-    <height>550</height>
+    <height>650</height>
    </size>
   </property>
   <property name="maximumSize">
    <size>
     <width>200</width>
-    <height>550</height>
+    <height>650</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -34,13 +34,13 @@
      <x>3</x>
      <y>0</y>
      <width>200</width>
-     <height>550</height>
+     <height>650</height>
     </rect>
    </property>
    <property name="maximumSize">
     <size>
      <width>200</width>
-     <height>550</height>
+     <height>650</height>
     </size>
    </property>
    <property name="styleSheet">
@@ -107,6 +107,68 @@
        <string>render voxels as boxes</string>
       </property>
      </widget>
+    </item>
+    <item>
+     <widget class="QCheckBox" name="renderSplatsCheckBox">
+      <property name="text">
+       <string>gaussian splats</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QCheckBox" name="splatAdditiveCheckBox">
+      <property name="text">
+       <string>additive blend</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayoutSplat">
+      <item>
+       <widget class="QLabel" name="splatScaleLabel">
+        <property name="text">
+         <string>splat scale</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="splatScaleSpin">
+        <property name="minimum">
+         <double>0.100000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>10.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.100000000000000</double>
+        </property>
+        <property name="value">
+         <double>1.000000000000000</double>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayoutSplatColor">
+      <item>
+       <widget class="QLabel" name="splatColorLabel">
+        <property name="text">
+         <string>splat color</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="splatColorButton">
+        <property name="text">
+         <string/>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">background-color: #ffffff;</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </item>
     <item>
      <widget class="QGroupBox" name="groupBox_2">
@@ -957,6 +1019,102 @@
     <hint type="destinationlabel">
      <x>99</x>
      <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>renderSplatsCheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_render_splats_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>93</x>
+     <y>138</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>splatScaleSpin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_splat_scale_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>150</x>
+     <y>162</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>renderSplatsCheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_render_splats_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>93</x>
+     <y>138</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>splatScaleSpin</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_splat_scale_changed(double)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>150</x>
+     <y>162</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>splatAdditiveCheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_splat_additive_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>93</x>
+     <y>130</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>splatColorButton</sender>
+   <signal>clicked()</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_splat_color_button()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>150</x>
+     <y>182</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>314</y>
     </hint>
    </hints>
   </connection>

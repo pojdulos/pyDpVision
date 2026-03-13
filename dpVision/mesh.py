@@ -658,15 +658,13 @@ class Mesh(PointCloud):
 	def renderSelf(self):
 		if not len(self.m_faces):
 			PointCloud.renderSelf(self)
-		else:	
+		else:
 			glEnable(GL_COLOR_MATERIAL)
 			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
 
 			if self.gl_renderAs == 0:
 				glPolygonMode(GL_FRONT, GL_POINT)
 				glPolygonMode(GL_BACK, GL_POINT)
-				#glEnable(GL_POINT_SMOOTH)
-				#glPointSize(1)
 			elif self.gl_renderAs == 1:
 				glPolygonMode(GL_FRONT, GL_LINE)
 				glPolygonMode(GL_BACK, GL_LINE)
@@ -674,7 +672,19 @@ class Mesh(PointCloud):
 				glPolygonMode(GL_FRONT, GL_FILL)
 				glPolygonMode(GL_BACK, GL_FILL)
 
-			self.renderWithShaders2()
+			if self.is_transparent:
+				# Dwuprzebiegowy render dla przezroczystych zamkniętych siatek:
+				# 1. tylne ścianki (back faces) – rysowane pierwsze (dalej od kamery)
+				# 2. przednie ścianki (front faces) – rysowane drugie (bliżej kamery)
+				# Gwarantuje poprawny back-to-front bez sortowania trójkątów.
+				glEnable(GL_CULL_FACE)
+				glCullFace(GL_FRONT)
+				self.renderWithShaders2()
+				glCullFace(GL_BACK)
+				self.renderWithShaders2()
+				glDisable(GL_CULL_FACE)
+			else:
+				self.renderWithShaders2()
 
 			glDisable(GL_COLOR_MATERIAL)
 

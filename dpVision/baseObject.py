@@ -146,7 +146,16 @@ class BaseObject(QObject):
 	
 	def renderSelf(self):
 		pass
-	
+
+	@property
+	def is_transparent(self):
+		"""Zwraca True jeśli obiekt rysuje się z przezroczystością (wymaga pass 2)."""
+		return False
+
+	def render_wboit(self, pass_idx):
+		"""WBOIT rendering (override w podklasach przezroczystych)."""
+		pass
+
 	def renderKids(self):
 		pass
 	

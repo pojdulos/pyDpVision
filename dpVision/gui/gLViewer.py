@@ -322,7 +322,7 @@ class GLViewer(QOpenGLWidget):
 			self._paint_total = 0.0
 			self._paint_min = float('inf')
 			self._paint_max = 0.0
-			print("\n=== PAINTGL PROFILING ===")
+			# print("\n=== PAINTGL PROFILING ===")
 		
 		self._paint_frame_count += 1
 		self._paint_total += paint_total
@@ -331,8 +331,8 @@ class GLViewer(QOpenGLWidget):
 		
 		if self._paint_frame_count % 30 == 0:
 			avg = self._paint_total / 30
-			print(f"[paintGL {self._paint_frame_count:4d}] Avg: {avg*1000:6.2f}ms | Min: {self._paint_min*1000:6.2f}ms | Max: {self._paint_max*1000:6.2f}ms")
-			print(f"  Latest breakdown: draw3D={draw3d_time*1000:.2f}ms, painter.end={painter_end_time*1000:.2f}ms, other={other_time*1000:.2f}ms")
+			# print(f"[paintGL {self._paint_frame_count:4d}] Avg: {avg*1000:6.2f}ms | Min: {self._paint_min*1000:6.2f}ms | Max: {self._paint_max*1000:6.2f}ms")
+			# print(f"  Latest breakdown: draw3D={draw3d_time*1000:.2f}ms, painter.end={painter_end_time*1000:.2f}ms, other={other_time*1000:.2f}ms")
 			self._paint_total = 0.0
 			self._paint_min = float('inf')
 			self._paint_max = 0.0
@@ -370,7 +370,7 @@ class GLViewer(QOpenGLWidget):
 
 	def rotate_object(self, obj:Transform, xAngle, yAngle, zAngle=0.0):
 		lck = obj.locked
-		print('rotate_object: locked' if lck else 'rotate_object: unlocked')
+		# print('rotate_object: locked' if lck else 'rotate_object: unlocked')
 		if lck:
 			return
 		
@@ -665,7 +665,14 @@ class GLViewer(QOpenGLWidget):
 		if s_mm != 1.0:
 			glScalef(s_mm, s_mm, s_mm)
 		try:
-			self.mainWindow.workspace.render()
+			cam_pos = list(self._camera.pos)
+			view_dir = [
+				self._camera.dir[0] - self._camera.pos[0],
+				self._camera.dir[1] - self._camera.pos[1],
+				self._camera.dir[2] - self._camera.pos[2],
+			]
+			ws = self.mainWindow.workspace
+			ws.render(camera_pos=cam_pos, view_dir=view_dir)
 		finally:
 			glPopMatrix()
 			# Upewnij się że stos attribs jest czysty po renderowaniu obiektów
@@ -677,6 +684,138 @@ class GLViewer(QOpenGLWidget):
 		glDisable( GL_DEPTH_TEST )
 	
 		glDisable(GL_BLEND);
+
+	# ---------- WBOIT helpers ----------
+
+	def _init_wboit_resources(self, w, h):
+		"""Tworzy FBO + tekstury dla WBOIT i kompiluje shader composite."""
+		from ..shaders import load_and_compile_shader as _lcs
+		# Zwolnij stare zasoby (jeśli są)
+		if getattr(self, '_wboit_fbo', None) is not None:
+			glDeleteFramebuffers(1, [self._wboit_fbo])
+			glDeleteTextures(1, [self._wboit_accum_tex])
+			glDeleteTextures(1, [self._wboit_reveal_tex])
+			glDeleteRenderbuffers(1, [self._wboit_depth_rb])
+			self._wboit_fbo = None
+
+		try:
+			fbo = glGenFramebuffers(1)
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo)
+
+			# Attachment 0: RGBA32F – akumulacja ważonych kolorów
+			accum_tex = glGenTextures(1)
+			glBindTexture(GL_TEXTURE_2D, accum_tex)
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, None)
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			                       GL_TEXTURE_2D, accum_tex, 0)
+
+			# Attachment 1: RGBA8 – produkt (1-alpha)
+			reveal_tex = glGenTextures(1)
+			glBindTexture(GL_TEXTURE_2D, reveal_tex)
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, None)
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1,
+			                       GL_TEXTURE_2D, reveal_tex, 0)
+
+			# Depth+stencil renderbuffer – musi być GL_DEPTH24_STENCIL8 aby format
+			# zgadzał się z Qt FBO (Qt ustawia stencilBufferSize=8), dzięki czemu
+			# glBlitFramebuffer dla depth nie generuje GL_INVALID_OPERATION.
+			depth_rb = glGenRenderbuffers(1)
+			glBindRenderbuffer(GL_RENDERBUFFER, depth_rb)
+			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h)
+			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+			                          GL_RENDERBUFFER, depth_rb)
+
+			status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
+			if status != GL_FRAMEBUFFER_COMPLETE:
+				print(f"WBOIT FBO niekompletny: 0x{status:X}")
+				glBindFramebuffer(GL_FRAMEBUFFER, 0)
+				glDeleteFramebuffers(1, [fbo])
+				glDeleteTextures(1, [accum_tex])
+				glDeleteTextures(1, [reveal_tex])
+				glDeleteRenderbuffers(1, [depth_rb])
+				self._wboit_fbo = None
+				return
+
+			self._wboit_fbo        = fbo
+			self._wboit_accum_tex  = accum_tex
+			self._wboit_reveal_tex = reveal_tex
+			self._wboit_depth_rb   = depth_rb
+			self._wboit_w          = w
+			self._wboit_h          = h
+			glBindFramebuffer(GL_FRAMEBUFFER, 0)
+			print(f"WBOIT FBO zainicjowany: {w}x{h}")
+
+		except Exception as e:
+			print(f"WBOIT FBO błąd inicjalizacji: {e}")
+			self._wboit_fbo = None
+			return
+
+		# Kompiluj shader composite (tylko raz)
+		if getattr(self, '_wboit_composite_prog', None) is None:
+			try:
+				vs   = _lcs('wboit_composite.vert', GL_VERTEX_SHADER)
+				fs   = _lcs('wboit_composite.frag', GL_FRAGMENT_SHADER)
+				prog = glCreateProgram()
+				glAttachShader(prog, vs)
+				glAttachShader(prog, fs)
+				glLinkProgram(prog)
+				if not glGetProgramiv(prog, GL_LINK_STATUS):
+					print(glGetProgramInfoLog(prog))
+					glDeleteProgram(prog)
+					self._wboit_composite_prog = None
+				else:
+					glDeleteShader(vs)
+					glDeleteShader(fs)
+					self._wboit_composite_prog  = prog
+					self._wboit_accum_loc  = glGetUniformLocation(prog, 'u_accum')
+					self._wboit_reveal_loc = glGetUniformLocation(prog, 'u_reveal')
+			except Exception as e:
+				print(f"WBOIT composite shader błąd: {e}")
+				self._wboit_composite_prog = None
+
+		# Pusty VAO dla fullscreen triangle (gl_VertexID trick)
+		if getattr(self, '_wboit_empty_vao', None) is None:
+			self._wboit_empty_vao = glGenVertexArrays(1)
+
+	def _composite_wboit(self):
+		"""Rysuje fullscreen quad łącząc WBOIT accum+reveal z tłem opaque."""
+		if getattr(self, '_wboit_composite_prog', None) is None:
+			return
+
+		# Tymczasowo wyzeruj macierze (shader używa gl_VertexID, nie zależy od GL matrix)
+		glMatrixMode(GL_PROJECTION)
+		glPushMatrix()
+		glLoadIdentity()
+		glMatrixMode(GL_MODELVIEW)
+		glPushMatrix()
+		glLoadIdentity()
+
+		glUseProgram(self._wboit_composite_prog)
+
+		glActiveTexture(GL_TEXTURE0)
+		glBindTexture(GL_TEXTURE_2D, self._wboit_accum_tex)
+		glUniform1i(self._wboit_accum_loc, 0)
+
+		glActiveTexture(GL_TEXTURE1)
+		glBindTexture(GL_TEXTURE_2D, self._wboit_reveal_tex)
+		glUniform1i(self._wboit_reveal_loc, 1)
+
+		glBindVertexArray(self._wboit_empty_vao)
+		glDrawArrays(GL_TRIANGLES, 0, 3)
+		glBindVertexArray(0)
+
+		glUseProgram(0)
+		glActiveTexture(GL_TEXTURE0)
+
+		# Przywróć macierze
+		glMatrixMode(GL_PROJECTION)
+		glPopMatrix()
+		glMatrixMode(GL_MODELVIEW)
+		glPopMatrix()
 
 	def renderLights(self, perm ):
 		if perm:

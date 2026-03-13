@@ -47,6 +47,8 @@ class Mesh(PointCloud):
 		self.vao = None
 		self.shader_program = None
 		self.uniform_locs = {}  # Cache dla uniform locations
+		self.wboit_shader = None
+		self.wboit_uniform_locs = {}
 		self.vBuf = None
 		self.iBuf = None
 		self.cBuf = None
@@ -561,6 +563,97 @@ class Mesh(PointCloud):
 	# 		glDisableVertexAttribArray(2)
 
 	# 	glUseProgram(0) # Wyłączenie programu shaderów
+
+	@property
+	def is_transparent(self):
+		return self.materials[self.currentMaterial].alpha < 0.999
+
+	def _compile_wboit_shader(self):
+		try:
+			vs = load_and_compile_shader('mesh.vert', GL_VERTEX_SHADER)
+			fs = load_and_compile_shader('wboit_mesh.frag', GL_FRAGMENT_SHADER)
+			prog = glCreateProgram()
+			glAttachShader(prog, vs)
+			glAttachShader(prog, fs)
+			glLinkProgram(prog)
+			if not glGetProgramiv(prog, GL_LINK_STATUS):
+				print(glGetProgramInfoLog(prog))
+				glDeleteProgram(prog)
+				return
+			glDeleteShader(vs)
+			glDeleteShader(fs)
+			self.wboit_shader = prog
+			self.wboit_uniform_locs = {
+				'model':          glGetUniformLocation(prog, 'model'),
+				'view':           glGetUniformLocation(prog, 'view'),
+				'projection':     glGetUniformLocation(prog, 'projection'),
+				'myColor':        glGetUniformLocation(prog, 'myColor'),
+				'useVColors':     glGetUniformLocation(prog, 'useVColors'),
+				'useVNormals':    glGetUniformLocation(prog, 'useVNormals'),
+				'useTexture':     glGetUniformLocation(prog, 'useTexture'),
+				'useFlatShading': glGetUniformLocation(prog, 'useFlatShading'),
+				'texture1':       glGetUniformLocation(prog, 'texture1'),
+				'u_wboit_pass':   glGetUniformLocation(prog, 'u_wboit_pass'),
+			}
+		except Exception as e:
+			print(f"WBOIT mesh shader error: {e}")
+
+	def render_wboit(self, pass_idx):
+		"""WBOIT rendering (called by workspace in transparent WBOIT passes)."""
+		if not len(self.m_faces):
+			return
+		if getattr(self, '_shader_failed', False):
+			return
+		if self.wboit_shader is None:
+			self._compile_wboit_shader()
+		if self.wboit_shader is None:
+			return
+		# Ensure geometry is uploaded to GPU (may not have happened if mesh is always transparent)
+		if not self._gpu_uploaded:
+			glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE)
+			glDepthMask(GL_FALSE)
+			self.renderWithShaders2()
+			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+		if self.vao is None:
+			return
+
+		glUseProgram(self.wboit_shader)
+		glUniform1i(self.wboit_uniform_locs['u_wboit_pass'], pass_idx)
+
+		mat = self.materials[self.currentMaterial]
+		dC  = mat.diffuse + [mat.alpha]
+		glUniform4f(self.wboit_uniform_locs['myColor'], *dC)
+
+		drawC = self.cBuf is not None
+		drawN = self.nBuf is not None
+		drawT = (self.b_renderTexture and mat.hasTexture()
+		         and self.m_tindices.shape[0] == self.m_faces.shape[0])
+
+		glUniform1i(self.wboit_uniform_locs['useVColors'],    1 if drawC else 0)
+		glUniform1i(self.wboit_uniform_locs['useVNormals'],   1 if drawN else 0)
+		glUniform1i(self.wboit_uniform_locs['useFlatShading'], 0 if self.b_renderSmooth else 1)
+
+		if drawT:
+			glActiveTexture(GL_TEXTURE0)
+			glBindTexture(GL_TEXTURE_2D, mat.dTexture.textureId())
+			glUniform1i(self.wboit_uniform_locs['texture1'],  0)
+			glUniform1i(self.wboit_uniform_locs['useTexture'], 1)
+		else:
+			glUniform1i(self.wboit_uniform_locs['useTexture'], 0)
+
+		model      = np.empty((4, 4), dtype=np.float32)
+		projection = np.empty((4, 4), dtype=np.float32)
+		view       = np.identity(4,   dtype=np.float32)
+		glGetFloatv(GL_MODELVIEW_MATRIX,  model)
+		glGetFloatv(GL_PROJECTION_MATRIX, projection)
+		glUniformMatrix4fv(self.wboit_uniform_locs['model'],      1, GL_FALSE, model)
+		glUniformMatrix4fv(self.wboit_uniform_locs['view'],       1, GL_FALSE, view)
+		glUniformMatrix4fv(self.wboit_uniform_locs['projection'], 1, GL_FALSE, projection)
+
+		glBindVertexArray(self.vao)
+		glDrawElements(GL_TRIANGLES, len(self.iBuf), GL_UNSIGNED_INT, None)
+		glBindVertexArray(0)
+		glUseProgram(0)
 
 	def renderSelf(self):
 		if not len(self.m_faces):

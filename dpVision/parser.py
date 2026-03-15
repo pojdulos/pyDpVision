@@ -68,10 +68,28 @@ class Parser(QObject):
 	@staticmethod	
 	def save(obj, path):
 		fname, fext = os.path.splitext(path)
+		fext = fext.lower()
 		for p in Parser.parsers:
 			if p.canSaveExt(fext):
 				return p.save(obj, path)
 		return False
+
+	@staticmethod
+	def getSaveParsers(obj):
+		result = []
+		for parser in Parser.parsers:
+			if parser.canSaveObject(obj):
+				result.append(parser)
+		return result
+
+	@staticmethod
+	def getSaveExts(obj):
+		filters = []
+		for parser in Parser.getSaveParsers(obj):
+			if len(parser.save_exts):
+				patterns = ' '.join([f'*{ext}' for ext in parser.save_exts])
+				filters.append(f"{parser.descr} ({patterns})")
+		return ';;'.join(filters)
 	
 	@staticmethod	
 	def inPlugin():
@@ -91,6 +109,10 @@ class Parser(QObject):
 	@classmethod
 	def canSaveExt(cls, ext):
 		return ext in cls.save_exts
+
+	@classmethod
+	def canSaveObject(cls, obj):
+		return False
 
 	@classmethod
 	def loadExts(cls, ext):

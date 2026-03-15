@@ -14,6 +14,7 @@ from .mdiChild import MdiChild
 from .gLViewer import GLViewer
 from .progressIndicator import ProgressIndicator
 import os
+import re
 
 
 MAX_NUMBER_OF_RECENT_FILES = 10
@@ -23,6 +24,7 @@ class MainWindow(QMainWindow):
 		super(MainWindow, self).__init__()
 		#uic.loadUi('dpVision/gui/forms/mainWindow.ui', self)
 		AP.loadUi('mainWindow.ui', self)
+		self.action_File_SaveAs.triggered.connect(self.fileSave)
 
 		self.workspace = Workspace()
 		
@@ -533,7 +535,52 @@ class MainWindow(QMainWindow):
 		pass
 
 	def fileSave(self):
-		pass
+		selected = self.dock["workspace"].getSelectedObjects()
+		obj = selected[0] if len(selected) == 1 else self.workspace.m_currentObject
+
+		if obj is None:
+			QMessageBox.warning(self, "Save as...", "Nie wybrano obiektu do zapisania.")
+			return
+
+		save_parsers = Parser.getSaveParsers(obj)
+		if not len(save_parsers):
+			QMessageBox.warning(
+				self,
+				"Save as...",
+				f"Brak dostępnych formatów zapisu dla obiektu typu {obj.__class__.__name__}."
+			)
+			return
+
+		save_filters = Parser.getSaveExts(obj)
+		default_ext = save_parsers[0].save_exts[0]
+		default_name = getattr(obj, "label", "export")
+		if os.path.splitext(default_name)[1] == '':
+			default_name = default_name + default_ext
+
+		file_name, selected_filter = QFileDialog.getSaveFileName(
+			self,
+			"Save File",
+			default_name,
+			save_filters
+		)
+		if file_name == '':
+			return
+
+		file_root, file_ext = os.path.splitext(file_name)
+		if file_ext == '':
+			filter_text = selected_filter if selected_filter else save_filters.split(';;')[0]
+			filter_match = re.search(r'\*(\.[A-Za-z0-9]+)', filter_text)
+			file_ext = filter_match.group(1) if filter_match else default_ext
+			file_name = file_root + file_ext
+
+		if Parser.save(obj, file_name):
+			self.statusBar.showMessage(f"Saved: {file_name}", 5000)
+		else:
+			QMessageBox.warning(
+				self,
+				"Save as...",
+				"Nie udało się zapisać obiektu w wybranym formacie."
+			)
 
 	def pmEcol(self):
 		pass

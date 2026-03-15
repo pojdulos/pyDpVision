@@ -138,6 +138,7 @@ class ParserSTL(Parser):
 
     descr     = 'STL files'
     load_exts = ['.stl']
+    save_exts = ['.stl']
 
     def __init__(self, path):
         super().__init__()
@@ -148,6 +149,17 @@ class ParserSTL(Parser):
     @classmethod
     def is_not_static(cls):
         return True
+
+    @classmethod
+    def canSaveObject(cls, obj):
+        def has_mesh(node):
+            if node is None:
+                return False
+            if isinstance(node, Mesh):
+                return True
+            return any(has_mesh(child) for child in node.children())
+
+        return has_mesh(obj)
 
     def on_loading_finished(self, obj):
         self._thread.quit()
@@ -202,7 +214,80 @@ class ParserSTL(Parser):
 
     @staticmethod
     def save(obj, path):
-        return False
+        def iter_meshes(node):
+            if node is None:
+                return
+            if node.hasType('Mesh'):
+                yield node
+            for child in node.children():
+                yield from iter_meshes(child)
+
+        def transform_vertices(vertices, matrix):
+            if len(vertices) == 0:
+                return np.empty((0, 3), dtype=np.float32)
+            verts = np.asarray(vertices, dtype=np.float64)
+            verts_h = np.hstack([verts, np.ones((len(verts), 1), dtype=np.float64)])
+            return (verts_h @ matrix.T)[:, :3].astype(np.float32)
+
+        def face_normals(triangles):
+            v01 = triangles[:, 1] - triangles[:, 0]
+            v02 = triangles[:, 2] - triangles[:, 0]
+            normals = np.cross(v01, v02)
+            norms = np.linalg.norm(normals, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            return (normals / norms).astype(np.float32)
+
+        meshes = list(iter_meshes(obj))
+        if not meshes:
+            print("ParserSTL.save: brak siatek do zapisu")
+            return False
+
+        triangles_parts = []
+        for mesh in meshes:
+            if not hasattr(mesh, 'm_vertices') or not hasattr(mesh, 'm_faces'):
+                continue
+            if len(mesh.m_vertices) == 0 or len(mesh.m_faces) == 0:
+                continue
+
+            matrix = np.asarray(mesh.getGlobalTransformation(), dtype=np.float64)
+            vertices = transform_vertices(mesh.m_vertices, matrix)
+            faces = np.asarray(mesh.m_faces, dtype=np.int64)
+            triangles_parts.append(vertices[faces])
+
+        if not triangles_parts:
+            print("ParserSTL.save: znalezione siatki nie zawierają trójkątów")
+            return False
+
+        triangles = np.ascontiguousarray(np.vstack(triangles_parts), dtype=np.float32)
+        normals = face_normals(triangles)
+
+        header_text = f"pyDpVision STL: {getattr(obj, 'label', 'object')}"
+        header = header_text.encode('ascii', errors='replace')[:80].ljust(80, b' ')
+        tri_count = np.uint32(len(triangles))
+
+        dtype = np.dtype([
+            ('normal', np.float32, 3),
+            ('v0',     np.float32, 3),
+            ('v1',     np.float32, 3),
+            ('v2',     np.float32, 3),
+            ('attr',   np.uint16),
+        ])
+        data = np.empty(len(triangles), dtype=dtype)
+        data['normal'] = normals
+        data['v0'] = triangles[:, 0]
+        data['v1'] = triangles[:, 1]
+        data['v2'] = triangles[:, 2]
+        data['attr'] = 0
+
+        try:
+            with open(path, 'wb') as f:
+                f.write(header)
+                f.write(tri_count.tobytes())
+                f.write(data.tobytes())
+            return True
+        except Exception as e:
+            print(f"ParserSTL.save: błąd zapisu STL: {e}")
+            return False
 
     @staticmethod
     def inPlugin():

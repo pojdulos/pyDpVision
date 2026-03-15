@@ -16,13 +16,6 @@ from .shaders import load_and_compile_shader, compile_shader
 from .pointCloud import PointCloud
 from .mesh import Mesh
 
-# Zaczątek klasy Volumetric opartej o bibliotekę pyDICOM.
-# Pamiętajmy więc, że to prawdopodobnie jeszcze nie działa
-# albo działa źle
-
-# def convert_to_np_array(key, list):
-#     return key, np.array(list, dtype=np.float32)
-
 class SliceMetadata():
 	def __init__(self):
 		self.image_position_patient = [0.0,0.0,0.0]
@@ -621,7 +614,7 @@ class Volumetric(Object):
 	def marching_cube_compute(self, factor=1, close_boundary=True, sigma_mm=None, threshold=None,
 	                          threshold_min=300.0, min_volume=50, sharpening=False,
 	                          taubin_iterations=10, denoise=True, fill_holes=True, denoise_iter=50,
-	                          denoise_3d=False):
+	                          denoise_3d=False, progress_cb=None, status_cb=None):
 		"""Całkowite obliczenia MC – bez Qt. Bezpieczne do uruchomienia w wątku.
 		Zwraca (vertices, faces) gotowe do Mesh.create()."""
 		import time
@@ -638,12 +631,20 @@ class Volumetric(Object):
 			print(f"[MC] {msg}  ({now-t:.1f}s / total {now-t0:.1f}s)")
 			t = now
 
+		def _set_progress(value, text=None):
+			if text and status_cb is not None:
+				status_cb(text)
+			if progress_cb is not None:
+				progress_cb(value)
+
 		px = self.metadata[1].pixel_spacing[0]
 		py = self.metadata[1].pixel_spacing[1]
 		pz = self.metadata[1].slice_distance
 		print(f"[MC] start  voxel={px:.3f}x{py:.3f}x{pz:.3f}mm")
+		_set_progress(2, "Przygotowuję marching cubes...")
 
 		# 1. ROI
+		_set_progress(5, "Wycinam ROI...")
 		first_slice = factor * int(self.m_minSlice / factor)
 		first_row   = factor * int(self.m_minRow    / factor)
 		first_col   = factor * int(self.m_minColumn / factor)
@@ -654,24 +655,36 @@ class Volumetric(Object):
 		_log(f"1. ROI  {image.shape}")
 
 		# 2. Preprocessing
+		_set_progress(15, "Preprocessing wolumenu...")
+		def _preprocess_progress(local_value):
+			local_value = max(0, min(int(local_value), 100))
+			_set_progress(15 + int(local_value * 13 / 100))
+
 		image, image_full, zoom_z, pz_eff = mc_preprocess(
-				image, px, py, pz, factor, sigma_mm, denoise, sharpening, denoise_iter, denoise_3d)
+				image, px, py, pz, factor, sigma_mm, sharpening, denoise,
+				denoise_iter, denoise_3d,
+				progress_cb=_preprocess_progress,
+				status_cb=status_cb)
 		_log(f"2. preprocess  shape={image.shape}  denoise={denoise}  denoise_3d={denoise_3d}")
 
 		# 3. Gradient
+		_set_progress(28, "Liczę gradient...")
 		grad, gx_full, gy_full, gz_full = mc_gradient(
 			image, image_full, pz_eff, py, px, sharpening)
 		_log("3. gradient")
 
 		# 4. Threshold
+		_set_progress(40, "Wyznaczam threshold...")
 		threshold = mc_estimate_threshold(image, grad, threshold, threshold_min)
 		_log(f"4. threshold={threshold:.1f}")
 
 		# 5. Segmentacja
+		_set_progress(50, "Segmentuję wolumen...")
 		image_clean = mc_segment(image, threshold, px, py, pz_eff, min_volume, fill_holes)
 		_log("5. segmentation")
 
 		# 6. Marching cubes
+		_set_progress(65, "Uruchamiam marching cubes...")
 		image_mc = np.pad(image_clean, 1, mode='constant') if close_boundary else image_clean
 		points, faces = mcubes.marching_cubes(image_mc, threshold)
 		offset = 1 if close_boundary else 0
@@ -679,16 +692,19 @@ class Volumetric(Object):
 
 		# 7. Voxel sharpening (opcjonalne)
 		if sharpening:
+			_set_progress(78, "Wyostrzam powierzchnię...")
 			points = mc_sharpen(
 				points, offset, factor, image_full, gx_full, gy_full, gz_full, threshold)
 			_log("7. sharpening")
 
 		# 8. Gradient confidence (diagnostyka)
+		_set_progress(84, "Analizuję gradient na powierzchni...")
 		coords = np.vstack([points[:,0]-offset, points[:,1]-offset, points[:,2]-offset])
 		gv = map_coordinates(grad, coords, order=1, mode='nearest')
 		_log(f"8. gradient on surface  min={gv.min():.1f}  mean={gv.mean():.1f}  max={gv.max():.1f}")
 
 		# 9. Transformacja do układu world
+		_set_progress(90, "Transformuję siatkę do world coordinates...")
 		origin = [
 			self.metadata[first_slice].image_position_patient[0] + px * float(first_col),
 			self.metadata[first_slice].image_position_patient[1] + py * float(first_row),
@@ -707,9 +723,11 @@ class Volumetric(Object):
 
 		# 10. Taubin smoothing
 		if taubin_iterations > 0:
+			_set_progress(95, "Wygładzam siatkę...")
 			vertices = taubin_smooth(vertices, faces, iterations=taubin_iterations)
 			_log(f"10. Taubin smoothing  iterations={taubin_iterations}")
 
+		_set_progress(100, "Marching cubes zakończony")
 		_log("done")
 		return vertices, faces
 

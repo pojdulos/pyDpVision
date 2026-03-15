@@ -191,35 +191,58 @@ class ParserSaveTaskRunner(BaseTaskRunner):
 class _FunctionWorker(QObject):
 	finished = pyqtSignal(object)
 	failed = pyqtSignal(object)
+	progressStarted = pyqtSignal(int, int, int, str)
+	progressChanged = pyqtSignal(int)
+	statusChanged = pyqtSignal(str)
 
-	def __init__(self, fn, args, kwargs):
+	def __init__(self, fn, args, kwargs, progress_text=None, inject_progress=False):
 		super().__init__()
 		self._fn = fn
 		self._args = args
 		self._kwargs = kwargs
+		self._progress_text = progress_text
+		self._inject_progress = inject_progress
 
 	def run(self):
 		try:
-			self.finished.emit(self._fn(*self._args, **self._kwargs))
+			call_kwargs = dict(self._kwargs)
+			if self._inject_progress:
+				if self._progress_text is not None:
+					self.progressStarted.emit(0, 100, 0, self._progress_text)
+				call_kwargs["progress_cb"] = self.progressChanged.emit
+				call_kwargs["status_cb"] = self.statusChanged.emit
+			self.finished.emit(self._fn(*self._args, **call_kwargs))
 		except Exception as exc:
 			self.failed.emit(exc)
 
 
 class FunctionTaskRunner(BaseTaskRunner):
-	def __init__(self, fn, *args, label="Task", kind="compute", progress_text=None, parent=None, **kwargs):
+	def __init__(self, fn, *args, label="Task", kind="compute", progress_text=None, inject_progress=False, parent=None, **kwargs):
 		super().__init__(label=label, kind=kind, supports_runtime_cancel=False, parent=parent)
 		self._fn = fn
 		self._args = args
 		self._kwargs = kwargs
 		self._progress_text = progress_text or label
+		self._inject_progress = inject_progress
 		self._thread = None
 		self._worker = None
 
 	def start(self):
-		self.progressStarted.emit(0, 0, 0, self._progress_text)
 		self._thread = QThread()
-		self._worker = _FunctionWorker(self._fn, self._args, self._kwargs)
+		self._worker = _FunctionWorker(
+			self._fn,
+			self._args,
+			self._kwargs,
+			progress_text=self._progress_text,
+			inject_progress=self._inject_progress,
+		)
 		self._worker.moveToThread(self._thread)
+		if self._inject_progress:
+			self._worker.progressStarted.connect(self.progressStarted)
+			self._worker.progressChanged.connect(self.progressValueChanged)
+			self._worker.statusChanged.connect(self.progressTextChanged)
+		else:
+			self.progressStarted.emit(0, 0, 0, self._progress_text)
 		self._thread.started.connect(self._worker.run)
 		self._worker.finished.connect(self._on_finished)
 		self._worker.failed.connect(self._on_failed)

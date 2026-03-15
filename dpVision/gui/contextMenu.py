@@ -13,28 +13,11 @@ from dpVision.volumetric import Volumetric
 
 from .dialogSiftParameters import DialogSiftParameters
 from .dialogVolumetricMetadata import DialogVolumetricMetadata
+from .taskManager import FunctionTaskRunner
 
 import numpy as np
 
 from .. import AP, Transform, PointCloud
-
-
-class MarchingCubeWorker(QThread):
-	finished  = pyqtSignal(object, object)  # vertices, faces
-	error     = pyqtSignal(str)
-
-	def __init__(self, vol, kwargs):
-		super().__init__()
-		self._vol    = vol
-		self._kwargs = kwargs
-
-	def run(self):
-		try:
-			vertices, faces = self._vol.marching_cube_compute(**self._kwargs)
-			self.finished.emit(vertices, faces)
-		except Exception as e:
-			import traceback
-			self.error.emit(traceback.format_exc())
 
 class ContextMenu(QMenu):
 	def __init__(self, obj=None, parent=None):
@@ -338,29 +321,31 @@ class ContextMenu(QMenu):
 			kwargs = dict(factor=factor, sigma_mm=sigma, threshold=threshold,
 			              close_boundary=close_boundary, denoise_3d=denoise_3d)
 
-			# znajdź akcję w menu żeby ją zablokować podczas obliczeń
-			mc_action = self.sender()
+			runner = FunctionTaskRunner(
+				vol.marching_cube_compute,
+				label=f"Marching Cube: {getattr(vol, 'label', 'Volumetric')}",
+				kind="compute",
+				progress_text="Obliczam marching cubes...",
+				inject_progress=True,
+				**kwargs,
+			)
 
-			self._mc_worker = MarchingCubeWorker(vol, kwargs)
-			self._mc_worker.finished.connect(
-				lambda verts, faces: self._mc_on_done(verts, faces, vol, mc_action))
-			self._mc_worker.error.connect(
-				lambda msg: self._mc_on_error(msg, mc_action))
-			if mc_action:
-				mc_action.setEnabled(False)
-			self._mc_worker.start()
+			def handle_success(result):
+				from dpVision.mesh import Mesh
+				vertices, faces = result
+				mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
+				AP.addObject(mesh, vol)
 
-	def _mc_on_done(self, vertices, faces, vol, action):
-		from dpVision.mesh import Mesh
-		mesh = Mesh.create(vertices=vertices, faces=faces, invert_normals=True)
-		AP.addObject(mesh, vol)
-		if action:
-			action.setEnabled(True)
+			def handle_error(error):
+				QMessageBox.critical(None, "Marching Cube – błąd", str(error))
 
-	def _mc_on_error(self, msg, action):
-		QMessageBox.critical(None, "Marching Cube – błąd", msg)
-		if action:
-			action.setEnabled(True)
+			AP.mainWin.taskManager.start_runner(
+				runner,
+				on_success=handle_success,
+				on_error=handle_error,
+				kind="compute",
+				label=f"Marching Cube: {getattr(vol, 'label', 'Volumetric')}",
+			)
 
 	@pyqtSlot()
 	def refreshTree(self):

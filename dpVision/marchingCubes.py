@@ -14,7 +14,8 @@ def _tv_worker(args):
 	return i, denoise_tv_chambolle(slice_data, weight=weight, max_num_iter=max_num_iter)
 
 
-def mc_preprocess(image, px, py, pz, factor, sigma_mm, denoise, sharpening, denoise_iter=50, denoise_3d=False):
+def mc_preprocess(image, px, py, pz, factor, sigma_mm, sharpening, denoise, denoise_iter=50, denoise_3d=False,
+                  progress_cb=None, status_cb=None):
 	"""TV denoising → Z-upsampling → Gaussian anti-aliasing → subsampling.
 
 	Returns
@@ -33,8 +34,14 @@ def mc_preprocess(image, px, py, pz, factor, sigma_mm, denoise, sharpening, deno
 		norm      = (image - img_min) / img_range
 
 		print(f"[MC] denoising 3D TV (iter={denoise_iter})...")
+		if status_cb is not None:
+			status_cb(f"Preprocessing: denoising 3D TV (iter={denoise_iter})...")
+		if progress_cb is not None:
+			progress_cb(15)
 		norm  = denoise_tv_chambolle(norm, weight=0.02, max_num_iter=denoise_iter)
 		image = (norm * img_range + img_min).astype(np.float32)
+		if progress_cb is not None:
+			progress_cb(55)
 
 	elif denoise:
 		from concurrent.futures import ProcessPoolExecutor
@@ -48,6 +55,10 @@ def mc_preprocess(image, px, py, pz, factor, sigma_mm, denoise, sharpening, deno
 		n_slices  = image.shape[0]
 		n_workers = min(os.cpu_count() or 1, n_slices)
 		print(f"[MC] denoising {n_slices} slices (TV 2D, iter={denoise_iter}, workers={n_workers})...")
+		if status_cb is not None:
+			status_cb(f"Preprocessing: denoising {n_slices} slices...")
+		if progress_cb is not None:
+			progress_cb(10)
 
 		tasks = [(i, norm[i].copy(), 0.02, denoise_iter) for i in range(n_slices)]
 		done  = 0
@@ -57,14 +68,25 @@ def mc_preprocess(image, px, py, pz, factor, sigma_mm, denoise, sharpening, deno
 				done += 1
 				if done % 50 == 0 or done == n_slices:
 					print(f"[MC]   slice {done}/{n_slices}")
+					if status_cb is not None:
+						status_cb(f"Preprocessing: slice {done}/{n_slices}")
+				if progress_cb is not None:
+					progress_cb(10 + int(done / max(n_slices, 1) * 45))
 
 		image = (norm * img_range + img_min).astype(np.float32)
+	else:
+		if progress_cb is not None:
+			progress_cb(55)
 
 	xy_spacing = 0.5 * (px + py)
 	zoom_z     = pz / xy_spacing
 
 	if zoom_z > 1.5:
 		from scipy.ndimage import zoom as nd_zoom
+		if status_cb is not None:
+			status_cb(f"Preprocessing: Z upsampling {zoom_z:.2f}x...")
+		if progress_cb is not None:
+			progress_cb(65)
 		image  = nd_zoom(image, [zoom_z, 1.0, 1.0], order=3)
 		pz_eff = xy_spacing
 		print(f"Z upsampling: {zoom_z:.2f}x  ({pz:.3f}mm -> {pz_eff:.3f}mm)")
@@ -77,12 +99,23 @@ def mc_preprocess(image, px, py, pz, factor, sigma_mm, denoise, sharpening, deno
 		if sigma_mm is None or sigma_mm <= 0.0:
 			sigma_mm = 0.8 * xy_spacing
 		sigma = (sigma_mm / pz_eff, sigma_mm / py, sigma_mm / px)
+		if status_cb is not None:
+			status_cb("Preprocessing: gaussian anti-aliasing...")
+		if progress_cb is not None:
+			progress_cb(80)
 		image = gaussian_filter(image, sigma=sigma)
 
 	image_full = image.copy() if sharpening else None
 
 	if factor > 1:
+		if status_cb is not None:
+			status_cb(f"Preprocessing: subsampling x{factor}...")
+		if progress_cb is not None:
+			progress_cb(92)
 		image = image[::factor, ::factor, ::factor]
+
+	if progress_cb is not None:
+		progress_cb(100)
 
 	return image, image_full, zoom_z, pz_eff
 

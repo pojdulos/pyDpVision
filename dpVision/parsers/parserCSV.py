@@ -1,5 +1,5 @@
 
-from .. import Parser, AP, BaseObject, PointCloud, NDimCloud, GridData64
+from .. import ThreadedParser, AP, BaseObject, PointCloud, NDimCloud, GridData64
 
 import numpy as np
 import os
@@ -262,24 +262,20 @@ class CSVLoaderWorker(QObject):
 			if self._is_running:
 				final_df = pd.concat(df_list, ignore_index=True)
 				self.loadingFinished.emit(final_df)
+			else:
+				self.errorOccurred.emit("Przerwano")
 		except Exception as e:
 			self.errorOccurred.emit(str(e))
 
 
-class ParserCSV(Parser):
-	loadingFinished = pyqtSignal(BaseObject) #pd.DataFrame)  # sygnał, kiedy wszystko wczytane
-	errorOccurred = pyqtSignal() #str)
-
+class ParserCSV(ThreadedParser):
 	descr = 'CSV files'
 	load_exts = ['.csv','.dat','.txt']
 	#save_exts = ['.csv']
 
 	def __init__(self, path):
-		super( ParserCSV, self ).__init__()
-		self.path = path
+		super().__init__(path, CSVLoaderWorker(path), 'load_csv', "Wczytywanie pliku CSV")
 		self.round_decimals = detect_decimals_in_csv_xy(path)
-		self._thread = QThread()
-		self._worker = CSVLoaderWorker(path)
 
 	def looks_like_grid(self, df, tol=5e-3, frac_threshold=0.80, completeness_threshold=0.25):
 		x = df.iloc[:,0].round(self.round_decimals).values
@@ -492,48 +488,12 @@ class ParserCSV(Parser):
 		return self.dataframe_to_pointcloud(vertices)
 
 
-	def on_loading_finished(self, dataframe):
-		self._thread.quit()
-		self._thread.wait()
-		self._worker.deleteLater()
-		self._thread.deleteLater()
-
+	def _transform_loaded_data(self, dataframe):
 		print("Dane załadowane!", dataframe.shape)
+		return self.dataframe_to_object(dataframe)
 
-		obj = self.dataframe_to_object(dataframe)
-		self.loadingFinished.emit(obj)
-
-	def on_loading_error(self, error_message):
-		self._thread.quit()
-		self._thread.wait()
-		self._worker.deleteLater()
-		self._thread.deleteLater()
-
-		print("Błąd podczas wczytywania:", error_message)
-		self.errorOccurred.emit()
-
-	def on_stop_loading(self):
-		self._worker.stop()
-
-		self._thread.quit()
-		self._thread.wait()
-		self._worker.deleteLater()
-		self._thread.deleteLater()
-		self.deleteLater()
-		print("Przerwano wczytywanie!")
-
-
-	def load_async(self, progressBar=None):
-		self._worker.moveToThread(self._thread)
-		self._thread.started.connect(self._worker.load_csv)
-			
-		if not progressBar is None:
-			self._worker.progressChanged.connect(progressBar.setValue)
-		
-		self._worker.loadingFinished.connect(self.on_loading_finished)
-		self._worker.errorOccurred.connect(self.on_loading_error)
-
-		self._thread.start()
+	def _error_prefix(self):
+		return "Błąd podczas wczytywania CSV"
 
 
 	@staticmethod	

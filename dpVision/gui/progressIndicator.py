@@ -10,8 +10,9 @@ class ProgressIndicator(QWidget):
 		super( ProgressIndicator, self ).__init__( parent )
 		#uic.loadUi('dpVision/gui/forms/progressIndicator.ui', self)
 		AP.loadUi('progressIndicator.ui', self)
-		self.cancelButton = QPushButton()
 		self.actionCancelled = False
+		if hasattr(self, 'cancelButton'):
+			self.cancelButton.clicked.connect(self.onCancelButton)
 
 	def init(self, min=0, max=100, val=0, text = ""):
 		self.progressBar.setMinimum(min)
@@ -21,6 +22,14 @@ class ProgressIndicator(QWidget):
 		#self.cancelButton.hide()
 		self.actionCancelled = False
 		self.show()
+
+	def setCancelVisible(self, visible):
+		if hasattr(self, 'cancelButton'):
+			self.cancelButton.setVisible(bool(visible))
+
+	@pyqtSlot(int, int, int, str)
+	def start(self, min_value=0, max_value=100, value=0, text=""):
+		self.init(min=min_value, max=max_value, val=value, text=text)
 
 	def onCancelButton(self):
 		self.workInfo.setText("Cancelling ! Please wait...")
@@ -41,3 +50,7 @@ class ProgressIndicator(QWidget):
 
 	def setText(self, text):
 		self.workInfo.setText(text)
+
+	@pyqtSlot()
+	def finish(self):
+		self.hide()

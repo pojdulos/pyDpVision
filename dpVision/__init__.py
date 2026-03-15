@@ -22,6 +22,7 @@ from .mesh import Face, Mesh
 from .motion import Motion
 from .object import Object
 from .parser import Parser
+from .parser import ThreadedParser
 from .pluginInterface import PluginInterface
 from .pointCloud import Vertex, PointCloud
 from .prosta import Prosta, Prosta3D, intersection_point, intersection_point2
@@ -45,6 +46,7 @@ __all__ = [
 			"Face", "Mesh",
 			"Motion", "NDimCloud", "Object",
 			"Parser",
+			"ThreadedParser",
 			"PluginInterface",
 			"Vertex", "PointCloud",
 			"Prosta", "Prosta3D", "intersection_point", "intersection_point2",

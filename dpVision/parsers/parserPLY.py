@@ -1,4 +1,4 @@
-from .. import Parser, Mesh, PointCloud, BaseObject
+from .. import ThreadedParser, Mesh, PointCloud, BaseObject
 
 import os
 import struct
@@ -29,19 +29,30 @@ PLY_TO_STRUCT = {
 }
 
 
-def _parse_ply_header(path):
+class _PLYLoadCancelled(Exception):
+    pass
+
+
+def _ensure_running(is_running):
+    if is_running is not None and not is_running():
+        raise _PLYLoadCancelled()
+
+
+def _parse_ply_header(path, is_running=None):
     elements = []
     current_element = None
     fmt = None
     header_size = 0
 
     with open(path, 'rb') as f:
+        _ensure_running(is_running)
         first = f.readline()
         if first.strip() != b'ply':
             raise ValueError("To nie jest plik PLY")
         header_size += len(first)
 
         while True:
+            _ensure_running(is_running)
             line = f.readline()
             if not line:
                 raise ValueError("Niekompletny nagłówek PLY")
@@ -85,10 +96,28 @@ def _parse_ply_header(path):
     return fmt, elements, header_size
 
 
-def _read_ascii_element(lines, start_idx, element):
+def _make_element_progress_cb(progress_cb, start_pct, end_pct, total_rows):
+    if progress_cb is None or total_rows <= 0:
+        return None
+
+    span = max(end_pct - start_pct, 0)
+    last_pct = {'value': start_pct - 1}
+
+    def _cb(done_rows):
+        pct = start_pct + int(min(done_rows, total_rows) / total_rows * span)
+        if pct > last_pct['value']:
+            last_pct['value'] = pct
+            progress_cb(pct)
+
+    return _cb
+
+
+def _read_ascii_element(lines, start_idx, element, row_progress_cb=None, is_running=None):
     rows = []
     idx = start_idx
-    for _ in range(element['count']):
+    report_step = max(element['count'] // 100, 1024)
+    for row_idx in range(element['count']):
+        _ensure_running(is_running)
         parts = lines[idx].strip().split()
         idx += 1
         cursor = 0
@@ -107,26 +136,54 @@ def _read_ascii_element(lines, start_idx, element):
                 cursor += n_items
                 row[prop['name']] = values
         rows.append(row)
+        if row_progress_cb and ((row_idx + 1) % report_step == 0 or row_idx + 1 == element['count']):
+            row_progress_cb(row_idx + 1)
     return rows, idx
 
 
-def _read_binary_scalar_array(f, element, endian):
+def _read_binary_scalar_array(f, element, endian, row_progress_cb=None, is_running=None):
     dtype_fields = []
     for prop in element['properties']:
         if prop['kind'] != 'scalar':
             return None
         dtype_fields.append((prop['name'], endian + np.dtype(PLY_TO_NUMPY[prop['type']]).str[1:]))
     dtype = np.dtype(dtype_fields)
-    return np.fromfile(f, dtype=dtype, count=element['count'])
+    if element['count'] <= 0:
+        return np.empty((0,), dtype=dtype)
+
+    chunks = []
+    remaining = element['count']
+    done = 0
+    chunk_size = min(65536, element['count'])
+    while remaining > 0:
+        _ensure_running(is_running)
+        current = min(chunk_size, remaining)
+        chunk = np.fromfile(f, dtype=dtype, count=current)
+        if len(chunk) != current:
+            raise ValueError(f"Niekompletny binarny element '{element['name']}'")
+        chunks.append(chunk)
+        done += current
+        remaining -= current
+        if row_progress_cb is not None:
+            row_progress_cb(done)
+    return np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
 
 
-def _read_binary_element(f, element, endian):
-    scalar_data = _read_binary_scalar_array(f, element, endian)
+def _read_binary_element(f, element, endian, row_progress_cb=None, is_running=None):
+    scalar_data = _read_binary_scalar_array(
+        f,
+        element,
+        endian,
+        row_progress_cb=row_progress_cb,
+        is_running=is_running,
+    )
     if scalar_data is not None:
         return scalar_data
 
     rows = []
-    for _ in range(element['count']):
+    report_step = max(element['count'] // 100, 1024)
+    for row_idx in range(element['count']):
+        _ensure_running(is_running)
         row = {}
         for prop in element['properties']:
             if prop['kind'] == 'scalar':
@@ -142,6 +199,8 @@ def _read_binary_element(f, element, endian):
                     values.append(struct.unpack(item_fmt, f.read(item_size))[0])
                 row[prop['name']] = values
         rows.append(row)
+        if row_progress_cb and ((row_idx + 1) % report_step == 0 or row_idx + 1 == element['count']):
+            row_progress_cb(row_idx + 1)
     return rows
 
 
@@ -234,8 +293,8 @@ def _triangulate_faces(face_rows):
     return np.asarray(triangles, dtype=np.int64)
 
 
-def _load_ply_data(path, progress_cb=None, status_cb=None):
-    fmt, elements, header_size = _parse_ply_header(path)
+def _load_ply_data(path, progress_cb=None, status_cb=None, is_running=None):
+    fmt, elements, header_size = _parse_ply_header(path, is_running=is_running)
     if status_cb:
         status_cb("Czytam nagłówek PLY...")
     if progress_cb:
@@ -244,9 +303,11 @@ def _load_ply_data(path, progress_cb=None, status_cb=None):
     element_data = {}
     if fmt == 'ascii':
         with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            _ensure_running(is_running)
             lines = f.readlines()
         header_lines = 0
         for line in lines:
+            _ensure_running(is_running)
             header_lines += 1
             if line.strip() == 'end_header':
                 break
@@ -254,26 +315,44 @@ def _load_ply_data(path, progress_cb=None, status_cb=None):
         for i, element in enumerate(elements):
             if status_cb:
                 status_cb(f"Czytam element '{element['name']}'...")
-            rows, idx = _read_ascii_element(lines, idx, element)
+            start_pct = 10 + int(i / max(len(elements), 1) * 70)
+            end_pct = 10 + int((i + 1) / max(len(elements), 1) * 70)
+            rows, idx = _read_ascii_element(
+                lines,
+                idx,
+                element,
+                row_progress_cb=_make_element_progress_cb(progress_cb, start_pct, end_pct, element['count']),
+                is_running=is_running,
+            )
             element_data[element['name']] = rows
             if progress_cb:
-                progress_cb(10 + int((i + 1) / max(len(elements), 1) * 70))
+                progress_cb(end_pct)
     else:
         endian = '<' if fmt == 'binary_little_endian' else '>'
         with open(path, 'rb') as f:
             f.seek(header_size)
             for i, element in enumerate(elements):
+                _ensure_running(is_running)
                 if status_cb:
                     status_cb(f"Czytam element '{element['name']}'...")
-                element_data[element['name']] = _read_binary_element(f, element, endian)
+                start_pct = 10 + int(i / max(len(elements), 1) * 70)
+                end_pct = 10 + int((i + 1) / max(len(elements), 1) * 70)
+                element_data[element['name']] = _read_binary_element(
+                    f,
+                    element,
+                    endian,
+                    row_progress_cb=_make_element_progress_cb(progress_cb, start_pct, end_pct, element['count']),
+                    is_running=is_running,
+                )
                 if progress_cb:
-                    progress_cb(10 + int((i + 1) / max(len(elements), 1) * 70))
+                    progress_cb(end_pct)
 
     vertex_element = next((e for e in elements if e['name'] == 'vertex'), None)
     if vertex_element is None or 'vertex' not in element_data:
         raise ValueError("PLY nie zawiera elementu 'vertex'")
 
     vertex_data = _rows_to_vertex_dict(element_data['vertex'], vertex_element)
+    _ensure_running(is_running)
     vertices = _extract_vertices(vertex_data)
     normals = _extract_normals(vertex_data)
     colors = _extract_colors(vertex_data)
@@ -302,6 +381,7 @@ def _load_ply_data(path, progress_cb=None, status_cb=None):
             progress_cb(100)
         return mesh
 
+    _ensure_running(is_running)
     cloud = PointCloud()
     cloud.m_vertices = np.ascontiguousarray(vertices, dtype=np.float32)
     if normals.shape[0] == vertices.shape[0]:
@@ -386,31 +466,31 @@ class PLYLoaderWorker(QObject):
         try:
             obj = _load_ply_data(
                 self.path,
-                progress_cb=self.progressChanged.emit if self._is_running else None,
-                status_cb=self.statusChanged.emit if self._is_running else None,
+                progress_cb=self.progressChanged.emit,
+                status_cb=self.statusChanged.emit,
+                is_running=lambda: self._is_running,
             )
+            if not self._is_running:
+                self.errorOccurred.emit("Przerwano")
+                return
             obj.label = os.path.basename(self.path)
             if self._is_running:
                 self.loadingFinished.emit(obj)
+        except _PLYLoadCancelled:
+            self.errorOccurred.emit("Przerwano")
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.errorOccurred.emit(str(e))
 
 
-class ParserPLY(Parser):
-    loadingFinished = pyqtSignal(BaseObject)
-    errorOccurred = pyqtSignal()
-
+class ParserPLY(ThreadedParser):
     descr = 'PLY files'
     load_exts = ['.ply']
     save_exts = ['.ply']
 
     def __init__(self, path):
-        super().__init__()
-        self.path = path
-        self._thread = QThread()
-        self._worker = PLYLoaderWorker(path)
+        super().__init__(path, PLYLoaderWorker(path), 'load_ply', "Wczytywanie pliku PLY")
 
     @classmethod
     def is_not_static(cls):
@@ -420,37 +500,12 @@ class ParserPLY(Parser):
     def canSaveObject(cls, obj):
         return any(True for _ in _iter_exportable_nodes(obj))
 
-    def on_loading_finished(self, obj):
-        self._thread.quit()
-        self._thread.wait()
-        self._worker.deleteLater()
-        self._thread.deleteLater()
-        self.loadingFinished.emit(obj)
+    @classmethod
+    def supports_save_progress(cls):
+        return True
 
-    def on_loading_error(self, msg):
-        self._thread.quit()
-        self._thread.wait()
-        self._worker.deleteLater()
-        self._thread.deleteLater()
-        print(f"Blad wczytywania PLY: {msg}")
-        self.errorOccurred.emit()
-
-    def on_stop_loading(self):
-        self._worker.stop()
-        self._thread.quit()
-        self._thread.wait()
-        self._worker.deleteLater()
-        self._thread.deleteLater()
-        self.deleteLater()
-
-    def load_async(self, progressBar=None):
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.load_ply)
-        if progressBar is not None:
-            self._worker.progressChanged.connect(progressBar.setValue)
-        self._worker.loadingFinished.connect(self.on_loading_finished)
-        self._worker.errorOccurred.connect(self.on_loading_error)
-        self._thread.start()
+    def _error_prefix(self):
+        return "Blad wczytywania PLY"
 
     @staticmethod
     def load(path):
@@ -463,11 +518,16 @@ class ParserPLY(Parser):
             return None
 
     @staticmethod
-    def save(obj, path):
+    def save(obj, path, progress_cb=None, status_cb=None):
         nodes = list(_iter_exportable_nodes(obj))
         if not nodes:
             print("ParserPLY.save: brak obiektow do zapisu")
             return False
+
+        if status_cb:
+            status_cb("PrzygotowujÄ™ dane do zapisu PLY...")
+        if progress_cb:
+            progress_cb(5)
 
         vertices_parts = []
         normals_parts = []
@@ -480,7 +540,8 @@ class ParserPLY(Parser):
         has_texcoords = False
         vertex_offset = 0
 
-        for node in nodes:
+        total_nodes = max(len(nodes), 1)
+        for node_idx, node in enumerate(nodes, start=1):
             if len(getattr(node, 'm_vertices', [])) == 0:
                 continue
             matrix = np.asarray(node.getGlobalTransformation(), dtype=np.float64)
@@ -509,11 +570,15 @@ class ParserPLY(Parser):
                 faces = np.asarray(node.m_faces, dtype=np.int64) + vertex_offset
                 faces_parts.append(faces)
             vertex_offset += len(vertices)
+            if progress_cb:
+                progress_cb(5 + int(node_idx / total_nodes * 35))
 
         if not vertices_parts:
             print("ParserPLY.save: brak wierzcholkow do zapisu")
             return False
 
+        if status_cb:
+            status_cb("Scalam dane PLY...")
         vertices = np.vstack(vertices_parts).astype(np.float32)
         total_vertices = vertices.shape[0]
 
@@ -554,6 +619,8 @@ class ParserPLY(Parser):
         faces = np.vstack(faces_parts).astype(np.int64) if faces_parts else np.empty((0, 3), dtype=np.int64)
 
         try:
+            if status_cb:
+                status_cb("ZapisujÄ™ nagĹ‚Ăłwek PLY...")
             with open(path, 'w', encoding='utf-8', newline='\n') as f:
                 f.write("ply\n")
                 f.write("format ascii 1.0\n")
@@ -578,7 +645,10 @@ class ParserPLY(Parser):
                     f.write(f"element face {len(faces)}\n")
                     f.write("property list uchar int vertex_indices\n")
                 f.write("end_header\n")
+                if progress_cb:
+                    progress_cb(55)
 
+                total_vertices_safe = max(len(vertices), 1)
                 for i, vert in enumerate(vertices):
                     parts = [f"{vert[0]:.6f}", f"{vert[1]:.6f}", f"{vert[2]:.6f}"]
                     if has_normals:
@@ -592,9 +662,19 @@ class ParserPLY(Parser):
                     if has_texcoords:
                         parts.extend([f"{merged_texcoords[i, 0]:.6f}", f"{merged_texcoords[i, 1]:.6f}"])
                     f.write(" ".join(parts) + "\n")
+                    if progress_cb and ((i + 1) % max(total_vertices_safe // 100, 1024) == 0 or i + 1 == total_vertices_safe):
+                        progress_cb(55 + int((i + 1) / total_vertices_safe * 35))
 
-                for face in faces:
+                if status_cb and len(faces):
+                    status_cb("ZapisujÄ™ face'y PLY...")
+                total_faces_safe = max(len(faces), 1)
+                for face_idx, face in enumerate(faces, start=1):
                     f.write(f"3 {int(face[0])} {int(face[1])} {int(face[2])}\n")
+                    if progress_cb and len(faces):
+                        if face_idx % max(total_faces_safe // 10, 1024) == 0 or face_idx == total_faces_safe:
+                            progress_cb(90 + int(face_idx / total_faces_safe * 10))
+            if progress_cb:
+                progress_cb(100)
             return True
         except Exception as e:
             print(f"ParserPLY.save: blad zapisu PLY: {e}")

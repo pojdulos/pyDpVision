@@ -42,6 +42,10 @@ class ParserDPV(Parser):
         return cls._is_supported_tree(obj)
 
     @classmethod
+    def supports_save_progress(cls):
+        return True
+
+    @classmethod
     def _is_supported_tree(cls, obj):
         if not cls._is_supported_node(obj):
             return False
@@ -49,6 +53,15 @@ class ParserDPV(Parser):
             if not cls._is_supported_tree(child):
                 return False
         return True
+
+    @classmethod
+    def _count_supported_nodes(cls, obj):
+        if obj is None:
+            return 0
+        count = 1 if cls._is_supported_node(obj) else 0
+        for child in obj.children():
+            count += cls._count_supported_nodes(child)
+        return count
 
     @staticmethod
     def _is_supported_node(obj):
@@ -297,12 +310,14 @@ class ParserDPV(Parser):
             return None
 
     @classmethod
-    def save(cls, obj, path):
+    def save(cls, obj, path, progress_cb=None, status_cb=None):
         if not cls.canSaveObject(obj):
             print("ParserDPV.save: unsupported object tree")
             return False
 
         counter = 0
+        total_nodes = max(cls._count_supported_nodes(obj), 1)
+        processed_nodes = 0
 
         def next_id():
             nonlocal counter
@@ -310,12 +325,16 @@ class ParserDPV(Parser):
             return format(counter, "x")
 
         def save_node(node, workspace_elem, parent_id="", rel_dir=""):
+            nonlocal processed_nodes
             obj_id = next_id()
             if isinstance(node, Annotation):
                 elem = ET.SubElement(workspace_elem, "object")
                 elem.set("class", "annotation")
                 cls._set_common_fields(elem, node, obj_id, parent_id)
                 cls._write_annotation(elem, node)
+                processed_nodes += 1
+                if progress_cb:
+                    progress_cb(5 + int(processed_nodes / total_nodes * 55))
                 return obj_id
 
             elem = ET.SubElement(workspace_elem, "object")
@@ -337,6 +356,8 @@ class ParserDPV(Parser):
                 node_dir = Path(temp_dir, rel_dir)
                 node_dir.mkdir(parents=True, exist_ok=True)
                 export_node = cls._clone_geometry_node(node)
+                if status_cb:
+                    status_cb(f"EksportujÄ™ geometriÄ™ {getattr(node, 'label', obj_id)} do OBJ...")
                 ParserOBJ.save(export_node, str(node_dir / f"{obj_id}.obj"))
 
                 texture_name = None
@@ -349,6 +370,10 @@ class ParserDPV(Parser):
             else:
                 raise TypeError(f"Unsupported object type: {type(node).__name__}")
 
+            processed_nodes += 1
+            if progress_cb:
+                progress_cb(5 + int(processed_nodes / total_nodes * 55))
+
             child_rel_dir = f"{rel_dir}{obj_id}/"
             for child in node.children():
                 save_node(child, workspace_elem, obj_id, child_rel_dir)
@@ -356,19 +381,35 @@ class ParserDPV(Parser):
 
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
+                if status_cb:
+                    status_cb("BudujÄ™ strukturÄ™ archiwum dpVision...")
+                if progress_cb:
+                    progress_cb(5)
                 workspace = ET.Element("workspace", {"mode": "current"})
                 save_node(obj, workspace)
                 workspace.set("count", str(len(workspace.findall("object"))))
 
                 xml_bytes = ET.tostring(workspace, encoding="utf-8", xml_declaration=True)
+                if progress_cb:
+                    progress_cb(65)
 
                 with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    if status_cb:
+                        status_cb("PakujÄ™ structure.xml...")
                     archive.writestr("structure.xml", xml_bytes)
-                    for file_path in Path(temp_dir).rglob("*"):
+                    files_to_pack = [file_path for file_path in Path(temp_dir).rglob("*") if file_path.is_file()]
+                    total_files = max(len(files_to_pack), 1)
+                    for file_idx, file_path in enumerate(files_to_pack, start=1):
                         if not file_path.is_file():
                             continue
                         rel_path = file_path.relative_to(temp_dir).as_posix()
+                        if status_cb:
+                            status_cb(f"PakujÄ™ {rel_path}...")
                         archive.write(file_path, rel_path)
+                        if progress_cb:
+                            progress_cb(65 + int(file_idx / total_files * 35))
+                if progress_cb:
+                    progress_cb(100)
             return True
         except Exception as exc:
             print(f"ParserDPV.save failed: {exc}")

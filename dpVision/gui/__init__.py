@@ -8,6 +8,8 @@ from .dockWidgetPluginPanel import DockWidgetPluginPanel
 from .dockWidgetProperties import DockWidgetProperties
 from .dockWidgetWorkspace import DockWidgetWorkspace
 from .gLViewer import GLViewer
+from .loadTaskManager import LoadTaskManager
+from .taskManager import TaskManager, BaseTaskRunner, FunctionTaskRunner, ParserLoadTaskRunner, ParserSaveTaskRunner
 from .mainWindow import MainWindow
 from .mdiChild import MdiChild
 from .progressIndicator import ProgressIndicator
@@ -28,6 +30,8 @@ __all__ = [
 			"DialogSiftParameters", "DialogVolumetricMetadata",
 			"DockWidgetPluginList", "DockWidgetPluginPanel", "DockWidgetProperties", "DockWidgetWorkspace",
 			"GLViewer",
+			"TaskManager", "BaseTaskRunner", "FunctionTaskRunner", "ParserLoadTaskRunner", "ParserSaveTaskRunner",
+			"LoadTaskManager",
 			"MainWindow",
 			"MdiChild",
 			"ProgressIndicator",

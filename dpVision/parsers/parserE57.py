@@ -267,23 +267,26 @@ class ParserE57(Parser):
         return any(True for _ in _iter_sphere_grids(obj))
 
     def _on_finished(self, obj):
+        self._emit_progress_finished()
         self.loadingFinished.emit(obj)
 
     def _on_error(self, msg):
+        self._emit_progress_finished()
         print(f"B\u0142\u0105d wczytywania E57: {msg}", flush=True)
         self.errorOccurred.emit()
 
     def on_stop_loading(self):
         if self._worker:
             self._worker.stop()
+        self._emit_progress_finished()
 
     def load_async(self, progressBar=None):
         print(f"parserE57.load_async() dla '{self.path}'", flush=True)
         self._worker = E57LoaderWorker(self.path)
+        self._emit_progress_started(0, 100, 0, "Wczytywanie pliku E57")
+        self._connect_worker_progress(self._worker)
         self._worker.loadingFinished.connect(self._on_finished)
         self._worker.errorOccurred.connect(self._on_error)
-        if progressBar is not None:
-            self._worker.progressChanged.connect(progressBar.setValue)
         self._worker.start()
 
     @staticmethod

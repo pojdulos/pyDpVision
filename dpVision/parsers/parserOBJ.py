@@ -5,19 +5,222 @@ Created on Mon Nov 27 12:58:12 2023
 @author: pojdulos
 """
 
-from .. import Parser, AP, PointCloud, Mesh
+from .. import ThreadedParser, PointCloud, Mesh
 
 import numpy as np
 import math
 import os
 import shutil
+from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from PyQt5.QtGui import *
 
 
-class ParserOBJ(Parser):
+class _OBJLoadCancelled(Exception):
+	pass
+
+
+def _ensure_running(is_running):
+	if is_running is not None and not is_running():
+		raise _OBJLoadCancelled()
+
+
+def _load_obj_data(path, progress_cb=None, status_cb=None, is_running=None):
+	def dodaj_scianki(mesh, _f0, _f1=None):
+		if len(_f0):
+			print("dodaje scianki " + str(len(_f0)))
+			f0 = []
+			for f in _f0:
+				_ensure_running(is_running)
+				f0.extend(mesh.triangulate(f) if len(f) > 3 else [f])
+			mesh.m_faces = np.array(f0, dtype=np.uint)
+
+			if _f1 is not None:
+				f1 = []
+				for t in _f1:
+					_ensure_running(is_running)
+					f1.extend(mesh.triangulate(t) if len(t) > 3 else [t])
+				mesh.m_tindices = np.array(f1, dtype=np.uint)
+
+	if status_cb is not None:
+		status_cb("Wczytywanie pliku .obj")
+
+	total_lines = max(ParserOBJ.count_lines(path), 1)
+	step = max(float(total_lines) / 100.0, 1.0)
+
+	with open(path, 'r', encoding='utf-8', errors='replace') as objFile:
+		mesh = Mesh()
+
+		vces = []
+		vnorms = []
+		vcols = []
+		tcrds = []
+		f0 = []
+		f1 = []
+		f2 = []
+		b1 = True
+		b2 = True
+
+		count = 0
+		nxtcnt = step
+		last_pct = -1
+		for line in objFile:
+			if is_running is not None and not is_running():
+				return None
+
+			count += 1
+			if count >= nxtcnt:
+				pct = min(int(count / total_lines * 100), 100)
+				if progress_cb is not None and pct != last_pct:
+					last_pct = pct
+					progress_cb(pct)
+				nxtcnt += step
+
+			split = line.split()
+
+			if not len(split):
+				continue
+			elif split[0][0] == '#':
+				continue
+			elif split[0] == "v":
+				if len(split) >= 4:
+					x, y, z = map(float, split[1:4])
+					vces.append([x, y, z])
+					if len(split) >= 7:
+						r, g, b = map(float, split[4:7])
+						c = [round(r * 255, 0), round(g * 255, 0), round(b * 255, 0), 255]
+						vcols.append(c)
+			elif split[0] == "vt":
+				s, t = map(float, split[1:3])
+				tcrds.append([s, t])
+			elif split[0] == "vn":
+				x, y, z = map(float, split[1:4])
+				vnorms.append([x, y, z])
+			elif split[0] == "f":
+				str_values = [part.split(sep="/") for part in split[1:]]
+				values = [[row[i] for row in str_values] for i in range(len(str_values[0]))]
+				f0.append([int(i) - 1 for i in values[0]])
+
+				if b1 and len(values) > 1:
+					try:
+						f1.append([int(i) - 1 for i in values[1]])
+					except ValueError:
+						b1 = False
+
+				if b2 and len(values) > 2:
+					try:
+						f2.append([int(i) - 1 for i in values[2]])
+					except ValueError:
+						b2 = False
+			elif split[0] == 'mtllib':
+				_ensure_running(is_running)
+				ParserOBJ.parseMtlFile(mesh, split[1], os.path.dirname(path))
+			elif split[0] == 'usemtl':
+				_ensure_running(is_running)
+				if split[1] in mesh.materials:
+					mesh.currentMaterial = split[1]
+					imgFile = mesh.materials[mesh.currentMaterial].dTexFileName
+					if not os.path.exists(imgFile):
+						imgFile = os.path.dirname(path) + '/' + imgFile
+						if not os.path.exists(imgFile):
+							print('Plik tekstury nie istnieje')
+							continue
+					source_image = QImage(imgFile)
+					mesh.materials[mesh.currentMaterial].dTexFileName = imgFile
+					mesh.materials[mesh.currentMaterial].dTexImage = source_image.copy()
+					mesh.materials[mesh.currentMaterial].dTexture = QOpenGLTexture(source_image.mirrored())
+			elif split[0] in ('o', 'g', 's', 'p', 'l'):
+				continue
+			else:
+				print(split)
+				continue
+
+	print("dodaje wierzcholki " + str(len(vces)))
+	_ensure_running(is_running)
+	vertices = np.array(vces, dtype=np.float32)
+	mesh.m_vertices = vertices
+
+	dodaj_scianki(mesh, f0, f1)
+	if not len(mesh.m_faces):
+		pc = PointCloud()
+		pc.label = os.path.basename(path)
+		pc.m_vertices = vertices
+		if len(vnorms):
+			pc.m_vnormals = np.array(vnorms, dtype=np.float32)
+		if len(vcols):
+			pc.m_vcolors = np.array(vcols, dtype=np.ubyte)
+		if progress_cb is not None:
+			progress_cb(100)
+		return pc
+
+	if len(vnorms):
+		print("dodaje normalne " + str(len(vnorms)))
+		mesh.m_vnormals = np.array(vnorms, dtype=np.float32)
+	else:
+		_ensure_running(is_running)
+		mesh.calcVN()
+		print("obliczam normalne " + str(len(mesh.m_vnormals)))
+
+	if len(vcols):
+		_ensure_running(is_running)
+		print("dodaje kolory " + str(len(vcols)))
+		mesh.m_vcolors = np.array(vcols, dtype=np.ubyte)
+
+	if len(tcrds):
+		_ensure_running(is_running)
+		print("dodaje koordynaty tekstury " + str(len(tcrds)))
+		mesh.m_tcoords = np.array(tcrds, dtype=np.float32)
+
+	if progress_cb is not None:
+		progress_cb(100)
+	return mesh
+
+
+class OBJLoaderWorker(QObject):
+	progressChanged = pyqtSignal(int)
+	statusChanged = pyqtSignal(str)
+	loadingFinished = pyqtSignal(object)
+	errorOccurred = pyqtSignal(str)
+
+	def __init__(self, path):
+		super().__init__()
+		self.path = path
+		self._is_running = True
+
+	def stop(self):
+		self._is_running = False
+
+	def load_obj(self):
+		try:
+			obj = _load_obj_data(
+				self.path,
+				progress_cb=self.progressChanged.emit,
+				status_cb=self.statusChanged.emit,
+				is_running=lambda: self._is_running,
+			)
+			if obj is not None and self._is_running:
+				obj.label = os.path.basename(self.path)
+				self.loadingFinished.emit(obj)
+			elif not self._is_running:
+				self.errorOccurred.emit("Przerwano")
+		except _OBJLoadCancelled:
+			self.errorOccurred.emit("Przerwano")
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			self.errorOccurred.emit(str(e))
+
+
+class ParserOBJ(ThreadedParser):
 	descr = 'OBJ files'
 	load_exts = ['.obj']
 	save_exts = ['.obj']
+
+	def __init__(self, path):
+		super().__init__(path, OBJLoaderWorker(path), 'load_obj', "Wczytywanie pliku OBJ")
+
+	@classmethod
+	def is_not_static(cls):
+		return True
 
 	@staticmethod
 	def _iter_exportable_nodes(node):
@@ -151,6 +354,10 @@ class ParserOBJ(Parser):
 	@classmethod
 	def canSaveObject(cls, obj):
 		return any(True for _ in cls._iter_exportable_nodes(obj))
+
+	@classmethod
+	def supports_save_progress(cls):
+		return True
 	
 	@staticmethod	
 	def parseMtlFile(mesh, path, dirname=""):
@@ -209,181 +416,32 @@ class ParserOBJ(Parser):
 		with open(path, 'r') as file:
 			return sum(1 for _ in file)
 
+	def _error_prefix(self):
+		return "Blad wczytywania OBJ"
+
 	@staticmethod	
 	def load( path ):
-		def dodaj_scianki(_f0, _f1=None, f2=None):
-			if len(_f0):
-				print( "dodajÄ™ scianki "+str(len(_f0)) )
-				f0 = [mesh.triangulate(f) if len(f) > 3 else [f] for f in _f0]
-				f0 = [item for sublist in f0 for item in sublist]
-				mesh.m_faces = np.array(f0, dtype=np.uint)
-
-				if _f1 is not None:
-					f1 = [mesh.triangulate(t) if len(t) > 3 else [t] for t in _f1]
-					f1 = [item for sublist in f1 for item in sublist]
-					mesh.m_tindices = np.array(f1, dtype=np.uint)
-		
-
-		if getattr(AP, 'mainWin', None) is None:
-			class _DummyProgressIndicator:
-				def init(self, *args, **kwargs):
-					pass
-
-				def increase(self, *args, **kwargs):
-					pass
-
-				def hide(self, *args, **kwargs):
-					pass
-
-			class _DummyMainWindow:
-				progressIndicator = _DummyProgressIndicator()
-
-			AP.mainWin = _DummyMainWindow()
-
-		AP.mainWin.progressIndicator.init(text="WczytujÄ™ plik .obj")
-		progress = getattr(getattr(AP, 'mainWin', None), 'progressIndicator', None)
-		if progress is not None:
-			progress.init(text="Wczytywanie pliku .obj")
-		total_lines = ParserOBJ.count_lines(path)
-		step = float(total_lines) / 100.0
-
-		objFile = open(path, 'r')
-
-		mesh = Mesh()
-		
-		vces = []
-		vnorms = []
-		vcols = []
-		tcrds = []
-		f0 = []
-		f1 = []
-		f2 = []
-		b1 = True
-		b2 = True
-
-		count = 0
-		nxtcnt = step
-		for line in objFile:
-			count = count+1
-			if count >= nxtcnt:
-				if progress is not None:
-					progress.increase()
-				nxtcnt = nxtcnt + step
-
-			split = line.split()
-			
-			if not len(split):
-				continue
-
-			elif split[0][0] == '#':
-				continue
-			
-			elif split[0] == "v":
-				if len(split) >= 4:
-					x, y, z = map(float, split[1:4])
-					vces.append([x,y,z])
-					if len(split) >= 7:
-						r,g,b = map(float, split[4:7])
-						c = [ round(r*255,0), round(g*255,0), round(b*255,0), 255 ]
-						vcols.append(c)
-			
-			elif split[0] == "vt":
-				s, t = map(float, split[1:3])
-				tcrds.append([s,t])
-
-			elif split[0] == "vn":
-				x, y, z = map(float, split[1:4])
-				vnorms.append([x,y,z])
-			
-			elif split[0] == "f":
-				str_values = []
-				for part in split[1:]:
-					str_values.append( part.split(sep="/") )
-
-				values = [[row[i] for row in str_values] for i in range(len(str_values[0]))]
-
-				f0.append([int(i)-1 for i in values[0]])
-
-				if b1 and len(values)>1:
-					try:
-						f1.append([int(i)-1 for i in values[1]])
-					except ValueError:
-						b1 = False
-				
-				if b2 and len(values)>2:
-					try:
-						f2.append([int(i)-1 for i in values[2]])
-					except ValueError:
-						b2 = False
-			
-			elif split[0] == 'mtllib':
-				ParserOBJ.parseMtlFile(mesh, split[1], os.path.dirname(path))
-
-			elif split[0] == 'usemtl':
-				if split[1] in mesh.materials:
-					mesh.currentMaterial = split[1]
-					imgFile = mesh.materials[mesh.currentMaterial].dTexFileName
-					if not os.path.exists(imgFile):
-						imgFile = os.path.dirname(path)+'/'+imgFile
-						if not os.path.exists(imgFile):
-							print('Plik tekstury nie istnieje')
-							continue
-					source_image = QImage(imgFile)
-					mesh.materials[mesh.currentMaterial].dTexFileName = imgFile
-					mesh.materials[mesh.currentMaterial].dTexImage = source_image.copy()
-					mesh.materials[mesh.currentMaterial].dTexture = QOpenGLTexture(source_image.mirrored())
-
-			elif split[0] in ('o', 'g', 's', 'p', 'l'):
-				continue
-
-			else:
-				print(split)
-				continue
-
-		print( "dodajÄ™ wierzcholki "+str(len(vces)) )
-		vertices = np.array(vces, dtype=np.float32)
-		mesh.m_vertices = vertices
-
-		dodaj_scianki(f0, f1)
-		if not len(mesh.m_faces):
-			pc = PointCloud()
-			pc.label = os.path.basename(path)
-			pc.m_vertices = vertices
-			if len(vnorms):
-				pc.m_vnormals = np.array(vnorms, dtype=np.float32)
-			if len(vcols):
-				pc.m_vcolors = np.array(vcols, dtype=np.ubyte)
-			if progress is not None:
-				progress.hide()
-			return pc
-
-		if len(vnorms):
-			print( "dodajÄ™ normalne "+str(len(vnorms)) )
-			mesh.m_vnormals = np.array(vnorms, dtype=np.float32)
-		else:
-			mesh.calcVN()
-			print( "obliczam normalne "+str(len(mesh.m_vnormals)) )
-
-		if len(vcols):
-			print( "dodajÄ™ kolory "+str(len(vcols)) )
-			mesh.m_vcolors = np.array(vcols, dtype=np.ubyte)
-
-		if len(tcrds):
-			print( "dodajÄ™ koordynaty tekstury "+str(len(tcrds)) )
-			mesh.m_tcoords = np.array(tcrds, dtype=np.float32)
-
-		if progress is not None:
-			progress.hide()
-		return mesh
+		try:
+			obj = _load_obj_data(path)
+			if obj is not None:
+				obj.label = os.path.basename(path)
+			return obj
+		except Exception as e:
+			print(f"Blad wczytywania OBJ: {e}")
+			return None
 	
 	@staticmethod	
-	def save( obj, path ):
+	def save( obj, path, progress_cb=None, status_cb=None ):
 		nodes = list(ParserOBJ._iter_exportable_nodes(obj))
 		if not nodes:
 			print("ParserOBJ.save: brak siatek lub chmur punktow do zapisu")
 			return False
 
 		try:
+			if status_cb:
+				status_cb("PrzygotowujÄ™ materiaĹ‚y OBJ...")
+			if progress_cb:
+				progress_cb(5)
 			obj_dir = os.path.dirname(os.path.abspath(path)) or os.getcwd()
 			obj_base_name = os.path.splitext(os.path.basename(path))[0]
 			mtl_name = obj_base_name + '.mtl'
@@ -392,9 +450,12 @@ class ParserOBJ(Parser):
 			materials = []
 			node_material_names = {}
 
-			for node in nodes:
+			total_nodes = max(len(nodes), 1)
+			for node_idx, node in enumerate(nodes, start=1):
 				material_export = ParserOBJ._collect_material_export(node, obj_dir, used_texture_names)
 				if material_export is None:
+					if progress_cb:
+						progress_cb(5 + int(node_idx / total_nodes * 15))
 					continue
 				base_name = material_export['name']
 				unique_name = base_name
@@ -406,8 +467,12 @@ class ParserOBJ(Parser):
 				material_export['name'] = unique_name
 				materials.append(material_export)
 				node_material_names[id(node)] = unique_name
+				if progress_cb:
+					progress_cb(5 + int(node_idx / total_nodes * 15))
 
 			with open(path, 'w', encoding='utf-8', newline='\n') as obj_file:
+				if status_cb:
+					status_cb("ZapisujÄ™ geometriÄ™ OBJ...")
 				obj_file.write("# .obj file created with pyDpVision\n\n")
 				if len(materials):
 					obj_file.write(f"mtllib {mtl_name}\n\n")
@@ -420,6 +485,8 @@ class ParserOBJ(Parser):
 					matrix = np.asarray(node.getGlobalTransformation(), dtype=np.float64)
 					vertices = ParserOBJ._transform_vertices(node.m_vertices, matrix)
 					if len(vertices) == 0:
+						if progress_cb:
+							progress_cb(20 + int(idx / total_nodes * 70))
 						continue
 
 					label = getattr(node, 'label', f'object_{idx}')
@@ -488,10 +555,16 @@ class ParserOBJ(Parser):
 						texcoord_offset += len(node.m_tcoords)
 					if has_normals:
 						normal_offset += len(vertices)
+					if progress_cb:
+						progress_cb(20 + int(idx / total_nodes * 70))
 
 			if len(materials):
+				if status_cb:
+					status_cb("ZapisujÄ™ plik MTL...")
 				ParserOBJ._write_mtl_file(mtl_path, materials)
 
+			if progress_cb:
+				progress_cb(100)
 			return True
 		except Exception as e:
 			print(f"ParserOBJ.save: blad zapisu OBJ: {e}")

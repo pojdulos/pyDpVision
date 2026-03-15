@@ -12,7 +12,7 @@ from .dockWidgetPluginList import DockWidgetPluginList
 from .dockWidgetPluginPanel import DockWidgetPluginPanel
 from .mdiChild import MdiChild
 from .gLViewer import GLViewer
-from .progressIndicator import ProgressIndicator
+from .taskManager import TaskManager, ParserLoadTaskRunner, ParserSaveTaskRunner
 import os
 import re
 
@@ -63,9 +63,8 @@ class MainWindow(QMainWindow):
 
 		self.dock["workspace"].rebuildTree()
 
-		self.progressIndicator = ProgressIndicator(self.statusBar)
-		self.progressIndicator.hide()
-		self.statusBar.addPermanentWidget(self.progressIndicator, 0)
+		self.taskManager = TaskManager(self)
+		self.loadTaskManager = self.taskManager
 
 		self.create_recent_files_menu()
 
@@ -252,23 +251,29 @@ class MainWindow(QMainWindow):
 
 
 	def load_file(self, fileName, on_success=None, on_error=None):
-		_on_success = on_success
-		_on_error = on_error
-		
-		def display_data(obj):
+		if not os.path.exists(fileName):
+			print(f"File not exists: {fileName}")
+			return False
+		runner = ParserLoadTaskRunner(fileName, parent=self.taskManager)
+		if runner.parser is None:
+			return False
+
+		def handle_success(obj):
 			if obj:
-				if isinstance(obj, list) and len(obj)>0:
+				if isinstance(obj, list) and len(obj) > 0:
 					tra = Transform()
 					for kid in obj:
 						tra.addChild(kid)
-				elif isinstance(obj, dpVision.BaseObject):
+				elif hasattr(obj, 'hasType'):
 					if obj.hasType('Transform'):
 						tra = obj
 					else:
 						tra = Transform()
 						tra.addChild(obj)
 				else:
-					return False
+					if on_error:
+						on_error(None)
+					return
 
 				tra.label = os.path.basename(fileName)
 				print(f"Loaded: {fileName} as {obj.__class__.__name__}, label: {tra.label}")
@@ -276,51 +281,33 @@ class MainWindow(QMainWindow):
 
 				self.workspace.m_data.append(tra)
 				self.dock["workspace"].addNewItem(tra)
+				self.update_recent_files(fileName)
+				from ..globals import AP
 				AP.updateAllViews()
 
-				self.update_recent_files(fileName)
+				if on_success:
+					on_success(obj)
+			elif on_error:
+				try:
+					on_error(None)
+				except TypeError:
+					on_error()
 
-				if _on_success:
-					_on_success(obj)
-				return True
+		def handle_error(error):
+			if on_error:
+				try:
+					on_error(error)
+				except TypeError:
+					on_error()
 
-			if _on_error: 
-				_on_error()
-			return False
-
-		def on_loading_finished(obj):
-			self.progressIndicator.hide()
-			parser.deleteLater()
-			return display_data(obj)
-
-		def on_loading_error(parser):
-			self.progressIndicator.hide()
-			parser.deleteLater()
-			if _on_error: 
-				_on_error()
-		
-		if not os.path.exists(fileName):
-			print(f"File not exists: {fileName}")
-			return False
-		
-		global parser
-		parser = Parser.get_instance(fileName)
-		if parser is not None:
-			parser.loadingFinished.connect(on_loading_finished)
-			parser.errorOccurred.connect(lambda parser=parser: on_loading_error(parser))
-			
-			self.progressIndicator.init()
-			self.progressIndicator.cancel_button_pressed.connect(parser.on_stop_loading)
-			
-			# Podłącz statusChanged jeśli parser go ma (np. STL)
-			if hasattr(parser, '_worker') and hasattr(parser._worker, 'statusChanged'):
-				parser._worker.statusChanged.connect(self.progressIndicator.setText)
-			
-			parser.load_async(self.progressIndicator.progressBar)
-		else:
-			obj = Parser.load(fileName)
-			return display_data(obj)
-		return False
+		task = self.taskManager.start_runner(
+			runner,
+			on_success=handle_success,
+			on_error=handle_error,
+			kind="load",
+			label=os.path.basename(fileName),
+		)
+		return task is not None
 
 	@pyqtSlot()
 	def fileOpen(self):
@@ -330,17 +317,14 @@ class MainWindow(QMainWindow):
 		fileName = QFileDialog.getOpenFileName( self, "Open File", recentFile, exts )
 		
 		if fileName[0] != '':
-			if self.load_file(fileName[0]):
-				self.update_recent_files(fileName[0])
+			self.load_file(fileName[0])
 
 	@pyqtSlot()
 	def openRecent(self):
 		action = self.sender()
 		if action:
 			fileName = action.data()
-			if self.load_file(fileName):
-				self.update_recent_files(fileName)
-			else:
+			if not self.load_file(fileName):
 				self.remove_from_recent_files(fileName)
 
 	def stereoscopyOff(self):
@@ -573,14 +557,24 @@ class MainWindow(QMainWindow):
 			file_ext = filter_match.group(1) if filter_match else default_ext
 			file_name = file_root + file_ext
 
-		if Parser.save(obj, file_name):
-			self.statusBar.showMessage(f"Saved: {file_name}", 5000)
-		else:
-			QMessageBox.warning(
-				self,
-				"Save as...",
-				"Nie udało się zapisać obiektu w wybranym formacie."
-			)
+		runner = ParserSaveTaskRunner(obj, file_name, parent=self.taskManager)
+		if runner.parser_cls is None:
+			QMessageBox.warning(self, "Save as...", "Nie udało się dobrać parsera zapisu dla wybranego formatu.")
+			return
+
+		def handle_success(saved_path):
+			self.statusBar.showMessage(f"Saved: {saved_path}", 5000)
+
+		def handle_error(_error):
+			QMessageBox.warning(self, "Save as...", "Nie udało się zapisać obiektu w wybranym formacie.")
+
+		self.taskManager.start_runner(
+			runner,
+			on_success=handle_success,
+			on_error=handle_error,
+			kind="save",
+			label=os.path.basename(file_name),
+		)
 
 	def pmEcol(self):
 		pass

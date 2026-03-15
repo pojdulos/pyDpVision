@@ -2,21 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 Standalone worker uruchamiany jako subprocess przez parserE57.
-Działa w osobnym procesie (bez Qt i OpenGL), dzięki czemu nie ma
-konfliktu DLL między Xerces-C a sterownikiem GPU.
+Dziala w osobnym procesie (bez Qt i OpenGL), dzieki czemu nie ma
+konfliktu DLL miedzy Xerces-C a sterownikiem GPU.
 
-Użycie:
-    python _e57_subprocess.py <ścieżka_e57> <ścieżka_wyjściowa.npz>
-
-Wyjście na stdout:
-    PROGRESS:<0-100>
-    STATUS:<tekst>
-    ERROR:<tekst>
-    DONE
-
-Format npz:
-    meta        — JSON bytes z opisem skanów
-    scan_N_*    — tablice numpy dla każdego skanu N
+Uzycie:
+    python _e57_subprocess.py <sciezka_e57> <sciezka_wyjsciowa.npz>
+    python _e57_subprocess.py --write <wejscie.npz> <wyjscie.e57>
 """
 
 import sys
@@ -26,11 +17,9 @@ import numpy as np
 
 
 def _pose_rotation_matrix(header):
-    """Zwraca macierz rotacji 3×3 z pose.rotation (float64).
-    Jeśli brak pose — macierz jednostkowa."""
     try:
         if header.has_pose():
-            return header.rotation_matrix   # (3,3) numpy
+            return header.rotation_matrix
     except Exception:
         pass
     return np.eye(3, dtype=np.float64)
@@ -47,12 +36,10 @@ def _pose_translation(header):
 
 
 def _log_and_get_pose(header, idx):
-    """Loguje pełne dane transformacji (pose) skanu i zwraca
-    (translation list[3], rotation_matrix ndarray[3,3])."""
     import math
 
     if not header.has_pose():
-        print(f"STATUS:  Skan {idx}: brak pose → origin=[0,0,0], R=I", flush=True)
+        print(f"STATUS:  Skan {idx}: brak pose -> origin=[0,0,0], R=I", flush=True)
         return [0.0, 0.0, 0.0], np.eye(3, dtype=np.float64)
 
     t = _pose_translation(header)
@@ -70,19 +57,17 @@ def _log_and_get_pose(header, idx):
           f"STATUS:      [{R[1,0]:9.6f}  {R[1,1]:9.6f}  {R[1,2]:9.6f}]\n"
           f"STATUS:      [{R[2,0]:9.6f}  {R[2,1]:9.6f}  {R[2,2]:9.6f}]", flush=True)
 
-    # Kąty Eulera ZYX (yaw-pitch-roll) wyznaczone z macierzy rotacji
     sy = math.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
     if sy > 1e-6:
-        roll  = math.degrees(math.atan2( R[2, 1],  R[2, 2]))
-        pitch = math.degrees(math.atan2(-R[2, 0],  sy))
-        yaw   = math.degrees(math.atan2( R[1, 0],  R[0, 0]))
-    else:  # gimbal lock
-        roll  = math.degrees(math.atan2(-R[1, 2],  R[1, 1]))
-        pitch = math.degrees(math.atan2(-R[2, 0],  sy))
-        yaw   = 0.0
+        roll = math.degrees(math.atan2(R[2, 1], R[2, 2]))
+        pitch = math.degrees(math.atan2(-R[2, 0], sy))
+        yaw = math.degrees(math.atan2(R[1, 0], R[0, 0]))
+    else:
+        roll = math.degrees(math.atan2(-R[1, 2], R[1, 1]))
+        pitch = math.degrees(math.atan2(-R[2, 0], sy))
+        yaw = 0.0
     print(f"STATUS:    Euler ZYX [deg]: yaw={yaw:.3f}  pitch={pitch:.3f}  roll={roll:.3f}", flush=True)
 
-    # Kwaternion — jeśli pye57 go udostępnia
     try:
         q = header.rotation
         if q is not None:
@@ -115,18 +100,18 @@ def _process_cartesian(header, data, prefix, arrays):
     y = np.asarray(data.pop('cartesianY'), dtype=np.float64)
     z = np.asarray(data.pop('cartesianZ'), dtype=np.float64)
 
-    row_idx = np.asarray(data.pop('rowIndex',    np.arange(len(x)) // cols), dtype=np.int32)
-    col_idx = np.asarray(data.pop('columnIndex', np.arange(len(x)) %  cols), dtype=np.int32)
+    row_idx = np.asarray(data.pop('rowIndex', np.arange(len(x)) // cols), dtype=np.int32)
+    col_idx = np.asarray(data.pop('columnIndex', np.arange(len(x)) % cols), dtype=np.int32)
 
-    # read_scan() wywoływany z transform=False — punkty są w lokalnym układzie
-    # skanera (skaner = origin [0,0,0]). Pose [R|t] zaszyty jest w węźle Transform
-    # w drzewie obiektów i stosowany przez GL przy renderowaniu.
     origin = [0.0, 0.0, 0.0]
 
-    # Wektory od skanera do każdego punktu (lokalne XYZ)
-    dx = x; dy = y; dz = z
+    dx = x
+    dy = y
+    dz = z
 
-    r = dx * dx; r += dy * dy; r += dz * dz
+    r = dx * dx
+    r += dy * dy
+    r += dz * dz
     np.sqrt(r, out=r)
 
     xy = np.hypot(dx, dy)
@@ -138,8 +123,7 @@ def _process_cartesian(header, data, prefix, arrays):
     range_map = np.full((rows, cols), np.nan, dtype=np.float32)
     range_map[row_idx[valid], col_idx[valid]] = r[valid]
 
-    # Diagnostyka: puste kolumny (skaner nie zmierzył żadnego punktu w danej kolumnie)
-    col_fill = np.isfinite(range_map).any(axis=0)   # (cols,) bool
+    col_fill = np.isfinite(range_map).any(axis=0)
     empty_cols = np.where(~col_fill)[0]
     if len(empty_cols):
         if len(empty_cols) <= 20:
@@ -148,24 +132,23 @@ def _process_cartesian(header, data, prefix, arrays):
             print(f"STATUS:  [cart] puste kolumny: {len(empty_cols)} (pierwsza={empty_cols[0]}, ostatnia={empty_cols[-1]})", flush=True)
 
     az_min = float(az[valid].min()) if valid.any() else -180.0
-    az_max = float(az[valid].max()) if valid.any() else  180.0
-    el_min = float(el[valid].min()) if valid.any() else  -90.0
-    el_max = float(el[valid].max()) if valid.any() else   90.0
+    az_max = float(az[valid].max()) if valid.any() else 180.0
+    el_min = float(el[valid].min()) if valid.any() else -90.0
+    el_max = float(el[valid].max()) if valid.any() else 90.0
 
-    # Dokładne kąty na wiersz/kolumnę — eliminują zniekształcenia przy rekonstrukcji
     if valid.any():
         row_v = row_idx[valid]
         col_v = col_idx[valid]
-        el_v  = el[valid].astype(np.float64)
-        az_v  = az[valid].astype(np.float64)
+        el_v = el[valid].astype(np.float64)
+        az_v = az[valid].astype(np.float64)
 
-        el_row_sums   = np.bincount(row_v, weights=el_v, minlength=rows)
+        el_row_sums = np.bincount(row_v, weights=el_v, minlength=rows)
         el_row_counts = np.bincount(row_v, minlength=rows)
         el_per_row = np.full(rows, np.nan, dtype=np.float32)
         nz = el_row_counts > 0
         el_per_row[nz] = (el_row_sums[nz] / el_row_counts[nz]).astype(np.float32)
 
-        az_col_sums   = np.bincount(col_v, weights=az_v, minlength=cols)
+        az_col_sums = np.bincount(col_v, weights=az_v, minlength=cols)
         az_col_counts = np.bincount(col_v, minlength=cols)
         az_per_col = np.full(cols, np.nan, dtype=np.float32)
         nz = az_col_counts > 0
@@ -200,9 +183,9 @@ def _process_cartesian(header, data, prefix, arrays):
         meta['has_intensity'] = True
 
     if 'colorRed' in data and 'colorGreen' in data and 'colorBlue' in data:
-        r_ch = np.asarray(data.pop('colorRed'),   dtype=np.uint8)
+        r_ch = np.asarray(data.pop('colorRed'), dtype=np.uint8)
         g_ch = np.asarray(data.pop('colorGreen'), dtype=np.uint8)
-        b_ch = np.asarray(data.pop('colorBlue'),  dtype=np.uint8)
+        b_ch = np.asarray(data.pop('colorBlue'), dtype=np.uint8)
         rgb_map = np.zeros((rows, cols, 3), dtype=np.uint8)
         rgb_map[row_idx[valid], col_idx[valid], 0] = r_ch[valid]
         rgb_map[row_idx[valid], col_idx[valid], 1] = g_ch[valid]
@@ -218,12 +201,12 @@ def _process_spherical(header, raw, prefix, arrays):
     rows = int(header.rowMaximum) + 1
     cols = int(header.columnMaximum) + 1
 
-    r_flat  = np.asarray(raw['sphericalRange'],     dtype=np.float32)
-    az_flat = np.asarray(raw['sphericalAzimuth'],   dtype=np.float32)
+    r_flat = np.asarray(raw['sphericalRange'], dtype=np.float32)
+    az_flat = np.asarray(raw['sphericalAzimuth'], dtype=np.float32)
     el_flat = np.asarray(raw['sphericalElevation'], dtype=np.float32)
 
-    row_idx = np.asarray(raw.get('rowIndex',    np.arange(len(r_flat)) // cols), dtype=np.int32)
-    col_idx = np.asarray(raw.get('columnIndex', np.arange(len(r_flat)) %  cols), dtype=np.int32)
+    row_idx = np.asarray(raw.get('rowIndex', np.arange(len(r_flat)) // cols), dtype=np.int32)
+    col_idx = np.asarray(raw.get('columnIndex', np.arange(len(r_flat)) % cols), dtype=np.int32)
 
     range_map = np.full((rows, cols), np.nan, dtype=np.float32)
     range_map[row_idx, col_idx] = r_flat
@@ -232,14 +215,13 @@ def _process_spherical(header, raw, prefix, arrays):
     az_deg = np.degrees(az_flat)
     el_deg = np.degrees(el_flat)
 
-    # Dokładne kąty na wiersz/kolumnę — eliminują zniekształcenia przy rekonstrukcji
-    el_row_sums   = np.bincount(row_idx, weights=el_deg.astype(np.float64), minlength=rows)
+    el_row_sums = np.bincount(row_idx, weights=el_deg.astype(np.float64), minlength=rows)
     el_row_counts = np.bincount(row_idx, minlength=rows)
     el_per_row = np.full(rows, np.nan, dtype=np.float32)
     nz = el_row_counts > 0
     el_per_row[nz] = (el_row_sums[nz] / el_row_counts[nz]).astype(np.float32)
 
-    az_col_sums   = np.bincount(col_idx, weights=az_deg.astype(np.float64), minlength=cols)
+    az_col_sums = np.bincount(col_idx, weights=az_deg.astype(np.float64), minlength=cols)
     az_col_counts = np.bincount(col_idx, minlength=cols)
     az_per_col = np.full(cols, np.nan, dtype=np.float32)
     nz = az_col_counts > 0
@@ -271,9 +253,9 @@ def _process_spherical(header, raw, prefix, arrays):
 
     if 'colorRed' in raw and 'colorGreen' in raw and 'colorBlue' in raw:
         rgb_map = np.zeros((rows, cols, 3), dtype=np.uint8)
-        rgb_map[row_idx, col_idx, 0] = np.asarray(raw['colorRed'],   dtype=np.uint8)
+        rgb_map[row_idx, col_idx, 0] = np.asarray(raw['colorRed'], dtype=np.uint8)
         rgb_map[row_idx, col_idx, 1] = np.asarray(raw['colorGreen'], dtype=np.uint8)
-        rgb_map[row_idx, col_idx, 2] = np.asarray(raw['colorBlue'],  dtype=np.uint8)
+        rgb_map[row_idx, col_idx, 2] = np.asarray(raw['colorBlue'], dtype=np.uint8)
         arrays[f'{prefix}_rgb'] = rgb_map
         meta['has_rgb'] = True
 
@@ -281,14 +263,9 @@ def _process_spherical(header, raw, prefix, arrays):
 
 
 def _try_load_color_jpg(e57_path, idx, n_scans, rows, cols):
-    """Szuka pliku <stem>_color.jpg lub <stem>_<idx>_color.jpg obok pliku E57
-    i wczytuje go jako macierz RGB uint8 (rows, cols, 3).
-    Jeśli rozmiar obrazu nie zgadza się z siatką, obraz jest przeskalowany.
-    Zwraca np.ndarray lub None."""
-    stem    = os.path.splitext(os.path.basename(e57_path))[0]
+    stem = os.path.splitext(os.path.basename(e57_path))[0]
     dirpath = os.path.dirname(os.path.abspath(e57_path))
 
-    # Kolejność prób: z indeksem skanu, potem bez (dla pliku z jednym skanem)
     candidates = [
         os.path.join(dirpath, f"{stem}_{idx}_color.jpg"),
         os.path.join(dirpath, f"{stem}_color.jpg"),
@@ -300,19 +277,18 @@ def _try_load_color_jpg(e57_path, idx, n_scans, rows, cols):
         try:
             from PIL import Image
             img = Image.open(path).convert('RGB')
-            w_img, h_img = img.size  # PIL: (width=cols, height=rows)
+            w_img, h_img = img.size
             if (w_img == cols and h_img == rows) or (w_img == cols - 1 and h_img == rows - 1):
-                # Dokładne dopasowanie lub konwencja "między punktami" — bez resize
                 if w_img == cols - 1:
-                    print(f"STATUS:  Color JPG: rozm. {img.size} = skan-1\u00d7skan-1 (piksele między punktami)", flush=True)
+                    print(f"STATUS:  Color JPG: rozm. {img.size} = skan-1xskan-1 (piksele miedzy punktami)", flush=True)
             else:
-                print(f"STATUS:  Color JPG: resize {img.size} \u2192 ({cols}\u00d7{rows})", flush=True)
+                print(f"STATUS:  Color JPG: resize {img.size} -> ({cols}x{rows})", flush=True)
                 img = img.resize((cols, rows), Image.BILINEAR)
-            rgb = np.array(img, dtype=np.uint8)   # (rows, cols, 3) lub (rows-1, cols-1, 3)
+            rgb = np.array(img, dtype=np.uint8)
             print(f"STATUS:  Color JPG wczytany: {os.path.basename(path)} {rgb.shape}", flush=True)
             return rgb
         except Exception as exc:
-            print(f"STATUS:  B\u0142\u0105d wczytywania color JPG {os.path.basename(path)}: {exc}", flush=True)
+            print(f"STATUS:  Blad wczytywania color JPG {os.path.basename(path)}: {exc}", flush=True)
     return None
 
 
@@ -325,9 +301,9 @@ def _process_point_cloud(data, origin, prefix, arrays):
     meta = {'type': 'point_cloud', 'origin': origin, 'has_colors': False}
 
     if 'colorRed' in data and 'colorGreen' in data and 'colorBlue' in data:
-        r_ch  = np.asarray(data['colorRed'],   dtype=np.uint8)
-        g_ch  = np.asarray(data['colorGreen'], dtype=np.uint8)
-        b_ch  = np.asarray(data['colorBlue'],  dtype=np.uint8)
+        r_ch = np.asarray(data['colorRed'], dtype=np.uint8)
+        g_ch = np.asarray(data['colorGreen'], dtype=np.uint8)
+        b_ch = np.asarray(data['colorBlue'], dtype=np.uint8)
         alpha = np.full(len(r_ch), 255, dtype=np.uint8)
         arrays[f'{prefix}_colors'] = np.stack([r_ch, g_ch, b_ch, alpha], axis=1)
         meta['has_colors'] = True
@@ -344,20 +320,68 @@ def _process_point_cloud(data, origin, prefix, arrays):
     return meta
 
 
+def _write_e57_from_npz(npz_path, e57_path):
+    import pye57
+
+    data = np.load(npz_path, allow_pickle=True)
+    meta = json.loads(str(data['meta']))
+    scans = meta.get('scans', [])
+
+    print(f"STATUS:Tworze {os.path.basename(e57_path)}...", flush=True)
+    with pye57.E57(e57_path, mode='w') as e57:
+        for idx, scan_meta in enumerate(scans):
+            prefix = f"scan_{idx}"
+            print(f"PROGRESS:{int(idx / max(len(scans), 1) * 100)}", flush=True)
+            print(f"STATUS:Zapis skanu {idx+1}/{len(scans)}...", flush=True)
+
+            scan_data = {
+                'cartesianX': np.asarray(data[f'{prefix}_cartesianX'], dtype=np.float64),
+                'cartesianY': np.asarray(data[f'{prefix}_cartesianY'], dtype=np.float64),
+                'cartesianZ': np.asarray(data[f'{prefix}_cartesianZ'], dtype=np.float64),
+                'rowIndex': np.asarray(data[f'{prefix}_rowIndex'], dtype=np.uint16),
+                'columnIndex': np.asarray(data[f'{prefix}_columnIndex'], dtype=np.uint16),
+            }
+
+            if f'{prefix}_intensity' in data:
+                scan_data['intensity'] = np.asarray(data[f'{prefix}_intensity'], dtype=np.float32)
+            if f'{prefix}_colorRed' in data and f'{prefix}_colorGreen' in data and f'{prefix}_colorBlue' in data:
+                scan_data['colorRed'] = np.asarray(data[f'{prefix}_colorRed'], dtype=np.uint8)
+                scan_data['colorGreen'] = np.asarray(data[f'{prefix}_colorGreen'], dtype=np.uint8)
+                scan_data['colorBlue'] = np.asarray(data[f'{prefix}_colorBlue'], dtype=np.uint8)
+
+            e57.write_scan_raw(scan_data, name=scan_meta.get('name', f'Scan {idx}'))
+
+    print("PROGRESS:100", flush=True)
+    print("DONE", flush=True)
+
+
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == '--write':
+        if len(sys.argv) < 4:
+            print("ERROR:Uzycie: _e57_subprocess.py --write <wejscie.npz> <wyjscie.e57>", flush=True)
+            sys.exit(1)
+        try:
+            _write_e57_from_npz(sys.argv[2], sys.argv[3])
+            return
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            print(f"ERROR:{exc}", flush=True)
+            sys.exit(1)
+
     if len(sys.argv) < 3:
-        print("ERROR:Użycie: _e57_subprocess.py <plik.e57> <wyjście.npz>", flush=True)
+        print("ERROR:Uzycie: _e57_subprocess.py <plik.e57> <wyjscie.npz>", flush=True)
         sys.exit(1)
 
-    e57_path  = sys.argv[1]
-    npz_path  = sys.argv[2]
+    e57_path = sys.argv[1]
+    npz_path = sys.argv[2]
 
     import pye57
 
     print(f"STATUS:Otwieram {os.path.basename(e57_path)}...", flush=True)
     e57 = pye57.E57(e57_path)
     n_scans = e57.scan_count
-    print(f"STATUS:{n_scans} skan(ów)", flush=True)
+    print(f"STATUS:{n_scans} skan(ow)", flush=True)
 
     arrays = {}
     scan_metas = []
@@ -387,7 +411,7 @@ def main():
         except Exception:
             pass
 
-        scan_label = f"{os.path.basename(e57_path)} – skan {idx}"
+        scan_label = f"{os.path.basename(e57_path)} - skan {idx}"
         meta = None
 
         if is_structured:
@@ -409,7 +433,7 @@ def main():
             except Exception as exc:
                 import traceback
                 traceback.print_exc()
-                print(f"STATUS:  Skan {idx}: błąd SphereGrid, fallback PointCloud: {exc}", flush=True)
+                print(f"STATUS:  Skan {idx}: blad SphereGrid, fallback PointCloud: {exc}", flush=True)
                 meta = None
 
         if meta is None:
@@ -423,15 +447,12 @@ def main():
                 print(f"STATUS:  Skan {idx}: nieudany: {exc}", flush=True)
                 meta = {'type': 'failed'}
 
-        # Dodaj macierz pose (4×4) do meta — przydatna do późniejszego pozycjonowania
         if meta is not None and meta.get('type') != 'failed':
             pose_4x4 = np.eye(4, dtype=np.float64)
             pose_4x4[:3, :3] = R_pose
-            pose_4x4[:3,  3] = t_pose
+            pose_4x4[:3, 3] = t_pose
             meta['pose_matrix'] = pose_4x4.flatten().tolist()
 
-        # Wczytaj kolor z pliku JPG jeśli skan jest SphereGrid.
-        # JPG nadpisuje kolor z E57 (który może być błędny/zerowy).
         if meta is not None and meta.get('type') == 'sphere_grid':
             rows_m = meta['rows']
             cols_m = meta['cols']
@@ -451,10 +472,12 @@ def main():
         'labels': scan_labels,
     }
 
-    print("STATUS:Zapisuję wyniki...", flush=True)
-    np.savez_compressed(npz_path,
-                        meta=np.array(json.dumps(root_meta), dtype=object),
-                        **arrays)
+    print("STATUS:Zapisuje wyniki...", flush=True)
+    np.savez_compressed(
+        npz_path,
+        meta=np.array(json.dumps(root_meta), dtype=object),
+        **arrays
+    )
 
     print("PROGRESS:100", flush=True)
     print("DONE", flush=True)

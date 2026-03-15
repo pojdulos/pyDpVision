@@ -17,6 +17,7 @@ from .propAnnotationSphere import PropAnnotationSphere
 from .propBaseObject import PropBaseObject
 from .propMesh import PropMesh
 from .propMotion import PropMotion
+from .propPointCloud import PropPointCloud
 from .propTransform import PropTransform
 from .propViewer import PropViewer
 from .propVolumetric import PropVolumetric
@@ -31,6 +32,6 @@ __all__ = [
 			"MdiChild",
 			"ProgressIndicator",
 			"PropAnnotation", "PropAnnotationPoint", "PropAnnotationSphere", "PropBaseObject",
-			"PropMesh", "PropMotion", "PropTransform", "PropViewer", "PropVolumetric", "PropWidget",
+			"PropMesh", "PropMotion", "PropPointCloud", "PropTransform", "PropViewer", "PropVolumetric", "PropWidget",
 		]
 

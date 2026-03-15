@@ -16,7 +16,7 @@ from .dialogVolumetricMetadata import DialogVolumetricMetadata
 
 import numpy as np
 
-from .. import AP, Transform
+from .. import AP, Transform, PointCloud
 
 
 class MarchingCubeWorker(QThread):
@@ -190,6 +190,9 @@ class ContextMenu(QMenu):
 		menu.addAction(action)
 		if self.m_obj.hasType('Mesh'):
 			menu.addSeparator()
+			action = QAction("convert to point cloud", self)
+			action.triggered.connect(self.mesh_convert_to_point_cloud)
+			menu.addAction(action)
 			action = QAction("convert to grid 2.5D", self)
 			action.triggered.connect(self.mesh_convert_to_grid)
 			menu.addAction(action)
@@ -371,6 +374,20 @@ class ContextMenu(QMenu):
 			return
 		parent = self.m_obj.parent
 		AP.addObject(grid, parent)
+		AP.updateAllViews()
+		AP.updateProperties()
+
+	@pyqtSlot()
+	def mesh_convert_to_point_cloud(self):
+		pc = PointCloud()
+		pc.label = f"{self.m_obj.label}_cloud"
+		pc.m_vertices = np.array(self.m_obj.m_vertices, dtype=np.float32, copy=True)
+		if getattr(self.m_obj, 'm_vcolors', np.empty((0, 4))).shape[0] == len(pc.m_vertices):
+			pc.m_vcolors = np.array(self.m_obj.m_vcolors, dtype=np.ubyte, copy=True)
+		if getattr(self.m_obj, 'm_vnormals', np.empty((0, 3))).shape[0] == len(pc.m_vertices):
+			pc.m_vnormals = np.array(self.m_obj.m_vnormals, dtype=np.float32, copy=True)
+		parent = self.m_obj.parent
+		AP.addObject(pc, parent)
 		AP.updateAllViews()
 		AP.updateProperties()
 

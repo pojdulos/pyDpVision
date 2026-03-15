@@ -25,6 +25,7 @@ class Mesh(PointCloud):
 			self.alpha = 1.0
 			self.shinines = 0.0
 			self.dTexFileName = ''
+			self.dTexImage = None
 			self.dTexture = None
 
 		def hasTexture(self):

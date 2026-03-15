@@ -3,6 +3,7 @@
 from .parserATMDL import ParserATMDL
 from .parserASC import ParserASC
 from .parserDICOM import ParserDICOM
+from .parserDPV import ParserDPV
 from .parserE57 import ParserE57
 from .parserIMAGE2D import ParserIMAGE2D
 from .parserNRRD import ParserNRRD
@@ -15,6 +16,7 @@ __all__ = [
 	"ParserATMDL",
 	"ParserASC",
 	"ParserDICOM",
+	"ParserDPV",
 	"ParserE57",
 	"ParserIMAGE2D",
 	"ParserNRRD",

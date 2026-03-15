@@ -15,6 +15,7 @@ from .propWidget import PropWidget
 from .propViewer import PropViewer
 from .propBaseObject import PropBaseObject
 from .propMesh import PropMesh
+from .propPointCloud import PropPointCloud
 from .propNDimCloud import PropNDimCloud
 from .propTransform import PropTransform
 from .propAnnotation import PropAnnotation
@@ -54,7 +55,7 @@ class DockWidgetProperties(QDockWidget):
 				'Transform': PropTransform,
 				'DHJoint': PropDHJoint,
 				'Mesh' : PropMesh,
-				#'PointCloud' : PropMesh,
+				'PointCloud' : PropPointCloud,
 				'GridData64' : PropGridData64,
 				'SphereGrid' : PropSphereGrid,
 				'NDimCloud': PropNDimCloud,

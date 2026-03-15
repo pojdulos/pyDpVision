@@ -80,6 +80,27 @@ class ParserOBJ(Parser):
 		return candidate
 
 	@staticmethod
+	def _save_texture_image_if_needed(image, dst_dir, used_names, base_name='texture.png'):
+		if image is None or image.isNull():
+			return None
+
+		base_name = os.path.basename(base_name) or 'texture.png'
+		name, ext = os.path.splitext(base_name)
+		if not ext:
+			ext = '.png'
+		candidate = f"{name}{ext}"
+		counter = 1
+		while candidate.lower() in used_names:
+			candidate = f"{name}_{counter}{ext}"
+			counter += 1
+
+		dst_path = os.path.join(dst_dir, candidate)
+		if not image.save(dst_path):
+			return None
+		used_names.add(candidate.lower())
+		return candidate
+
+	@staticmethod
 	def _collect_material_export(node, obj_dir, used_texture_names):
 		if not isinstance(node, Mesh):
 			return None
@@ -94,8 +115,12 @@ class ParserOBJ(Parser):
 			"material"
 		)
 		texture_name = None
+		texture_image = getattr(material, 'dTexImage', None)
 		texture_path = getattr(material, 'dTexFileName', '')
-		if texture_path:
+		if texture_image is not None and not texture_image.isNull():
+			base_name = os.path.basename(texture_path) if texture_path else f"{export_name}.png"
+			texture_name = ParserOBJ._save_texture_image_if_needed(texture_image, obj_dir, used_texture_names, base_name)
+		elif texture_path:
 			texture_name = ParserOBJ._copy_texture_if_needed(texture_path, obj_dir, used_texture_names)
 
 		return {
@@ -170,6 +195,7 @@ class ParserOBJ(Parser):
 					pass
 				elif split[0] == "map_Kd":
 					mesh.materials[currentmtl].dTexFileName = split[1]
+					mesh.materials[currentmtl].dTexImage = QImage(split[1]) if os.path.exists(split[1]) else None
 				elif split[0] == "map_Ks":
 					pass
 				else:
@@ -198,7 +224,26 @@ class ParserOBJ(Parser):
 					mesh.m_tindices = np.array(f1, dtype=np.uint)
 		
 
+		if getattr(AP, 'mainWin', None) is None:
+			class _DummyProgressIndicator:
+				def init(self, *args, **kwargs):
+					pass
+
+				def increase(self, *args, **kwargs):
+					pass
+
+				def hide(self, *args, **kwargs):
+					pass
+
+			class _DummyMainWindow:
+				progressIndicator = _DummyProgressIndicator()
+
+			AP.mainWin = _DummyMainWindow()
+
 		AP.mainWin.progressIndicator.init(text="WczytujÄ™ plik .obj")
+		progress = getattr(getattr(AP, 'mainWin', None), 'progressIndicator', None)
+		if progress is not None:
+			progress.init(text="Wczytywanie pliku .obj")
 		total_lines = ParserOBJ.count_lines(path)
 		step = float(total_lines) / 100.0
 
@@ -221,7 +266,8 @@ class ParserOBJ(Parser):
 		for line in objFile:
 			count = count+1
 			if count >= nxtcnt:
-				AP.mainWin.progressIndicator.increase()
+				if progress is not None:
+					progress.increase()
 				nxtcnt = nxtcnt + step
 
 			split = line.split()
@@ -282,16 +328,34 @@ class ParserOBJ(Parser):
 						if not os.path.exists(imgFile):
 							print('Plik tekstury nie istnieje')
 							continue
-					mesh.materials[mesh.currentMaterial].dTexture = QOpenGLTexture(QImage(imgFile).mirrored())
+					source_image = QImage(imgFile)
+					mesh.materials[mesh.currentMaterial].dTexFileName = imgFile
+					mesh.materials[mesh.currentMaterial].dTexImage = source_image.copy()
+					mesh.materials[mesh.currentMaterial].dTexture = QOpenGLTexture(source_image.mirrored())
+
+			elif split[0] in ('o', 'g', 's', 'p', 'l'):
+				continue
 
 			else:
 				print(split)
 				continue
 
 		print( "dodajÄ™ wierzcholki "+str(len(vces)) )
-		mesh.m_vertices = np.array(vces, dtype=np.float32)
+		vertices = np.array(vces, dtype=np.float32)
+		mesh.m_vertices = vertices
 
 		dodaj_scianki(f0, f1)
+		if not len(mesh.m_faces):
+			pc = PointCloud()
+			pc.label = os.path.basename(path)
+			pc.m_vertices = vertices
+			if len(vnorms):
+				pc.m_vnormals = np.array(vnorms, dtype=np.float32)
+			if len(vcols):
+				pc.m_vcolors = np.array(vcols, dtype=np.ubyte)
+			if progress is not None:
+				progress.hide()
+			return pc
 
 		if len(vnorms):
 			print( "dodajÄ™ normalne "+str(len(vnorms)) )
@@ -308,7 +372,8 @@ class ParserOBJ(Parser):
 			print( "dodajÄ™ koordynaty tekstury "+str(len(tcrds)) )
 			mesh.m_tcoords = np.array(tcrds, dtype=np.float32)
 
-		AP.mainWin.progressIndicator.hide()
+		if progress is not None:
+			progress.hide()
 		return mesh
 	
 	@staticmethod	

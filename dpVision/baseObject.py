@@ -160,8 +160,17 @@ class BaseObject(QObject):
 	def renderKids(self):
 		pass
 	
-	def getBB(self):
+	def getLocalBB(self):
 		return None
+
+	def getHierarchyBB(self):
+		return self.getLocalBB()
+
+	def getHierarchyBBInParentSpace(self):
+		return self.getHierarchyBB()
+
+	def getBB(self):
+		return self.getHierarchyBB()
 
 	def invalidate_bb(self):
 		"""Unieważnia cache BB tego węzła i wszystkich przodków."""

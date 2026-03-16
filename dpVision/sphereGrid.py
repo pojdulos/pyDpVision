@@ -911,12 +911,10 @@ class SphereGrid(Object):
     # Bounding box
     # ------------------------------------------------------------------
 
-    def getBB(self):
-        _b, _min1, _max1 = Object.getBB(self)
-
+    def getLocalBB(self):
         valid_r = self._range[self._mask]
         if len(valid_r) == 0:
-            return _b, _min1, _max1
+            return False, None, None
 
         # Analityczne AABB — O(1) pamięci.
         # Konwertujemy 8 narożников (r_min/max × az_min/max × el_min/max)
@@ -942,14 +940,7 @@ class SphereGrid(Object):
         pt_min = corners.min(axis=0).tolist()
         pt_max = corners.max(axis=0).tolist()
 
-        if not _b:
-            self._cached_bb = (True, pt_min, pt_max)
-        else:
-            merged_min = [min(a, b) for a, b in zip(_min1, pt_min)]
-            merged_max = [max(a, b) for a, b in zip(_max1, pt_max)]
-            self._cached_bb = (True, merged_min, merged_max)
-
-        return self._cached_bb
+        return True, pt_min, pt_max
 
     # ------------------------------------------------------------------
     # Repr

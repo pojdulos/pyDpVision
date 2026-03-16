@@ -391,10 +391,9 @@ class GridData64(Object):
 		self.upload_to_gpu()
 		self.invalidate_bb()  # propaguj do rodziców
 
-	def getBB(self):
-		_b, _min1, _max1 = Object.getBB(self)  # BB dzieci w hierarchii sceny
+	def getLocalBB(self):
 		if self.height.size == 0:
-			return _b, _min1, _max1
+			return False, None, None
 
 		# Surface przechowuje w µm; BB zawsze w mm (canonical world unit).
 		s = 1e-3
@@ -408,9 +407,6 @@ class GridData64(Object):
 			(self.y0 + self.dy * self.ny) * s,
 			np.nanmax(self.height) * s
 		]
-		if _b:
-			_min = [min(a, b) for a, b in zip(_min1, _min)]
-			_max = [max(a, b) for a, b in zip(_max1, _max)]
 		return True, _min, _max
 
 	def to_mesh(self):

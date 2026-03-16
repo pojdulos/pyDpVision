@@ -120,6 +120,17 @@ class NDimCloud(Object):
 			_b = True  # Zaktualizowanie flagi _b
 		return _b, _min, _max
 
+	def getLocalBB(self):
+		if len(self.m_vertices) == 0:
+			return False, None, None
+
+		_min = [min(dim) for dim in zip(*self.m_vertices)]
+		_max = [max(dim) for dim in zip(*self.m_vertices)]
+		return True, _min, _max
+
+	def getBB(self):
+		return self.getHierarchyBB()
+
 	def getCenterOfBB(self):
 		if not self.m_vertices:
 			return [0.0 for _ in range(self.m_dimensions)]

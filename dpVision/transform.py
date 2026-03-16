@@ -35,55 +35,28 @@ class Transform(Object):
 				return parent.getGlobalTransformation() @ self.matrix
 		return self.matrix
 
-	''' opcjonalna wersja getBB(),
-	ktora pozycjonuje BB dzieci wzgledem BB tego obiektu
-	w oparciu o macierz transformacji.
-	Raczej nie bedzie uzywana ale zostawiam na razie.
-	'''
-	def getBB(self):
-		return (False, None, None)
-	
-		# if not self._dirty and self._cached_bb is not None:
-		# 	return self._cached_bb
+	def getHierarchyBBInParentSpace(self):
+		bb = self.getHierarchyBB()
+		if bb is None:
+			return None
 
-		# _b = False
-		# _min, _max = None, None
-		# mat = self.toNumPy()
+		_b, _min, _max = bb
+		if not _b or _min is None or _max is None:
+			return False, None, None
 
-		# for kid in self.m_data:
-		# 	kid_bb = kid.getBB()
-		# 	if kid_bb is None:
-		# 		continue
+		corners = np.array([
+			[_min[0], _min[1], _min[2], 1.0],
+			[_min[0], _min[1], _max[2], 1.0],
+			[_min[0], _max[1], _min[2], 1.0],
+			[_min[0], _max[1], _max[2], 1.0],
+			[_max[0], _min[1], _min[2], 1.0],
+			[_max[0], _min[1], _max[2], 1.0],
+			[_max[0], _max[1], _min[2], 1.0],
+			[_max[0], _max[1], _max[2], 1.0],
+		], dtype=np.float64)
 
-		# 	kid_b, kid_min, kid_max = kid_bb
-		# 	if not kid_b or kid_min is None or kid_max is None:
-		# 		continue
-
-		# 	corners = np.array([
-		# 		[kid_min[0], kid_min[1], kid_min[2], 1.0],
-		# 		[kid_min[0], kid_min[1], kid_max[2], 1.0],
-		# 		[kid_min[0], kid_max[1], kid_min[2], 1.0],
-		# 		[kid_min[0], kid_max[1], kid_max[2], 1.0],
-		# 		[kid_max[0], kid_min[1], kid_min[2], 1.0],
-		# 		[kid_max[0], kid_min[1], kid_max[2], 1.0],
-		# 		[kid_max[0], kid_max[1], kid_min[2], 1.0],
-		# 		[kid_max[0], kid_max[1], kid_max[2], 1.0],
-		# 	], dtype=np.float64)
-
-		# 	transformed = (mat @ corners.T).T[:, :3]
-		# 	kid_transformed_min = transformed.min(axis=0).tolist()
-		# 	kid_transformed_max = transformed.max(axis=0).tolist()
-
-		# 	if _min is None:
-		# 		_min, _max = kid_transformed_min, kid_transformed_max
-		# 	else:
-		# 		_min = [min(m1, m2) for m1, m2 in zip(_min, kid_transformed_min)]
-		# 		_max = [max(m1, m2) for m1, m2 in zip(_max, kid_transformed_max)]
-		# 	_b = True
-
-		# self._cached_bb = (_b, _min, _max)
-		# self._dirty = False
-		# return self._cached_bb
+		transformed = (self.toNumPy() @ corners.T).T[:, :3]
+		return True, transformed.min(axis=0).tolist(), transformed.max(axis=0).tolist()
 
 
 	# --- budowa macierzy TRS ---
@@ -94,6 +67,7 @@ class Transform(Object):
 		R = np.eye(4)
 		R[:3, :3] = self.m_rotation.as_matrix()
 		self.matrix = T @ R @ S
+		self.invalidate_bb()
 
 	def invertedMatrix(self):
 		return np.linalg.inv(self.matrix)
@@ -259,6 +233,7 @@ class Transform(Object):
 		if scale_z != 0: Rmat[:, 2] = M[:3, 2] / scale_z
 
 		self.m_rotation = Rotation.from_matrix(Rmat)
+		self.invalidate_bb()
 
 		return self.matrix
 

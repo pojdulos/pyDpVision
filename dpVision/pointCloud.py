@@ -42,10 +42,11 @@ class PointCloud(Object):
 		self.splat_scale = 1.0
 		self.uniform_color = [0.6, 0.6, 0.6, 1.0]
 		self._estimated_spacing = None
+		self._cached_local_bb = None
 
 	def addVertex(self, x, y, z):
 		self.m_vertices = np.vstack([self.m_vertices, Vertex(x, y, z)])
-		self._estimated_spacing = None
+		self.invalidate_bb()
 
 	def invert_normals(self):
 		if self.m_vnormals.shape[0] == self.m_vertices.shape[0]:
@@ -61,34 +62,29 @@ class PointCloud(Object):
 			ctr = [total / num_vertices for total in sums]
 		return ctr
 
-	def getBB(self):
-		if not hasattr(self, '_cached_bb') or self._cached_bb is None:
-			_b, _min, _max = Object.getBB(self)
-			if _b:
-				if len(self.m_vertices) > 0:
-					if len(self.m_vertices) > 10000:
-						verts_array = np.array(self.m_vertices) if not isinstance(self.m_vertices, np.ndarray) else self.m_vertices
-						v_min = verts_array.min(axis=0).tolist()
-						v_max = verts_array.max(axis=0).tolist()
-						_min = [min(a, b) for a, b in zip(_min, v_min)]
-						_max = [max(a, b) for a, b in zip(_max, v_max)]
-					else:
-						_min = [min(dim) for dim in zip(_min, *self.m_vertices)]
-						_max = [max(dim) for dim in zip(_max, *self.m_vertices)]
-			else:
-				if len(self.m_vertices) > 0:
-					if len(self.m_vertices) > 10000:
-						verts_array = np.array(self.m_vertices) if not isinstance(self.m_vertices, np.ndarray) else self.m_vertices
-						_min = verts_array.min(axis=0).tolist()
-						_max = verts_array.max(axis=0).tolist()
-					else:
-						_min = [min(dim) for dim in zip(*self.m_vertices)]
-						_max = [max(dim) for dim in zip(*self.m_vertices)]
-				_b = True
+	def invalidate_bb(self):
+		self._cached_local_bb = None
+		self._estimated_spacing = None
+		super().invalidate_bb()
 
-			self._cached_bb = (_b, _min, _max)
+	def getLocalBB(self):
+		if self._cached_local_bb is not None:
+			return self._cached_local_bb
 
-		return self._cached_bb
+		if len(self.m_vertices) == 0:
+			self._cached_local_bb = (False, None, None)
+			return self._cached_local_bb
+
+		if len(self.m_vertices) > 10000:
+			verts_array = np.array(self.m_vertices) if not isinstance(self.m_vertices, np.ndarray) else self.m_vertices
+			_min = verts_array.min(axis=0).tolist()
+			_max = verts_array.max(axis=0).tolist()
+		else:
+			_min = [min(dim) for dim in zip(*self.m_vertices)]
+			_max = [max(dim) for dim in zip(*self.m_vertices)]
+
+		self._cached_local_bb = (True, _min, _max)
+		return self._cached_local_bb
 
 	def _estimate_point_spacing(self):
 		if self._estimated_spacing is not None:

@@ -37,7 +37,9 @@ class PropVolumetric(PropWidget):
 	def blockAll(self, b):
 		for w in {self.spinWinMin, self.spinWinMax,
 			self.fastDrawCheckBox, self.renderBoxesCheckBox,
-			self.renderSplatsCheckBox, self.splatAdditiveCheckBox, self.splatScaleSpin,
+			self.renderSplatsCheckBox, self.splatTransparentCheckBox,
+			self.splatHQSortCheckBox,
+			self.splatAdditiveCheckBox, self.splatScaleSpin,
 			self.xBspin, self.xEspin,
 			self.yBspin, self.yEspin,
 			self.zBspin, self.zEspin,
@@ -93,9 +95,16 @@ class PropVolumetric(PropWidget):
 		self.fastDrawCheckBox.setChecked(obj.m_fastDraw)
 		self.renderBoxesCheckBox.setChecked(obj.m_renderBoxes)
 		self.renderSplatsCheckBox.setChecked(obj.m_renderSplats)
+		self.splatTransparentCheckBox.setChecked(obj.m_splat_transparent)
+		self.splatTransparentCheckBox.setEnabled(obj.m_renderSplats)
+		self.splatHQSortCheckBox.setChecked(obj.m_splat_hq_sort)
+		self.splatHQSortCheckBox.setEnabled(obj.m_renderSplats and not obj.m_splat_transparent)
 		self.splatAdditiveCheckBox.setChecked(obj.m_splat_additive)
+		self.splatAdditiveCheckBox.setEnabled(obj.m_renderSplats and not obj.m_splat_transparent)
 		self.splatScaleSpin.setValue(obj.m_splat_scale)
+		self.splatScaleSpin.setEnabled(obj.m_renderSplats)
 		self._update_splat_color_button()
+		self.splatColorButton.setEnabled(obj.m_renderSplats)
 
 		self.blockAll(False)
 
@@ -151,6 +160,25 @@ class PropVolumetric(PropWidget):
 		obj = self.obj_ref()
 		obj.m_renderSplats = b
 		print(f"gaussian splats: {b}")
+		self.splatTransparentCheckBox.setEnabled(b)
+		self.splatHQSortCheckBox.setEnabled(b and not obj.m_splat_transparent)
+		self.splatAdditiveCheckBox.setEnabled(b and not obj.m_splat_transparent)
+		self.splatScaleSpin.setEnabled(b)
+		self.splatColorButton.setEnabled(b)
+		AP.updateAllViews()
+
+	@pyqtSlot(bool)
+	def on_splat_transparent_checkbox(self, b):
+		obj = self.obj_ref()
+		obj.m_splat_transparent = b
+		self.splatHQSortCheckBox.setEnabled(obj.m_renderSplats and not b)
+		self.splatAdditiveCheckBox.setEnabled(obj.m_renderSplats and not b)
+		AP.updateAllViews()
+
+	@pyqtSlot(bool)
+	def on_splat_hq_sort_checkbox(self, b):
+		obj = self.obj_ref()
+		obj.m_splat_hq_sort = b
 		AP.updateAllViews()
 
 	@pyqtSlot(bool)

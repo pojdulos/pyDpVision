@@ -1,4 +1,5 @@
 import sys, os
+from PyQt5.QtCore import QTimer
 
 class Globals:
 	_instance = None
@@ -49,6 +50,7 @@ class Globals:
 	def updateAllViews(self):
 		for v in self.mainWin.allGLViewers():
 			v.update()
+			QTimer.singleShot(0, v.update)
 
 	def not_implemented(self):
 		from PyQt5.QtWidgets import QMessageBox

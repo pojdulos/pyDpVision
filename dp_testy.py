@@ -2,6 +2,7 @@ from dpVision import AP, Transform, Image, AnnotationPoint, AnnotationSphere, An
 
 from PyQt5.QtCore import QTimer
 
+from dpVision.annotationPlane import AnnotationPlane
 from dpVision.mesh import Mesh
 from dpVision.meshUncertaintyModel import MeshUncertaintyModel, colorize_mesh_by_confidence, confidence_to_rgba, uncertainty_colormap
 from dpVision.volumetric import Volumetric
@@ -24,12 +25,17 @@ def fastTest1():
 				AP.mainWin.dock["workspace"].addNewItem(tra2)
 
 def fastTest2():
-	obj = AnnotationPoint( point=[5,5,5], vector=[1.0,0.0,0.0] )
+	# obj = AnnotationPoint( point=[5,5,5], vector=[1.0,0.0,0.0] )
+	# if not obj is None:
+	# 	AP.mainWin.workspace.m_data.append(obj)
+	# 	AP.mainWin.dock["workspace"].addNewItem(obj)
+
+	obj = AnnotationPlane( size=[30,30] )
 	if not obj is None:
 		AP.mainWin.workspace.m_data.append(obj)
 		AP.mainWin.dock["workspace"].addNewItem(obj)
 
-	obj = AnnotationSphere()
+	obj = AnnotationSphere( radius=10.0, color=[255,255,0,128] )
 	if not obj is None:
 		AP.mainWin.workspace.m_data.append(obj)
 		AP.mainWin.dock["workspace"].addNewItem(obj)
@@ -492,3 +498,4 @@ def test_uncertainty():
 	AP.load(filename, on_success=analyse_mesh)
 
 # test_uncertainty()
+fastTest2()

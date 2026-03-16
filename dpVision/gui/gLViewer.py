@@ -665,6 +665,7 @@ class GLViewer(QOpenGLWidget):
 		if s_mm != 1.0:
 			glScalef(s_mm, s_mm, s_mm)
 		try:
+			wboit_reinit = False
 			cam_pos = list(self._camera.pos)
 			view_dir = [
 				self._camera.dir[0] - self._camera.pos[0],
@@ -686,10 +687,14 @@ class GLViewer(QOpenGLWidget):
 					getattr(self, '_wboit_w', 0) != w or
 					getattr(self, '_wboit_h', 0) != h):
 					self._init_wboit_resources(w, h)
+					wboit_reinit = True
 
 				if getattr(self, '_wboit_fbo', None) is not None:
 					# Zapamiętaj bieżący FBO (może być Qt-internal FBO, nie 0)
 					prev_fb = glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING)
+					prev_read_fb = glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING)
+					prev_draw_buffer = glGetIntegerv(GL_DRAW_BUFFER)
+					prev_read_buffer = glGetIntegerv(GL_READ_BUFFER)
 					viewport = glGetIntegerv(GL_VIEWPORT)
 					vx, vy, vw, vh = map(int, viewport)
 
@@ -731,13 +736,18 @@ class GLViewer(QOpenGLWidget):
 
 					# Composite: nałóż WBOIT transparent na główny bufor
 					glBindFramebuffer(GL_FRAMEBUFFER, prev_fb)
+					glDrawBuffer(prev_draw_buffer)
+					glReadBuffer(prev_read_buffer)
 					glDepthMask(GL_TRUE)
 					glDisable(GL_DEPTH_TEST)
 					glEnable(GL_BLEND)
 					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+					glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 					self._composite_wboit()
 					glEnable(GL_DEPTH_TEST)
 					glDepthFunc(GL_LEQUAL)
+					glBindFramebuffer(GL_READ_FRAMEBUFFER, prev_read_fb)
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev_fb)
 
 					glClearColor(
 						self._fBgColor.redF(),
@@ -748,6 +758,9 @@ class GLViewer(QOpenGLWidget):
 			glPopMatrix()
 			# Upewnij się że stos attribs jest czysty po renderowaniu obiektów
 			self._drainGLAttribStack()
+			if wboit_reinit and not getattr(self, '_wboit_refresh_pending', False):
+				self._wboit_refresh_pending = True
+				QTimer.singleShot(0, self._trigger_wboit_refresh)
 	
 		# //rysujGimbal();
 	
@@ -757,6 +770,10 @@ class GLViewer(QOpenGLWidget):
 		glDisable(GL_BLEND);
 
 	# ---------- WBOIT helpers ----------
+
+	def _trigger_wboit_refresh(self):
+		self._wboit_refresh_pending = False
+		self.update()
 
 	def _init_wboit_resources(self, w, h):
 		"""Tworzy FBO + tekstury dla WBOIT i kompiluje shader composite."""

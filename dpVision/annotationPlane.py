@@ -36,8 +36,10 @@ class Vector3d(np.ndarray):
 		return Vector3d(*((self.view(np.ndarray)) * scalar))
 
 class AnnotationPlane(Annotation):
-	def __init__(self, pC=(0.0,0.0,0.0), pN=(0.0,0.0,1.0), size=(10,10), parent=None):
-		Annotation.__init__(self, parent)
+	def __init__(self, parent=None, pC=(0.0,0.0,0.0), pN=(0.0,0.0,1.0), size=(10,10),
+                    color=[0,255,255,128],
+                    selcolor=[255,0,0,128]):
+		Annotation.__init__(self, parent, color, selcolor)
 		self.m_center = pC
 		self.normal_vector = pN
 		self.setSize(size)
@@ -139,6 +141,8 @@ class AnnotationPlane(Annotation):
 						self.render_wboit(AP.wboit_pass, (p1, p2, p3, p4), center)
 					return
 				if self.is_transparent:
+					if self.transparent_outline_enabled():
+						self.render_outline((p1, p2, p3, p4), center)
 					return
 
 			glPushMatrix()
@@ -177,6 +181,9 @@ class AnnotationPlane(Annotation):
 			glPopAttrib()
 			glPopMatrix()
 
+			if self.is_transparent and self.transparent_outline_enabled():
+				self.render_outline((p1, p2, p3, p4), center)
+
 	def render_wboit(self, pass_idx, corners, center):
 		prog = self._prepare_wboit_shader(pass_idx)
 		if prog is None:
@@ -201,3 +208,30 @@ class AnnotationPlane(Annotation):
 		glDisableVertexAttribArray(0)
 		glBindBuffer(GL_ARRAY_BUFFER, 0)
 		glUseProgram(0)
+
+	def render_outline(self, corners, center):
+		glPushMatrix()
+		glPushAttrib(GL_ALL_ATTRIB_BITS)
+
+		glDisable(GL_TEXTURE_2D)
+		glDisable(GL_BLEND)
+		glEnable(GL_COLOR_MATERIAL)
+		glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
+		glLineWidth(2.0)
+		glColor4f(*self._active_outline_rgba())
+		glTranslatef(center[0], center[1], center[2])
+
+		glBegin(GL_LINE_LOOP)
+		glVertex3f(*corners[0])
+		glVertex3f(*corners[1])
+		glVertex3f(*corners[2])
+		glVertex3f(*corners[3])
+		glEnd()
+
+		glBegin(GL_LINES)
+		glVertex3f(*corners[0]); glVertex3f(*corners[2])
+		glVertex3f(*corners[1]); glVertex3f(*corners[3])
+		glEnd()
+
+		glPopAttrib()
+		glPopMatrix()

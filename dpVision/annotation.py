@@ -13,10 +13,14 @@ from .shaders import create_program
 import numpy as np
 
 class Annotation(BaseObject):
-	def __init__(self, parent=None):
+	TRANSPARENT_OUTLINE_ENABLED = True
+
+	def __init__(self, parent=None, color=[0,255,255,128], selcolor=[255,0,0,128]):
 		super( Annotation, self ).__init__( parent )
-		self.m_color = QColor(0,0,255,102)
-		self.m_selcolor = QColor(255,0,0,102)
+		r, g, b, a = color
+		self.m_color = QColor(r, g, b, a)
+		r, g, b, a = selcolor
+		self.m_selcolor = QColor(r, g, b, a)
 		self._wboit_shader = None
 
 	def setColor(self, name=None, r=0, g=0, b=255, a=102):
@@ -60,6 +64,19 @@ class Annotation(BaseObject):
 			col.blueF(),
 			col.alphaF(),
 		)
+
+	def _active_outline_rgba(self):
+		col = self._active_qcolor()
+		return (
+			col.redF(),
+			col.greenF(),
+			col.blueF(),
+			1.0,
+		)
+
+	@classmethod
+	def transparent_outline_enabled(cls):
+		return bool(cls.TRANSPARENT_OUTLINE_ENABLED)
 
 	@property
 	def is_transparent(self):

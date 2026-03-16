@@ -50,11 +50,21 @@ class Volumetric(Object):
 		self.m_fastDraw = True
 		self.m_renderBoxes = False
 		self.m_renderSplats  = False
+		self.m_splat_transparent = True
 		self.m_splat_scale   = 1.0
 		self.m_splat_tint    = [1.0, 1.0, 1.0]
 		self.m_splat_additive = False
+		self.m_splat_depth_prepass = True
+		self.m_splat_depth_cutoff = 0.25
+		self.m_splat_hq_sort = False
+		self.m_wboit_alpha_scale = 0.7
+		self.m_wboit_alpha_gamma = 1.35
+		self.m_wboit_alpha_cutoff = 0.02
+		self.m_wboit_front_weight = 6.0
 		self.splat_shader    = None
+		self.splat_hq_shader = None
 		self.splat_vbo       = None
+		self.splat_hq_vbo    = None
 		self.wboit_splat_shader = None
 		self.metadata : list[SliceMetadata] = []
 		self.m_minSlice = 0
@@ -94,7 +104,7 @@ class Volumetric(Object):
 
 	@property
 	def is_transparent(self):
-		return self.m_renderSplats
+		return self.m_renderSplats and self.m_splat_transparent
 
 	def test_gauss(self):
 		from scipy.ndimage import gaussian_filter
@@ -163,6 +173,9 @@ class Volumetric(Object):
 		if self.splat_shader is not None:
 			glDeleteProgram(self.splat_shader)
 			self.splat_shader = None
+		if self.splat_hq_shader is not None:
+			glDeleteProgram(self.splat_hq_shader)
+			self.splat_hq_shader = None
 
 	def _compile_splat_shader(self):
 		from .shaders import create_program
@@ -176,20 +189,30 @@ class Volumetric(Object):
 			print(f'[Volumetric] BLAD kompilacji splat_shader: {e}', flush=True)
 			self.splat_shader = None
 
+	def _compile_splat_hq_shader(self):
+		from .shaders import create_program
+		try:
+			self.splat_hq_shader = create_program(
+				vertex_shader_name='volumetricSplatHQ.vert',
+				fragment_shader_name='volumetricSplat.frag'
+			)
+			print('[Volumetric] splat_hq_shader OK', flush=True)
+		except Exception as e:
+			print(f'[Volumetric] BLAD kompilacji splat_hq_shader: {e}', flush=True)
+			self.splat_hq_shader = None
+
 	def _render_splat(self):
 		"""Renderowanie wokseli jako Gaussian splaty (analogicznie do SphereGrid)."""
+		if self.m_splat_hq_sort and not self.m_splat_transparent:
+			self._render_splat_hq()
+			return
+
 		if self.splat_shader is None:
 			self._compile_splat_shader()
 		if self.splat_shader is None:
 			return
 
 		glEnable(GL_PROGRAM_POINT_SIZE)
-		glEnable(GL_BLEND)
-		if self.m_splat_additive:
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE)
-		else:
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-		glDepthMask(GL_FALSE)
 
 		glUseProgram(self.splat_shader)
 
@@ -217,6 +240,8 @@ class Volumetric(Object):
 		glUniform1f(glGetUniformLocation(self.splat_shader, "u_viewport_h"), float(viewport[3]))
 		glUniform1f(glGetUniformLocation(self.splat_shader, "u_focal_y"),    float(projection[1, 1]))
 		glUniform1f(glGetUniformLocation(self.splat_shader, "u_splat_scale"), float(self.m_splat_scale))
+		glUniform1f(glGetUniformLocation(self.splat_shader, "u_depth_cutoff"), float(self.m_splat_depth_cutoff))
+		glUniform1i(glGetUniformLocation(self.splat_shader, "u_depth_prepass"), 0)
 		glUniform3fv(glGetUniformLocation(self.splat_shader, "u_tint"), 1,
 		             np.array(self.m_splat_tint, dtype=np.float32))
 
@@ -247,31 +272,188 @@ class Volumetric(Object):
 		# Przy numpy bez transpozycji: numpy[2][2] == M[2][2] (element diagonalny).
 		# M[2][2] >= 0 → kamera po stronie +Z → mniejsze Z jest dalej → kolejność rosnąca
 		# M[2][2] <  0 → kamera po stronie -Z → większe Z jest dalej → kolejność malejąca
-		m22 = float(modelview[2][2])
-		slice_indices = range(small_shape[0]) if m22 >= 0 else range(small_shape[0]-1, -1, -1)
-
-		for idx_in_subvolume in slice_indices:
+		slice_depths = []
+		for idx_in_subvolume in range(small_shape[0]):
 			true_index = first_slice + idx_in_subvolume * factor
-
-			colors = np.array(subvolume[idx_in_subvolume], dtype=np.float32).flatten()
-			glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
-
 			metadata = self.metadata[true_index]
-			imagePosition = [
+			image_position = np.array([
 				metadata.image_position_patient[0] + metadata.pixel_spacing[0] * float(first_column),
 				metadata.image_position_patient[1] + metadata.pixel_spacing[1] * float(first_row),
 				metadata.image_position_patient[2]
-			]
-			voxel_size = [
+			], dtype=np.float32)
+			voxel_size = np.array([
 				metadata.pixel_spacing[0],
 				metadata.pixel_spacing[1],
 				metadata.slice_thickness
-			]
-			glUniform3fv(glGetUniformLocation(self.splat_shader, "imagePosition"), 1, imagePosition)
-			glUniform3fv(glGetUniformLocation(self.splat_shader, "voxelSize"),      1, voxel_size)
+			], dtype=np.float32)
+			slice_center = image_position + voxel_size * np.array([
+				0.5 * max(small_shape[2] - 1, 0),
+				0.5 * max(small_shape[1] - 1, 0),
+				0.0
+			], dtype=np.float32)
+			eye_center = modelview @ np.array([slice_center[0], slice_center[1], slice_center[2], 1.0], dtype=np.float32)
+			slice_depths.append((float(eye_center[2]), idx_in_subvolume))
+		slice_indices = [idx for _, idx in sorted(slice_depths)]
 
-			glDrawArrays(GL_POINTS, 0, colors.shape[0])
+		def _draw_sorted_slices():
+			for idx_in_subvolume in slice_indices:
+				true_index = first_slice + idx_in_subvolume * factor
 
+				colors = np.array(subvolume[idx_in_subvolume], dtype=np.float32).flatten()
+				glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
+
+				metadata = self.metadata[true_index]
+				imagePosition = [
+					metadata.image_position_patient[0] + metadata.pixel_spacing[0] * float(first_column),
+					metadata.image_position_patient[1] + metadata.pixel_spacing[1] * float(first_row),
+					metadata.image_position_patient[2]
+				]
+				voxel_size = [
+					metadata.pixel_spacing[0],
+					metadata.pixel_spacing[1],
+					metadata.slice_thickness
+				]
+				glUniform3fv(glGetUniformLocation(self.splat_shader, "imagePosition"), 1, imagePosition)
+				glUniform3fv(glGetUniformLocation(self.splat_shader, "voxelSize"),      1, voxel_size)
+
+				glDrawArrays(GL_POINTS, 0, colors.shape[0])
+
+		if self.m_splat_depth_prepass:
+			glDisable(GL_BLEND)
+			glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE)
+			glDepthMask(GL_TRUE)
+			glDepthFunc(GL_LEQUAL)
+			glUniform1i(glGetUniformLocation(self.splat_shader, "u_depth_prepass"), 1)
+			_draw_sorted_slices()
+			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+
+		glEnable(GL_BLEND)
+		if self.m_splat_additive:
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE)
+		else:
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+		glDepthMask(GL_FALSE)
+		glDepthFunc(GL_LEQUAL)
+		glUniform1i(glGetUniformLocation(self.splat_shader, "u_depth_prepass"), 0)
+		_draw_sorted_slices()
+
+		glBindBuffer(GL_ARRAY_BUFFER, 0)
+		glUseProgram(0)
+		glDepthFunc(GL_LEQUAL)
+		glDepthMask(GL_TRUE)
+		glDisable(GL_BLEND)
+		glDisable(GL_PROGRAM_POINT_SIZE)
+
+	def _build_hq_splat_points(self, factor, modelview):
+		first_slice  = factor * int(self.m_minSlice  / factor)
+		first_row    = factor * int(self.m_minRow    / factor)
+		first_column = factor * int(self.m_minColumn / factor)
+
+		point_blocks = []
+		for true_index in range(first_slice, self.m_maxSlice + 1, factor):
+			slice_2d = np.asarray(
+				self.m_volume[true_index][first_row:self.m_maxRow+1:factor, first_column:self.m_maxColumn+1:factor],
+				dtype=np.float32
+			)
+			if slice_2d.size == 0:
+				continue
+
+			mask = (slice_2d >= self.m_minDisplWin) & (slice_2d <= self.m_maxDisplWin)
+			if not np.any(mask):
+				continue
+
+			metadata = self.metadata[true_index]
+			row_idx, col_idx = np.nonzero(mask)
+			values = slice_2d[mask]
+
+			x = metadata.image_position_patient[0] + metadata.pixel_spacing[0] * (first_column + col_idx * factor)
+			y = metadata.image_position_patient[1] + metadata.pixel_spacing[1] * (first_row + row_idx * factor)
+			z = np.full_like(values, metadata.image_position_patient[2], dtype=np.float32)
+
+			points = np.empty((values.shape[0], 4), dtype=np.float32)
+			points[:, 0] = x.astype(np.float32)
+			points[:, 1] = y.astype(np.float32)
+			points[:, 2] = z
+			points[:, 3] = values
+			point_blocks.append(points)
+
+		if not point_blocks:
+			return np.empty((0, 4), dtype=np.float32)
+
+		points = np.vstack(point_blocks)
+		ones = np.ones((points.shape[0], 1), dtype=np.float32)
+		eye = np.hstack((points[:, :3], ones)) @ modelview.T
+		order = np.argsort(-eye[:, 2], kind='stable')
+		return points[order]
+
+	def _render_splat_hq(self):
+		import ctypes
+
+		if self.splat_hq_shader is None:
+			self._compile_splat_hq_shader()
+		if self.splat_hq_shader is None:
+			return
+
+		modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32)
+		projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32)
+
+		if not self.m_fastDraw and not AP.mouse_key_pressed:
+			factor = 1
+		elif len(self.m_volume) < 1536:
+			factor = 4
+		else:
+			factor = 8
+
+		points = self._build_hq_splat_points(factor, modelview)
+		if len(points) == 0:
+			return
+
+		if self.splat_hq_vbo is None:
+			self.splat_hq_vbo = glGenBuffers(1)
+
+		glEnable(GL_PROGRAM_POINT_SIZE)
+		glEnable(GL_BLEND)
+		if self.m_splat_additive:
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE)
+		else:
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+		glDepthMask(GL_FALSE)
+		glDepthFunc(GL_LEQUAL)
+
+		glUseProgram(self.splat_hq_shader)
+
+		glUniformMatrix4fv(glGetUniformLocation(self.splat_hq_shader, "modelviewMatrix"),
+		                   1, GL_FALSE, modelview)
+		glUniformMatrix4fv(glGetUniformLocation(self.splat_hq_shader, "projectionMatrix"),
+		                   1, GL_FALSE, projection)
+		glUniform1f(glGetUniformLocation(self.splat_hq_shader, "minColor"), self.m_minDisplWin)
+		glUniform1f(glGetUniformLocation(self.splat_hq_shader, "maxColor"), self.m_maxDisplWin)
+		glUniform3fv(glGetUniformLocation(self.splat_hq_shader, "f"), 7, self.m_filters)
+		glUniform3fv(glGetUniformLocation(self.splat_hq_shader, "fcolors"), 7, self.m_fcolors)
+		viewport = glGetIntegerv(GL_VIEWPORT)
+		glUniform1f(glGetUniformLocation(self.splat_hq_shader, "u_viewport_h"), float(viewport[3]))
+		glUniform1f(glGetUniformLocation(self.splat_hq_shader, "u_focal_y"), float(projection[1, 1]))
+		px = float(self.metadata[0].pixel_spacing[0]) if self.metadata else 1.0
+		py = float(self.metadata[0].pixel_spacing[1]) if self.metadata else 1.0
+		pz = float(self.metadata[0].slice_thickness) if self.metadata else 1.0
+		glUniform3f(glGetUniformLocation(self.splat_hq_shader, "u_voxel_size"), px * factor, py * factor, pz * factor)
+		glUniform1f(glGetUniformLocation(self.splat_hq_shader, "u_splat_scale"), float(self.m_splat_scale))
+		glUniform3fv(glGetUniformLocation(self.splat_hq_shader, "u_tint"), 1,
+		             np.array(self.m_splat_tint, dtype=np.float32))
+		glUniform1f(glGetUniformLocation(self.splat_hq_shader, "u_depth_cutoff"), float(self.m_splat_depth_cutoff))
+		glUniform1i(glGetUniformLocation(self.splat_hq_shader, "u_depth_prepass"), 0)
+
+		glBindBuffer(GL_ARRAY_BUFFER, self.splat_hq_vbo)
+		glBufferData(GL_ARRAY_BUFFER, points.nbytes, points, GL_DYNAMIC_DRAW)
+		stride = 4 * 4
+		glEnableVertexAttribArray(0)
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+		glEnableVertexAttribArray(1)
+		glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
+		glDrawArrays(GL_POINTS, 0, points.shape[0])
+
+		glDisableVertexAttribArray(0)
+		glDisableVertexAttribArray(1)
 		glBindBuffer(GL_ARRAY_BUFFER, 0)
 		glUseProgram(0)
 		glDepthMask(GL_TRUE)
@@ -329,6 +511,10 @@ class Volumetric(Object):
 		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, 'u_viewport_h'), float(viewport[3]))
 		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, 'u_focal_y'),    float(projection[1, 1]))
 		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, 'u_splat_scale'), float(self.m_splat_scale))
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, 'u_alpha_scale'), float(self.m_wboit_alpha_scale))
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, 'u_alpha_gamma'), float(self.m_wboit_alpha_gamma))
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, 'u_alpha_cutoff'), float(self.m_wboit_alpha_cutoff))
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, 'u_front_weight'), float(self.m_wboit_front_weight))
 		glUniform3fv(glGetUniformLocation(self.wboit_splat_shader, 'u_tint'), 1,
 		             np.array(self.m_splat_tint, dtype=np.float32))
 		glUniform1i(glGetUniformLocation(self.wboit_splat_shader, 'u_wboit_pass'), pass_idx)
@@ -355,8 +541,28 @@ class Volumetric(Object):
 		glUniform1i(glGetUniformLocation(self.wboit_splat_shader, 'sizeY'), small_shape[1])
 
 		# Back-to-front layer sort
-		m22 = float(modelview[2][2])
-		slice_indices = range(small_shape[0]) if m22 >= 0 else range(small_shape[0]-1, -1, -1)
+		slice_depths = []
+		for idx_in_subvolume in range(small_shape[0]):
+			true_index = first_slice + idx_in_subvolume * factor
+			metadata = self.metadata[true_index]
+			image_position = np.array([
+				metadata.image_position_patient[0] + metadata.pixel_spacing[0] * float(first_column),
+				metadata.image_position_patient[1] + metadata.pixel_spacing[1] * float(first_row),
+				metadata.image_position_patient[2]
+			], dtype=np.float32)
+			voxel_size = np.array([
+				metadata.pixel_spacing[0],
+				metadata.pixel_spacing[1],
+				metadata.slice_thickness
+			], dtype=np.float32)
+			slice_center = image_position + voxel_size * np.array([
+				0.5 * max(small_shape[2] - 1, 0),
+				0.5 * max(small_shape[1] - 1, 0),
+				0.0
+			], dtype=np.float32)
+			eye_center = modelview @ np.array([slice_center[0], slice_center[1], slice_center[2], 1.0], dtype=np.float32)
+			slice_depths.append((float(eye_center[2]), idx_in_subvolume))
+		slice_indices = [idx for _, idx in sorted(slice_depths)]
 
 		for idx_in_subvolume in slice_indices:
 			true_index = first_slice + idx_in_subvolume * factor
@@ -419,6 +625,16 @@ class Volumetric(Object):
 
 
 	def renderSelf(self):
+		from .globals import AP
+
+		if AP.wboit_pass is not None:
+			if AP.wboit_pass >= 0:
+				if self.is_transparent:
+					self.render_wboit(AP.wboit_pass)
+				return
+			if self.is_transparent:
+				return
+
 		if self.m_renderSplats:
 			self._render_splat()
 			return

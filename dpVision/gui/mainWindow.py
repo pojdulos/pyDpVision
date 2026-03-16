@@ -222,6 +222,15 @@ class MainWindow(QMainWindow):
 			self.dock["properties"].selectionChanged(obj)
 		AP.updateAllViews()
 
+
+	@pyqtSlot()
+	def on_model_showbb(self):
+		sel = self.dock["workspace"].getSelectedObjects()
+		if len(sel):
+			for obj in sel:
+				obj.m_showBB = not obj.m_showBB
+			AP.updateAllViews()
+
 	def viewerSelected(self):
 		pass
 
@@ -368,7 +377,7 @@ class MainWindow(QMainWindow):
 		if len(sel):
 			for obj in sel:
 				if obj.hasType('Mesh'):
-					obj.gl_renderAs = 2
+					obj.gl_renderAs = 4
 					AP.updateAllViews()
 
 	def mesh_renderAsEdges(self):
@@ -584,9 +593,6 @@ class MainWindow(QMainWindow):
 
 	@pyqtSlot()
 	def helpAbout(self):
-		# dialog = QDialog(self)
-		# uic.loadUi('dpVision/UiAboutDialog.ui', dialog)
-		# dialog.exec() # uruchamia jako modalny
 		uic.loadUi('dpVision/gui/forms/aboutDialog.ui').exec()
 
 	def resetAllTransformations(self):

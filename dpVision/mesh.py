@@ -568,7 +568,7 @@ class Mesh(PointCloud):
 	@property
 	def is_transparent(self):
 		alpha = self.materials[self.currentMaterial].alpha
-		result = alpha < 0.999
+		result = self.gl_renderAs==GL_TRIANGLES and alpha < 0.999
 		# Debug: print tylko gdy się zmienia
 		if not hasattr(self, '_last_is_transparent') or self._last_is_transparent != result:
 			print(f"[MESH] '{self.label}' is_transparent changed: {getattr(self, '_last_is_transparent', None)} -> {result} (alpha={alpha:.3f})")
@@ -614,6 +614,17 @@ class Mesh(PointCloud):
 		except Exception as e:
 			print(f"WBOIT mesh shader error: {e}")
 			self._shader_failed = True
+
+	def _apply_polygon_mode(self):
+		if self.gl_renderAs == GL_POINTS:
+			glPolygonMode(GL_FRONT, GL_POINT)
+			glPolygonMode(GL_BACK, GL_POINT)
+		elif self.gl_renderAs == GL_LINES:
+			glPolygonMode(GL_FRONT, GL_LINE)
+			glPolygonMode(GL_BACK, GL_LINE)
+		else:
+			glPolygonMode(GL_FRONT, GL_FILL)
+			glPolygonMode(GL_BACK, GL_FILL)
 
 	def render_wboit(self, pass_idx, cull_mode=None, camera_pos=None):
 		"""WBOIT rendering – tylko dla przezroczystych mesha (is_transparent=True).
@@ -685,6 +696,8 @@ class Mesh(PointCloud):
 			# Fallback - użyj (0, 0, 200) jako domyślna pozycja kamery
 			glUniform3f(self.wboit_uniform_locs['u_cameraPos'], 0.0, 0.0, 200.0)
 
+		glPolygonMode(GL_FRONT, GL_FILL)
+		glPolygonMode(GL_BACK, GL_FILL)
 		glBindVertexArray(self.vao)
 		
 		# Workspace ustawia culling - mesh tylko rysuje
@@ -717,16 +730,7 @@ class Mesh(PointCloud):
 		else:
 			glEnable(GL_COLOR_MATERIAL)
 			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
-
-			if self.gl_renderAs == 0:
-				glPolygonMode(GL_FRONT, GL_POINT)
-				glPolygonMode(GL_BACK, GL_POINT)
-			elif self.gl_renderAs == 1:
-				glPolygonMode(GL_FRONT, GL_LINE)
-				glPolygonMode(GL_BACK, GL_LINE)
-			else:
-				glPolygonMode(GL_FRONT, GL_FILL)
-				glPolygonMode(GL_BACK, GL_FILL)
+			self._apply_polygon_mode()
 
 			if self.is_transparent:
 				# Dwuprzebiegowy render dla przezroczystych zamkniętych siatek:

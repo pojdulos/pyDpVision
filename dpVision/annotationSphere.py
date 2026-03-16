@@ -13,9 +13,14 @@ import numpy as np
 import OpenGL.GL as gl
 
 class AnnotationSphere(Annotation, Sphere):
-    def __init__(self, parent=None):
-        Annotation.__init__(self, parent)
-        Sphere.__init__(self)
+    def __init__(self, parent=None,
+                    position=[0.0, 0.0, 0.0],
+                    radius=1.0,
+                    color=[0,255,255,128],
+                    selcolor=[255,0,0,128]):
+            
+        Annotation.__init__(self, parent, color, selcolor)
+        Sphere.__init__(self, position, radius)
 
         # Parametry sfery
         self.m_lats = 32
@@ -127,6 +132,9 @@ class AnnotationSphere(Annotation, Sphere):
                     self.render_wboit(AP.wboit_pass)
                 return
             if self.is_transparent:
+                if self.transparent_outline_enabled():
+                    self.render_outline()
+                return
                 return
 
         gl.glPushMatrix()
@@ -153,5 +161,29 @@ class AnnotationSphere(Annotation, Sphere):
 
         self.drawSphere()
 
+        gl.glPopAttrib()
+        gl.glPopMatrix()
+
+        if self.is_transparent and self.transparent_outline_enabled():
+            self.render_outline()
+
+    def render_outline(self):
+        if not self._is_initialized:
+            self.generateSphereData()
+            self.initVBO()
+
+        gl.glPushMatrix()
+        gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+        gl.glDisable(gl.GL_TEXTURE_2D)
+        gl.glDisable(gl.GL_BLEND)
+        gl.glEnable(gl.GL_COLOR_MATERIAL)
+        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
+        gl.glEnable(gl.GL_CULL_FACE)
+        gl.glCullFace(gl.GL_BACK)
+        gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE)
+        gl.glLineWidth(1.5)
+        gl.glColor4f(*self._active_outline_rgba())
+        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+        self.drawSphere()
         gl.glPopAttrib()
         gl.glPopMatrix()

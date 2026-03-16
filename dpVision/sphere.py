@@ -6,9 +6,9 @@ Created on Sun Nov 26 19:51:28 2023
 """
 
 class Sphere:
-	def __init__(self):
-		self.position = [0.0,0.0,0.0]
-		self.radius = 1.0
+	def __init__(self, position = [0.0,0.0,0.0], radius = 1.0):
+		self.position = position
+		self.radius = radius
 	
 	@property
 	def position(self):

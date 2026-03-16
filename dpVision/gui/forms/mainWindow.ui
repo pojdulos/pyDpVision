@@ -1244,6 +1244,22 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>action_Model_ShowBB</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindow</receiver>
+   <slot>on_model_showbb()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>426</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <designerdata>
   <property name="gridDeltaX">
@@ -1328,5 +1344,6 @@
   <slot>imageFit(bool)</slot>
   <slot>actionLookDir()</slot>
   <slot>switchConsole(bool)</slot>
+  <slot>on_model_showbb()</slot>
  </slots>
 </ui>

@@ -525,7 +525,7 @@ class ParserPLY(ThreadedParser):
             return False
 
         if status_cb:
-            status_cb("PrzygotowujÄ™ dane do zapisu PLY...")
+            status_cb("Przygotowuje dane do zapisu PLY...")
         if progress_cb:
             progress_cb(5)
 

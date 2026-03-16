@@ -36,39 +36,54 @@ class Transform(Object):
 		return self.matrix
 
 	''' opcjonalna wersja getBB(),
-	która pozycjonuje BB dzieci wzgledem BB tego obiektu
+	ktora pozycjonuje BB dzieci wzgledem BB tego obiektu
 	w oparciu o macierz transformacji.
-	Raczej nie będzie używana ale zostawiam na razie.
+	Raczej nie bedzie uzywana ale zostawiam na razie.
 	'''
-	def getBBXX(self):
-		# 1. Najpierw zbieramy BB dzieci
-		_b, _min, _max = Object.getBB(self)
+	def getBB(self):
+		return (False, None, None)
+	
+		# if not self._dirty and self._cached_bb is not None:
+		# 	return self._cached_bb
 
-		if not _b:  # jeśli dzieci nie mają BB
-			return False, None, None
+		# _b = False
+		# _min, _max = None, None
+		# mat = self.toNumPy()
 
-		# 2. Generujemy 8 narożników AABB
-		corners = [
-			[_min[0], _min[1], _min[2], 1.0],
-			[_min[0], _min[1], _max[2], 1.0],
-			[_min[0], _max[1], _min[2], 1.0],
-			[_min[0], _max[1], _max[2], 1.0],
-			[_max[0], _min[1], _min[2], 1.0],
-			[_max[0], _min[1], _max[2], 1.0],
-			[_max[0], _max[1], _min[2], 1.0],
-			[_max[0], _max[1], _max[2], 1.0],
-		]
-		corners = np.array(corners, dtype=np.float64)
+		# for kid in self.m_data:
+		# 	kid_bb = kid.getBB()
+		# 	if kid_bb is None:
+		# 		continue
 
-		# 3. Przekształcamy wszystkie narożniki macierzą transformacji
-		mat = self.toNumPy()
-		transformed = (mat @ corners.T).T[:, :3]  # bierzemy tylko XYZ
+		# 	kid_b, kid_min, kid_max = kid_bb
+		# 	if not kid_b or kid_min is None or kid_max is None:
+		# 		continue
 
-		# 4. Wyznaczamy nowe min/max
-		bb_min = transformed.min(axis=0).tolist()
-		bb_max = transformed.max(axis=0).tolist()
+		# 	corners = np.array([
+		# 		[kid_min[0], kid_min[1], kid_min[2], 1.0],
+		# 		[kid_min[0], kid_min[1], kid_max[2], 1.0],
+		# 		[kid_min[0], kid_max[1], kid_min[2], 1.0],
+		# 		[kid_min[0], kid_max[1], kid_max[2], 1.0],
+		# 		[kid_max[0], kid_min[1], kid_min[2], 1.0],
+		# 		[kid_max[0], kid_min[1], kid_max[2], 1.0],
+		# 		[kid_max[0], kid_max[1], kid_min[2], 1.0],
+		# 		[kid_max[0], kid_max[1], kid_max[2], 1.0],
+		# 	], dtype=np.float64)
 
-		return True, bb_min, bb_max
+		# 	transformed = (mat @ corners.T).T[:, :3]
+		# 	kid_transformed_min = transformed.min(axis=0).tolist()
+		# 	kid_transformed_max = transformed.max(axis=0).tolist()
+
+		# 	if _min is None:
+		# 		_min, _max = kid_transformed_min, kid_transformed_max
+		# 	else:
+		# 		_min = [min(m1, m2) for m1, m2 in zip(_min, kid_transformed_min)]
+		# 		_max = [max(m1, m2) for m1, m2 in zip(_max, kid_transformed_max)]
+		# 	_b = True
+
+		# self._cached_bb = (_b, _min, _max)
+		# self._dirty = False
+		# return self._cached_bb
 
 
 	# --- budowa macierzy TRS ---
@@ -118,8 +133,8 @@ class Transform(Object):
 		glPopMatrix()
 
 	def renderSelf(self):
-		# Transformacja stosowana zawsze - również podczas WBOIT pass!
-		# Bez tego dzieci nie miałyby poprawnej macierzy modelu.
+		# Transformacja stosowana zawsze - rowniez podczas WBOIT pass!
+		# Bez tego dzieci nie mialyby poprawnej macierzy modelu.
 		from .globals import AP
 		if AP.wboit_pass is None and self.m_show_screw:
 			self.renderScrew()
@@ -156,7 +171,7 @@ class Transform(Object):
 
 
 	def getRotation(self):
-		# zwraca listę [w, x, y, z]
+		# zwraca liste [w, x, y, z]
 		x, y, z, w = self.m_rotation.as_quat()
 		return [w, x, y, z]
 
@@ -168,11 +183,11 @@ class Transform(Object):
 
 	def fromEulerAngles(self, roll, pitch, yaw, degrees=True):
 		"""
-		Ustawia rotację z kątów Eulera.
-		:param roll: obrót wokół osi X
-		:param pitch: obrót wokół osi Y
-		:param yaw: obrót wokół osi Z
-		:param degrees: True jeśli podajemy kąty w stopniach (domyślnie)
+		Ustawia rotacje z katow Eulera.
+		:param roll: obrot wokol osi X
+		:param pitch: obrot wokol osi Y
+		:param yaw: obrot wokol osi Z
+		:param degrees: True jesli podajemy katy w stopniach (domyslnie)
 		"""
 		self.m_rotation = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=degrees)
 		self.updateMatrix()
@@ -180,35 +195,35 @@ class Transform(Object):
 
 	def rotate(self, angle, axis, origin=None):
 		"""
-		Obraca transformację wokół zadanej osi w układzie globalnym.
-		:param angle: kąt obrotu w stopniach (możesz zmienić na radiany jeśli wolisz)
-		:param axis: lista/ndarray [x, y, z] – oś obrotu
-		:param origin: lista/ndarray [x, y, z], pivot wokół którego obracamy
+		Obraca transformacje wokol zadanej osi w ukladzie globalnym.
+		:param angle: kat obrotu w stopniach (mozesz zmienic na radiany jesli wolisz)
+		:param axis: lista/ndarray [x, y, z] - os obrotu
+		:param origin: lista/ndarray [x, y, z], pivot wokol ktorego obracamy
 		"""
 		# normalizacja osi
 		axis = np.asarray(axis, dtype=float)
 		axis /= np.linalg.norm(axis)
 
-		# scipy używa radianów
+		# scipy uzywa radianow
 		angle_rad = np.radians(angle)
 
-		# nowy obrót jako obiekt Rotation
+		# nowy obrot jako obiekt Rotation
 		R = Rotation.from_rotvec(axis * angle_rad)
 
 		if origin is None:
-			# obrót tylko orientacji
+			# obrot tylko orientacji
 			self.m_rotation = R * self.m_rotation
 		else:
 			origin = np.asarray(origin, dtype=float)
 
-			# przesunięcie do pivotu
+			# przesuniecie do pivotu
 			self.m_translation -= origin
 
-			# obrót zarówno rotacji, jak i translacji
+			# obrot zarowno rotacji, jak i translacji
 			self.m_translation = R.apply(self.m_translation)
 			self.m_rotation = R * self.m_rotation
 
-			# powrót z pivotu
+			# powrot z pivotu
 			self.m_translation += origin
 
 		self.updateMatrix()
@@ -231,13 +246,13 @@ class Transform(Object):
 		# --- Translacja ---
 		self.m_translation = M[:3, 3]
 
-		# --- Skala (długości wektorów kolumnowych 3x3) ---
+		# --- Skala (dlugosci wektorow kolumnowych 3x3) ---
 		scale_x = np.linalg.norm(M[:3, 0])
 		scale_y = np.linalg.norm(M[:3, 1])
 		scale_z = np.linalg.norm(M[:3, 2])
 		self.m_scale = np.array([scale_x, scale_y, scale_z])
 
-		# --- Rotacja (zmacierzy 3x3 z usuniętą skalą) ---
+		# --- Rotacja (z macierzy 3x3 z usunieta skala) ---
 		Rmat = np.zeros((3, 3))
 		if scale_x != 0: Rmat[:, 0] = M[:3, 0] / scale_x
 		if scale_y != 0: Rmat[:, 1] = M[:3, 1] / scale_y
@@ -275,7 +290,6 @@ class Transform(Object):
 					# self.matrix = np.array(values, dtype=np.float64).reshape((4, 4))
 					self.fromNumPy(values)
 				else:
-					raise ValueError("Nieprawidłowa liczba wartości w schowku")
+					raise ValueError("Nieprawidlowa liczba wartosci w schowku")
 			except ValueError as e:
-				print("Błąd konwersji wartości: ", e)
-
+				print("Blad konwersji wartosci: ", e)

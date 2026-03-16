@@ -8,12 +8,16 @@ Created on Sat Nov 25 13:15:53 2023
 from PyQt5.QtGui import *
 from .baseObject import BaseObject
 from .object import Object
+from OpenGL.GL import *
+from .shaders import create_program
+import numpy as np
 
 class Annotation(BaseObject):
 	def __init__(self, parent=None):
 		super( Annotation, self ).__init__( parent )
 		self.m_color = QColor(0,0,255,102)
 		self.m_selcolor = QColor(255,0,0,102)
+		self._wboit_shader = None
 
 	def setColor(self, name=None, r=0, g=0, b=255, a=102):
 		if name:
@@ -44,4 +48,52 @@ class Annotation(BaseObject):
 
 	def getSelColor(self):
 		return self.m_selcolor
+
+	def _active_qcolor(self):
+		return self.m_selcolor if self.checked else self.m_color
+
+	def _active_rgba(self):
+		col = self._active_qcolor()
+		return (
+			col.redF(),
+			col.greenF(),
+			col.blueF(),
+			col.alphaF(),
+		)
+
+	@property
+	def is_transparent(self):
+		return self._active_qcolor().alphaF() < 0.999
+
+	def _compile_wboit_shader(self):
+		if self._wboit_shader is not None:
+			return self._wboit_shader
+		try:
+			self._wboit_shader = create_program(
+				vertex_shader_name='annotation_wboit.vert',
+				fragment_shader_name='annotation_wboit.frag'
+			)
+		except Exception as e:
+			print(f'[Annotation] WBOIT shader error: {e}')
+			self._wboit_shader = None
+		return self._wboit_shader
+
+	def _prepare_wboit_shader(self, pass_idx):
+		prog = self._compile_wboit_shader()
+		if prog is None:
+			return None
+
+		glUseProgram(prog)
+		model = np.empty((4, 4), dtype=np.float32)
+		projection = np.empty((4, 4), dtype=np.float32)
+		view = np.identity(4, dtype=np.float32)
+		glGetFloatv(GL_MODELVIEW_MATRIX, model)
+		glGetFloatv(GL_PROJECTION_MATRIX, projection)
+
+		glUniformMatrix4fv(glGetUniformLocation(prog, "model"), 1, GL_FALSE, model)
+		glUniformMatrix4fv(glGetUniformLocation(prog, "view"), 1, GL_FALSE, view)
+		glUniformMatrix4fv(glGetUniformLocation(prog, "projection"), 1, GL_FALSE, projection)
+		glUniform4f(glGetUniformLocation(prog, "u_color"), *self._active_rgba())
+		glUniform1i(glGetUniformLocation(prog, "u_wboit_pass"), pass_idx)
+		return prog
 	

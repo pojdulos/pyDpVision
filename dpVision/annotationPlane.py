@@ -41,6 +41,7 @@ class AnnotationPlane(Annotation):
 		self.m_center = pC
 		self.normal_vector = pN
 		self.setSize(size)
+		self._wboit_vbo = None
 
 	@property
 	def normal_vector(self):
@@ -102,6 +103,7 @@ class AnnotationPlane(Annotation):
 
 
 	def renderSelf(self):
+		from .globals import AP
 		normal = Vector3d(*self.m_normal)
 		center = Vector3d(*self.m_center)
 		W, H = self.m_size
@@ -130,6 +132,14 @@ class AnnotationPlane(Annotation):
 			p2 = -v1 + v2
 			p3 = -v1 - v2
 			p4 =  v1 - v2
+
+			if AP.wboit_pass is not None:
+				if AP.wboit_pass >= 0:
+					if self.is_transparent:
+						self.render_wboit(AP.wboit_pass, (p1, p2, p3, p4), center)
+					return
+				if self.is_transparent:
+					return
 
 			glPushMatrix()
 			glPushAttrib(GL_ALL_ATTRIB_BITS)
@@ -166,3 +176,28 @@ class AnnotationPlane(Annotation):
 
 			glPopAttrib()
 			glPopMatrix()
+
+	def render_wboit(self, pass_idx, corners, center):
+		prog = self._prepare_wboit_shader(pass_idx)
+		if prog is None:
+			return
+
+		vertices = np.array([
+			corners[0] + center,
+			corners[1] + center,
+			corners[2] + center,
+			corners[0] + center,
+			corners[2] + center,
+			corners[3] + center,
+		], dtype=np.float32)
+
+		if self._wboit_vbo is None:
+			self._wboit_vbo = glGenBuffers(1)
+		glBindBuffer(GL_ARRAY_BUFFER, self._wboit_vbo)
+		glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_DYNAMIC_DRAW)
+		glEnableVertexAttribArray(0)
+		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
+		glDrawArrays(GL_TRIANGLES, 0, 6)
+		glDisableVertexAttribArray(0)
+		glBindBuffer(GL_ARRAY_BUFFER, 0)
+		glUseProgram(0)

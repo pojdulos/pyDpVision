@@ -30,6 +30,29 @@ class AnnotationSphere(Annotation, Sphere):
         # Flaga wskazująca, czy VBO zostało zainicjalizowane
         self._is_initialized = False
 
+    def render_wboit(self, pass_idx):
+        if not self._is_initialized:
+            self.generateSphereData()
+            self.initVBO()
+
+        gl.glPushMatrix()
+        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+
+        prog = self._prepare_wboit_shader(pass_idx)
+        if prog is None:
+            gl.glPopMatrix()
+            return
+
+        gl.glEnableVertexAttribArray(0)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vertex_vbo)
+        gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, False, 0, None)
+        for i in range(self.m_lats):
+            gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, i * (self.m_longs + 1) * 2, (self.m_longs + 1) * 2)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+        gl.glDisableVertexAttribArray(0)
+        gl.glUseProgram(0)
+        gl.glPopMatrix()
+
     def generateSphereData(self):
         self.vertex_data.clear()
         for i in range(self.m_lats):
@@ -96,6 +119,16 @@ class AnnotationSphere(Annotation, Sphere):
 #        gl.glDisableClientState(gl.GL_COLOR_ARRAY)
 
     def renderSelf(self):
+        from .globals import AP
+
+        if AP.wboit_pass is not None:
+            if AP.wboit_pass >= 0:
+                if self.is_transparent:
+                    self.render_wboit(AP.wboit_pass)
+                return
+            if self.is_transparent:
+                return
+
         gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
 

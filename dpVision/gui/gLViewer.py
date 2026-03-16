@@ -690,6 +690,17 @@ class GLViewer(QOpenGLWidget):
 				if getattr(self, '_wboit_fbo', None) is not None:
 					# Zapamiętaj bieżący FBO (może być Qt-internal FBO, nie 0)
 					prev_fb = glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING)
+					viewport = glGetIntegerv(GL_VIEWPORT)
+					vx, vy, vw, vh = map(int, viewport)
+
+					glBindFramebuffer(GL_READ_FRAMEBUFFER, prev_fb)
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self._wboit_fbo)
+					glBlitFramebuffer(
+						vx, vy, vx + vw, vy + vh,
+						vx, vy, vx + vw, vy + vh,
+						GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
+						GL_NEAREST
+					)
 
 					glBindFramebuffer(GL_FRAMEBUFFER, self._wboit_fbo)
 
@@ -701,13 +712,11 @@ class GLViewer(QOpenGLWidget):
 					glClearColor(1.0, 1.0, 1.0, 1.0)
 					glClear(GL_COLOR_BUFFER_BIT)
 
-					glClearColor(0.0, 0.0, 0.0, 0.0)
-					glClear(GL_DEPTH_BUFFER_BIT)
-
 					# Pass 0: accum (blend: GL_ONE, GL_ONE)
 					glDrawBuffer(GL_COLOR_ATTACHMENT0)
 					glDepthMask(GL_FALSE)
-					glDisable(GL_DEPTH_TEST)
+					glEnable(GL_DEPTH_TEST)
+					glDepthFunc(GL_LEQUAL)
 					glEnable(GL_BLEND)
 					glBlendFunc(GL_ONE, GL_ONE)
 					ws.render_transparent_wboit(0, camera_pos=cam_pos, view_dir=view_dir)
@@ -715,7 +724,8 @@ class GLViewer(QOpenGLWidget):
 					# Pass 1: reveal (blend: GL_ZERO, GL_ONE_MINUS_SRC_COLOR)
 					glDrawBuffer(GL_COLOR_ATTACHMENT1)
 					glDepthMask(GL_FALSE)
-					glDisable(GL_DEPTH_TEST)
+					glEnable(GL_DEPTH_TEST)
+					glDepthFunc(GL_LEQUAL)
 					glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR)
 					ws.render_transparent_wboit(1, camera_pos=cam_pos, view_dir=view_dir)
 

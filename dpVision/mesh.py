@@ -641,7 +641,6 @@ class Mesh(PointCloud):
 			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
 			# Przywróć WBOIT state - renderWithShaders2() może zmieniać GL state
 			glDepthMask(GL_FALSE)
-			glDisable(GL_DEPTH_TEST)
 		if self.vao is None:
 			return
 

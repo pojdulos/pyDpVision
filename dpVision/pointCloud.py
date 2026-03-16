@@ -36,6 +36,7 @@ class PointCloud(Object):
 		self.n_vbo = None
 		self.shader_program = None
 		self.splat_shader = None
+		self.wboit_splat_shader = None
 		self.render_mode = RenderMode.POINTS
 		self.point_size = 1.0
 		self.splat_scale = 1.0
@@ -165,6 +166,17 @@ class PointCloud(Object):
 			print(f'[PointCloud] BLAD kompilacji splat_shader: {e}', flush=True)
 			self.splat_shader = None
 
+	def _compile_wboit_splat_shader(self):
+		try:
+			self.wboit_splat_shader = create_program(
+				vertex_shader_name='pointCloudSplat.vert',
+				fragment_shader_name='wboit_pointCloudSplat.frag'
+			)
+			print('[PointCloud] wboit_splat_shader OK', flush=True)
+		except Exception as e:
+			print(f'[PointCloud] BLAD kompilacji wboit_splat_shader: {e}', flush=True)
+			self.wboit_splat_shader = None
+
 	def _render_as_points(self):
 		use_uniform_color = len(self.m_vcolors) < len(self.m_vertices)
 
@@ -262,9 +274,83 @@ class PointCloud(Object):
 		glDepthMask(GL_TRUE)
 		glDisable(GL_BLEND)
 
+	def render_wboit(self, pass_idx):
+		import ctypes
+
+		if self.render_mode != RenderMode.SPLAT:
+			return
+		if self.wboit_splat_shader is None:
+			self._compile_wboit_splat_shader()
+		if self.wboit_splat_shader is None:
+			return
+
+		use_uniform_color = len(self.m_vcolors) < len(self.m_vertices)
+
+		glEnable(GL_PROGRAM_POINT_SIZE)
+		glUseProgram(self.wboit_splat_shader)
+
+		modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32).T
+		projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32).T
+		mvp = projection @ modelview
+
+		glUniformMatrix4fv(glGetUniformLocation(self.wboit_splat_shader, "u_mvp"), 1, GL_FALSE, mvp.T)
+		glUniformMatrix4fv(glGetUniformLocation(self.wboit_splat_shader, "u_mv"), 1, GL_FALSE, modelview.T)
+		glUniformMatrix4fv(glGetUniformLocation(self.wboit_splat_shader, "u_projection"), 1, GL_FALSE, projection.T)
+
+		viewport = glGetIntegerv(GL_VIEWPORT)
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_viewport_h"), float(viewport[3]))
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_focal_y"), float(projection[1, 1]))
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_splat_scale"), float(self.splat_scale))
+		glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_point_spacing"), float(self._estimate_point_spacing()))
+		glUniform1i(glGetUniformLocation(self.wboit_splat_shader, "u_use_u_color"), int(use_uniform_color))
+		glUniform4f(glGetUniformLocation(self.wboit_splat_shader, "u_color"), *self.uniform_color)
+		glUniform1i(glGetUniformLocation(self.wboit_splat_shader, "u_wboit_pass"), pass_idx)
+
+		glBindBuffer(GL_ARRAY_BUFFER, self.vertex_vbo)
+		glEnableVertexAttribArray(0)
+		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
+
+		if not use_uniform_color:
+			glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
+			glEnableVertexAttribArray(1)
+			glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, True, 0, None)
+		else:
+			glDisableVertexAttribArray(1)
+
+		try:
+			glEnable(GL_POINT_SPRITE)
+		except Exception:
+			pass
+
+		glDrawArrays(GL_POINTS, 0, len(self.m_vertices))
+
+		try:
+			glDisable(GL_POINT_SPRITE)
+		except Exception:
+			pass
+
+		glBindBuffer(GL_ARRAY_BUFFER, 0)
+		glDisableVertexAttribArray(0)
+		glDisableVertexAttribArray(1)
+		glUseProgram(0)
+
+	@property
+	def is_transparent(self):
+		return self.render_mode == RenderMode.SPLAT
+
 	def renderSelf(self):
+		from .globals import AP
+
 		if self.shader_program is None:
 			self.initializeGL()
+
+		if AP.wboit_pass is not None:
+			if AP.wboit_pass >= 0:
+				if self.is_transparent:
+					self.render_wboit(AP.wboit_pass)
+				return
+			if self.is_transparent:
+				return
 
 		if self.render_mode == RenderMode.SPLAT:
 			self._render_as_splats()

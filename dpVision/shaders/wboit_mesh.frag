@@ -10,7 +10,9 @@ in vec2 TexCoord;
 in vec3 FragPos;
 
 uniform sampler2D texture1;
-uniform vec4      myColor;        // .a = alpha materia\u0142u
+uniform vec4      myColor;        // .a = alpha materialu
+
+uniform bool useVColors;
 uniform bool useTexture;
 uniform bool useFlatShading;
 uniform int  u_wboit_pass;
@@ -41,11 +43,16 @@ void main()
     vec3 specular   = specularStrength * spec * lightColor;
 
     vec3  result = (ambientStrength * lightColor + diffuse + specular) * vertexColor.rgb;
+
+    float alpha  = vertexColor.a;
+
     // Łączymy alpha z koloru wierzchołka z alpha materiału (myColor.a).
     // Gdy useVColors=true, per-vertex alpha zazwyczaj = 1.0, więc bez tego
     // mnożenia mesh wyglądałby na w pełni nieprzezroczysty mimo ustawienia
     // przezroczystości materiału.
-    float alpha  = vertexColor.a * myColor.a;
+    //if (useVColors) {
+    //    alpha  = alpha * myColor.a;
+    //}
 
     if (useTexture) {
         vec4 texColor = texture(texture1, TexCoord);

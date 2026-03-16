@@ -133,6 +133,7 @@ class SphereGrid(Object):
         self._fast_vbo      = None         # VBO z pre-baked XYZ (tylko ważne punkty)
         self._fast_vbo_count = 0
         self.splat_shader   = None         # shader Gaussian splat
+        self.wboit_splat_shader = None
 
     # ------------------------------------------------------------------
     # Właściwości geometryczne
@@ -719,9 +720,112 @@ class SphereGrid(Object):
             print(f'[SphereGrid] BLAD kompilacji splat_shader: {e}', flush=True)
             self.splat_shader = None
 
+    def _compile_wboit_splat_shader(self):
+        try:
+            self.wboit_splat_shader = create_program(
+                vertex_shader_name='sphereGridSplat.vert',
+                fragment_shader_name='wboit_sphereGridSplat.frag'
+            )
+            print('[SphereGrid] wboit_splat_shader OK', flush=True)
+        except Exception as e:
+            print(f'[SphereGrid] BLAD kompilacji wboit_splat_shader: {e}', flush=True)
+            self.wboit_splat_shader = None
+
+    def render_wboit(self, pass_idx):
+        import ctypes
+
+        if self.display_mode != DisplayMode.SPLAT:
+            return
+        if self._fast_vbo is None or self._fast_vbo_count <= 0:
+            return
+        if self.wboit_splat_shader is None:
+            self._compile_wboit_splat_shader()
+        if self.wboit_splat_shader is None:
+            return
+
+        glUseProgram(self.wboit_splat_shader)
+
+        modelview = np.array(glGetFloatv(GL_MODELVIEW_MATRIX), dtype=np.float32).T
+        projection = np.array(glGetFloatv(GL_PROJECTION_MATRIX), dtype=np.float32).T
+        mvp = projection @ modelview
+
+        glUniformMatrix4fv(glGetUniformLocation(self.wboit_splat_shader, "u_mvp"),
+                           1, GL_FALSE, mvp.T)
+        glUniformMatrix4fv(glGetUniformLocation(self.wboit_splat_shader, "u_mv"),
+                           1, GL_FALSE, modelview.T)
+
+        ang_step_rad = float(np.deg2rad(max(abs(self.d_azimuth), abs(self.d_elevation))))
+        glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_ang_step_rad"), ang_step_rad)
+        glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_splat_scale"),
+                    float(self.splat_scale))
+
+        viewport = glGetIntegerv(GL_VIEWPORT)
+        glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_viewport_h"),
+                    float(viewport[3]))
+        glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_focal_y"),
+                    float(projection[1, 1]))
+
+        minVal, maxVal = self.get_colormap_range()
+        glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_minVal"), minVal)
+        glUniform1f(glGetUniformLocation(self.wboit_splat_shader, "u_maxVal"), maxVal)
+        glUniform1i(glGetUniformLocation(self.wboit_splat_shader, "u_color_mode"),
+                    int(self._splat_color_mode))
+        glUniform3fv(glGetUniformLocation(self.wboit_splat_shader, "u_uniformColor"), 1,
+                     np.array(self.uniform_color, dtype=np.float32))
+        glUniform1i(glGetUniformLocation(self.wboit_splat_shader, "u_hasRgb"), int(self._rgb is not None))
+        glUniform1i(glGetUniformLocation(self.wboit_splat_shader, "u_hasInten"), int(self._intensity is not None))
+        glUniform1i(glGetUniformLocation(self.wboit_splat_shader, "u_wboit_pass"), pass_idx)
+
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, self.palette_tex)
+        glUniform1i(glGetUniformLocation(self.wboit_splat_shader, "u_palette"), 0)
+
+        stride = 8 * 4
+        glBindBuffer(GL_ARRAY_BUFFER, self._fast_vbo)
+        glVertexAttribPointer(0, 3, GL_FLOAT, False, stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(1, 2, GL_FLOAT, False, stride, ctypes.c_void_p(12))
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(2, 3, GL_FLOAT, False, stride, ctypes.c_void_p(20))
+        glEnableVertexAttribArray(2)
+
+        try:
+            glEnable(GL_POINT_SPRITE)
+        except Exception:
+            pass
+
+        glEnable(GL_PROGRAM_POINT_SIZE)
+        glDrawArrays(GL_POINTS, 0, self._fast_vbo_count)
+
+        try:
+            glDisable(GL_POINT_SPRITE)
+        except Exception:
+            pass
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glDisableVertexAttribArray(0)
+        glDisableVertexAttribArray(1)
+        glDisableVertexAttribArray(2)
+        glUseProgram(0)
+
+    @property
+    def is_transparent(self):
+        return self.display_mode == DisplayMode.SPLAT
+
     def renderSelf(self):
+        from .globals import AP
         if self.shader_program is None:
             self.initializeGL()
+
+        if AP.wboit_pass is not None:
+            if AP.wboit_pass >= 0:
+                if self.is_transparent:
+                    self.render_wboit(AP.wboit_pass)
+                return
+            if self.is_transparent:
+                return
 
         # Preferuj szybki VBO (pre-baked XYZ, tylko ważne punkty)
         if self._fast_vbo is not None and self._fast_vbo_count > 0:

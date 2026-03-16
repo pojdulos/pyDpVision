@@ -8,6 +8,7 @@ Created on Sat Nov 25 13:15:53 2023
 from .annotation import Annotation
 from OpenGL.GL import *
 import math
+import numpy as np
 
 class AnnotationTriangle(Annotation):
 	def __init__(self, pA=[0.0,0.0,0.0], pB=[0.0,0.0,0.0],pC=[0.0,0.0,0.0], parent=None):
@@ -15,8 +16,19 @@ class AnnotationTriangle(Annotation):
 		self.m_pA = pA
 		self.m_pB = pB
 		self.m_pC = pC
+		self._wboit_vbo = None
 
 	def renderSelf(self):
+		from .globals import AP
+
+		if AP.wboit_pass is not None:
+			if AP.wboit_pass >= 0:
+				if self.is_transparent:
+					self.render_wboit(AP.wboit_pass)
+				return
+			if self.is_transparent:
+				return
+
 		glPushMatrix()
 		glPushAttrib(GL_ALL_ATTRIB_BITS)
 
@@ -41,7 +53,7 @@ class AnnotationTriangle(Annotation):
 
 		glPointSize(5)
 
-		if self.__checked:
+		if self.checked:
 			glColor4ub(self.m_selcolor.red(),self.m_selcolor.green(),self.m_selcolor.blue(),self.m_selcolor.alpha())
 		else:
 			glColor4ub(self.m_color.red(),self.m_color.green(),self.m_color.blue(),self.m_color.alpha())
@@ -55,3 +67,20 @@ class AnnotationTriangle(Annotation):
 
 		glPopAttrib()
 		glPopMatrix()
+
+	def render_wboit(self, pass_idx):
+		prog = self._prepare_wboit_shader(pass_idx)
+		if prog is None:
+			return
+
+		vertices = np.array([self.m_pA, self.m_pB, self.m_pC], dtype=np.float32)
+		if self._wboit_vbo is None:
+			self._wboit_vbo = glGenBuffers(1)
+		glBindBuffer(GL_ARRAY_BUFFER, self._wboit_vbo)
+		glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_DYNAMIC_DRAW)
+		glEnableVertexAttribArray(0)
+		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
+		glDrawArrays(GL_TRIANGLES, 0, 3)
+		glDisableVertexAttribArray(0)
+		glBindBuffer(GL_ARRAY_BUFFER, 0)
+		glUseProgram(0)

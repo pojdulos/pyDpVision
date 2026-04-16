@@ -19,6 +19,7 @@ from .propPointCloud import PropPointCloud
 from .propNDimCloud import PropNDimCloud
 from .propTransform import PropTransform
 from .propAnnotation import PropAnnotation
+from .propAnnotationElipsoide import PropAnnotationElipsoide
 from .propAnnotationPlane import PropAnnotationPlane
 from .propAnnotationPoint import PropAnnotationPoint
 from .propAnnotationSphere import PropAnnotationSphere
@@ -64,6 +65,7 @@ class DockWidgetProperties(QDockWidget):
 				'default': PropBaseObject,
 			},
 			Annotation: {
+				'AnnotationElipsoide': PropAnnotationElipsoide,
 				'AnnotationPlane': PropAnnotationPlane,
 				'AnnotationPoint': PropAnnotationPoint,
 				'AnnotationSphere': PropAnnotationSphere,

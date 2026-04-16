@@ -1,0 +1,668 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PropAnnotationElipsoide</class>
+ <widget class="QWidget" name="PropAnnotationElipsoide">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>240</width>
+    <height>240</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>240</width>
+    <height>240</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>16777215</width>
+    <height>240</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <widget class="QGroupBox" name="annotationElipsoide">
+   <property name="geometry">
+    <rect>
+     <x>3</x>
+     <y>0</y>
+     <width>232</width>
+     <height>232</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string>AnnotationElipsoide</string>
+   </property>
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item>
+     <widget class="QWidget" name="content" native="true">
+      <property name="minimumSize">
+       <size>
+        <width>228</width>
+        <height>226</height>
+       </size>
+      </property>
+      <widget class="QLabel" name="centerLabel">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>4</y>
+         <width>48</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Center:</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="radiiLabel">
+       <property name="geometry">
+        <rect>
+         <x>118</x>
+         <y>4</y>
+         <width>48</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Radii:</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="axisHeaderX">
+       <property name="geometry">
+        <rect>
+         <x>44</x>
+         <y>83</y>
+         <width>21</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>X</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="axisHeaderY">
+       <property name="geometry">
+        <rect>
+         <x>102</x>
+         <y>83</y>
+         <width>21</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Y</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="axisHeaderZ">
+       <property name="geometry">
+        <rect>
+         <x>160</x>
+         <y>83</y>
+         <width>21</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Z</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="axisTitle">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>65</y>
+         <width>48</width>
+         <height>16</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Axes:</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="ctrLabelX">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>22</y>
+         <width>16</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>X</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="ctrLabelY">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>42</y>
+         <width>16</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Y</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="ctrLabelZ">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>62</y>
+         <width>16</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Z</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="radLabelX">
+       <property name="geometry">
+        <rect>
+         <x>118</x>
+         <y>22</y>
+         <width>16</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>X</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="radLabelY">
+       <property name="geometry">
+        <rect>
+         <x>118</x>
+         <y>42</y>
+         <width>16</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Y</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="radLabelZ">
+       <property name="geometry">
+        <rect>
+         <x>118</x>
+         <y>62</y>
+         <width>16</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>Z</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="axisRowX">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>102</y>
+         <width>28</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>axisX</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="axisRowY">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>132</y>
+         <width>28</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>axisY</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="axisRowZ">
+       <property name="geometry">
+        <rect>
+         <x>8</x>
+         <y>162</y>
+         <width>28</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>axisZ</string>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="ctrX">
+       <property name="geometry">
+        <rect>
+         <x>28</x>
+         <y>22</y>
+         <width>72</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-999999999.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>999999999.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="ctrY">
+       <property name="geometry">
+        <rect>
+         <x>28</x>
+         <y>42</y>
+         <width>72</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-999999999.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>999999999.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="ctrZ">
+       <property name="geometry">
+        <rect>
+         <x>28</x>
+         <y>62</y>
+         <width>72</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-999999999.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>999999999.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="radX">
+       <property name="geometry">
+        <rect>
+         <x>138</x>
+         <y>22</y>
+         <width>72</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>0.000001000000000</double>
+       </property>
+       <property name="maximum">
+        <double>999999999.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="radY">
+       <property name="geometry">
+        <rect>
+         <x>138</x>
+         <y>42</y>
+         <width>72</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>0.000001000000000</double>
+       </property>
+       <property name="maximum">
+        <double>999999999.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="radZ">
+       <property name="geometry">
+        <rect>
+         <x>138</x>
+         <y>62</y>
+         <width>72</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>0.000001000000000</double>
+       </property>
+       <property name="maximum">
+        <double>999999999.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisXX">
+       <property name="geometry">
+        <rect>
+         <x>40</x>
+         <y>102</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisXY">
+       <property name="geometry">
+        <rect>
+         <x>98</x>
+         <y>102</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisXZ">
+       <property name="geometry">
+        <rect>
+         <x>156</x>
+         <y>102</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisYX">
+       <property name="geometry">
+        <rect>
+         <x>40</x>
+         <y>132</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisYY">
+       <property name="geometry">
+        <rect>
+         <x>98</x>
+         <y>132</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisYZ">
+       <property name="geometry">
+        <rect>
+         <x>156</x>
+         <y>132</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisZX">
+       <property name="geometry">
+        <rect>
+         <x>40</x>
+         <y>162</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisZY">
+       <property name="geometry">
+        <rect>
+         <x>98</x>
+         <y>162</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+      <widget class="QDoubleSpinBox" name="axisZZ">
+       <property name="geometry">
+        <rect>
+         <x>156</x>
+         <y>162</y>
+         <width>52</width>
+         <height>22</height>
+        </rect>
+       </property>
+       <property name="decimals">
+        <number>6</number>
+       </property>
+       <property name="minimum">
+        <double>-1.000000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>annotationElipsoide</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>content</receiver>
+   <slot>setVisible(bool)</slot>
+  </connection>
+  <connection>
+   <sender>ctrX</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedCtrX(double)</slot>
+  </connection>
+  <connection>
+   <sender>ctrY</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedCtrY(double)</slot>
+  </connection>
+  <connection>
+   <sender>ctrZ</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedCtrZ(double)</slot>
+  </connection>
+  <connection>
+   <sender>radX</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedRadX(double)</slot>
+  </connection>
+  <connection>
+   <sender>radY</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedRadY(double)</slot>
+  </connection>
+  <connection>
+   <sender>radZ</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedRadZ(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisXX</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisXX(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisXY</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisXY(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisXZ</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisXZ(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisYX</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisYX(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisYY</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisYY(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisYZ</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisYZ(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisZX</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisZX(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisZY</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisZY(double)</slot>
+  </connection>
+  <connection>
+   <sender>axisZZ</sender>
+   <signal>valueChanged(double)</signal>
+   <receiver>PropAnnotationElipsoide</receiver>
+   <slot>changedAxisZZ(double)</slot>
+  </connection>
+ </connections>
+ <slots>
+  <slot>changedCtrX(double)</slot>
+  <slot>changedCtrY(double)</slot>
+  <slot>changedCtrZ(double)</slot>
+  <slot>changedRadX(double)</slot>
+  <slot>changedRadY(double)</slot>
+  <slot>changedRadZ(double)</slot>
+  <slot>changedAxisXX(double)</slot>
+  <slot>changedAxisXY(double)</slot>
+  <slot>changedAxisXZ(double)</slot>
+  <slot>changedAxisYX(double)</slot>
+  <slot>changedAxisYY(double)</slot>
+  <slot>changedAxisYZ(double)</slot>
+  <slot>changedAxisZX(double)</slot>
+  <slot>changedAxisZY(double)</slot>
+  <slot>changedAxisZZ(double)</slot>
+ </slots>
+</ui>

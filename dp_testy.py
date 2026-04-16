@@ -2,6 +2,7 @@ from dpVision import AP, Transform, Image, AnnotationPoint, AnnotationSphere, An
 
 from PyQt5.QtCore import QTimer
 
+from dpVision.annotationElipsoide import AnnotationElipsoide
 from dpVision.annotationPlane import AnnotationPlane
 from dpVision.mesh import Mesh
 from dpVision.meshUncertaintyModel import MeshUncertaintyModel, colorize_mesh_by_confidence, confidence_to_rgba, uncertainty_colormap
@@ -30,15 +31,32 @@ def fastTest2():
 	# 	AP.mainWin.workspace.m_data.append(obj)
 	# 	AP.mainWin.dock["workspace"].addNewItem(obj)
 
-	obj = AnnotationPlane( size=[30,30] )
-	if not obj is None:
-		AP.mainWin.workspace.m_data.append(obj)
-		AP.mainWin.dock["workspace"].addNewItem(obj)
+	# obj = AnnotationPlane( size=[30,30] )
+	# if not obj is None:
+	# 	AP.mainWin.workspace.m_data.append(obj)
+	# 	AP.mainWin.dock["workspace"].addNewItem(obj)
 
-	obj = AnnotationSphere( radius=10.0, color=[255,255,0,128] )
+	# obj = AnnotationSphere( radius=10.0, color=[255,255,0,128] )
+	# if not obj is None:
+	# 	AP.mainWin.workspace.m_data.append(obj)
+	# 	AP.mainWin.dock["workspace"].addNewItem(obj)
+
+
+	obj = AnnotationElipsoide( 
+		axis_x=(-0.9726,-0.2070,-0.1061),
+		axis_y=(-0.2324,0.8833,0.4071),
+		axis_z=(-0.0094,-0.4206,0.9072),
+		radii=(2.4358, 0.7820, 0.3477),
+		color=[255,255,0,128]
+	)
+
 	if not obj is None:
-		AP.mainWin.workspace.m_data.append(obj)
-		AP.mainWin.dock["workspace"].addNewItem(obj)
+		tr = Transform()
+		if not tr is None:
+			tr.addChild(obj)
+
+			AP.mainWin.workspace.m_data.append(tr)
+			AP.mainWin.dock["workspace"].addNewItem(tr)
 	AP.mainWin.update()
 
 def fastTest3():

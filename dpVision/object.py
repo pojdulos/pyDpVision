@@ -120,8 +120,8 @@ class Object(BaseObject):
 		self._dirty = False
 		return self._cached_bb
 
-	def getBB(self):
-		return self.getHierarchyBB()
+	# def getBB(self):
+	# 	return self.getHierarchyBB()
 
 	def getMidpoint(self):
 		if not self._dirty and self._cached_midpoint is not None:

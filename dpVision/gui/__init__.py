@@ -14,6 +14,7 @@ from .mainWindow import MainWindow
 from .mdiChild import MdiChild
 from .progressIndicator import ProgressIndicator
 from .propAnnotation import PropAnnotation
+from .propAnnotationElipsoide import PropAnnotationElipsoide
 from .propAnnotationPoint import PropAnnotationPoint
 from .propAnnotationSphere import PropAnnotationSphere
 from .propBaseObject import PropBaseObject
@@ -35,7 +36,7 @@ __all__ = [
 			"MainWindow",
 			"MdiChild",
 			"ProgressIndicator",
-			"PropAnnotation", "PropAnnotationPoint", "PropAnnotationSphere", "PropBaseObject",
+			"PropAnnotation", "PropAnnotationElipsoide", "PropAnnotationPoint", "PropAnnotationSphere", "PropBaseObject",
 			"PropMesh", "PropMotion", "PropPointCloud", "PropTransform", "PropViewer", "PropVolumetric", "PropWidget",
 		]
 

@@ -11,6 +11,7 @@ from PyQt5.QtGui import QColor
 
 from .. import (
     Annotation,
+    AnnotationElipsoide,
     AnnotationPath,
     AnnotationPlane,
     AnnotationPoint,
@@ -74,6 +75,7 @@ class ParserDPV(Parser):
                 AnnotationPoint,
                 AnnotationPath,
                 AnnotationPlane,
+                AnnotationElipsoide,
                 AnnotationSphere,
                 AnnotationTriangle,
             ),
@@ -182,6 +184,13 @@ class ParserDPV(Parser):
             ET.SubElement(elem, "center").text = ParserDPV._vec_to_text(obj.m_center)
             ET.SubElement(elem, "normal").text = ParserDPV._vec_to_text(obj.normal_vector)
             ET.SubElement(elem, "size").text = ParserDPV._vec_to_text(obj.m_size)
+        elif isinstance(obj, AnnotationElipsoide):
+            elem.set("type", "elipsoide")
+            ET.SubElement(elem, "center").text = ParserDPV._vec_to_text(obj.position)
+            ET.SubElement(elem, "radii").text = ParserDPV._vec_to_text(obj.getRadii())
+            ET.SubElement(elem, "axis_x").text = ParserDPV._vec_to_text(obj.axis_x)
+            ET.SubElement(elem, "axis_y").text = ParserDPV._vec_to_text(obj.axis_y)
+            ET.SubElement(elem, "axis_z").text = ParserDPV._vec_to_text(obj.axis_z)
         elif isinstance(obj, AnnotationSphere):
             elem.set("type", "sphere")
             ET.SubElement(elem, "center").text = ParserDPV._vec_to_text(obj.position)
@@ -220,6 +229,13 @@ class ParserDPV(Parser):
             normal = ParserDPV._text_to_vec(elem.findtext("normal", "0 0 1"), 3)
             size = ParserDPV._text_to_vec(elem.findtext("size", "10 10"), 2)
             obj = AnnotationPlane(pC=center, pN=normal, size=size)
+        elif ann_type == "elipsoide":
+            center = ParserDPV._text_to_vec(elem.findtext("center", "0 0 0"), 3)
+            radii = ParserDPV._text_to_vec(elem.findtext("radii", "1 1 1"), 3)
+            axis_x = ParserDPV._text_to_vec(elem.findtext("axis_x", "1 0 0"), 3)
+            axis_y = ParserDPV._text_to_vec(elem.findtext("axis_y", "0 1 0"), 3)
+            axis_z = ParserDPV._text_to_vec(elem.findtext("axis_z", "0 0 1"), 3)
+            obj = AnnotationElipsoide(position=center, radii=radii, axis_x=axis_x, axis_y=axis_y, axis_z=axis_z)
         elif ann_type == "sphere":
             obj = AnnotationSphere()
             obj.position = ParserDPV._text_to_vec(elem.findtext("center", "0 0 0"), 3)

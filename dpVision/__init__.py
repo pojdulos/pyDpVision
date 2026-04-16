@@ -2,6 +2,7 @@
 
 from .annotation import Annotation
 #from .annotationEdge import AnnotationEdge
+from .annotationElipsoide import AnnotationElipsoide
 from .annotationPath import AnnotationPath
 from .annotationPlane import AnnotationPlane
 from .annotationPoint import AnnotationPoint
@@ -35,7 +36,7 @@ from .workspace import Workspace
 
 __all__ = [
 			"Annotation", #"AnnotationEdge",
-			"AnnotationPath", "AnnotationPlane", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
+			"AnnotationElipsoide", "AnnotationPath", "AnnotationPlane", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
 		    "BaseObject",
 			"mesh_to_grid25D", "grid_to_mesh",
 			"DHJoint", "DHModel", "DHLink",

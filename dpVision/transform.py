@@ -130,6 +130,7 @@ class Transform(Object):
 		return self.m_scale.tolist()
 
 	def setRotation(self, quat):
+		"""Ustawia rotacje na podstawie kwaternionu w kolejnosci [w, x, y, z]."""
 		quat = np.array(quat, dtype=float)
 		if np.allclose(quat, 0.0):
 			quat = np.array([1, 0, 0, 0], dtype=float)
@@ -150,8 +151,14 @@ class Transform(Object):
 		return [w, x, y, z]
 
 	# --- operacje inkrementalne ---
-	def translate(self, dx, dy, dz):
-		self.m_translation += [dx, dy, dz]
+	def translate(self, dx, dy=None, dz=None):
+		"""Dodaje przesuniecie podane jako trzy skalarne wartosci lub jeden wektor XYZ."""
+		if dy is None and dz is None:
+			vector = np.asarray(dx, dtype=np.float64).reshape(3)
+		else:
+			vector = np.asarray([dx, dy, dz], dtype=np.float64)
+
+		self.m_translation += vector
 		self.updateMatrix()
 
 
@@ -214,6 +221,7 @@ class Transform(Object):
 
 	# --- konwersje ---
 	def fromNumPy(self, numpy_array: np.ndarray):
+		"""Aktualizuje skladowe transformacji na podstawie macierzy 4x4."""
 		M = np.array(numpy_array, dtype=np.float64).reshape((4, 4))
 		self.matrix = M
 
@@ -236,6 +244,22 @@ class Transform(Object):
 		self.invalidate_bb()
 
 		return self.matrix
+
+	def fromRowMatrixStr(self, matrix_text, separator=","):
+		"""Wczytuje macierz 4x4 z tekstu zapisanego wierszami, zachowujac zgodnosc ze starym parserem ATMDL."""
+		if matrix_text is None:
+			raise ValueError("matrix_text cannot be None")
+
+		if separator == ",":
+			values = np.fromstring(matrix_text, dtype=np.float64, sep=",")
+		else:
+			normalized = matrix_text.replace(separator, " ")
+			values = np.fromstring(normalized, dtype=np.float64, sep=" ")
+
+		if values.size != 16:
+			raise ValueError(f"Expected 16 matrix values, got {values.size}")
+
+		return self.fromNumPy(values.reshape((4, 4)))
 
 	def toNumPy(self):
 		return self.matrix.copy()

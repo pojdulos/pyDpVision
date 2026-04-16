@@ -170,8 +170,9 @@ class BaseObject(QObject):
 		return self.getHierarchyBB()
 
 	def getBB(self):
-		return self.getHierarchyBB()
-
+		# return self.getHierarchyBB()
+		return self.getLocalBB()
+	
 	def invalidate_bb(self):
 		"""Unieważnia cache BB tego węzła i wszystkich przodków."""
 		# BaseObject nie ma _dirty/_cached_bb — implementacja pełna jest w Object.

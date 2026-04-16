@@ -248,8 +248,8 @@ class BaseObject(QObject):
 			self.renderSelf()
 		if (self.m_showKids):
 			self.renderKids()
-		if self.m_showSelf and self.m_showBB:
-			self.renderBB()
+#		if self.m_showSelf and self.m_showBB:
+#			self.renderBB()
 		gl.glPopMatrix()
 
 	def getGlobalTransformation(self):

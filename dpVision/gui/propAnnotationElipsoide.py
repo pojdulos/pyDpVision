@@ -35,6 +35,7 @@ class PropAnnotationElipsoide(PropWidget):
 			return
 
 		widgets = [
+			self.showAxes,
 			self.ctrX, self.ctrY, self.ctrZ,
 			self.radX, self.radY, self.radZ,
 			self.axisXX, self.axisXY, self.axisXZ,
@@ -47,6 +48,7 @@ class PropAnnotationElipsoide(PropWidget):
 		center = obj.position
 		radii = obj.getRadii()
 		axis_x, axis_y, axis_z = obj.getAxes()
+		self.showAxes.setChecked(bool(obj.m_showAxes))
 
 		self.ctrX.setValue(center[0])
 		self.ctrY.setValue(center[1])
@@ -92,6 +94,12 @@ class PropAnnotationElipsoide(PropWidget):
 			axis_z=[self.axisZX.value(), self.axisZY.value(), self.axisZZ.value()],
 		)
 		self.updateProperties()
+		AP.updateAllViews()
+
+	def _apply_show_axes(self):
+		"""Aktualizuje flage rysowania osi lokalnych."""
+		obj = self.obj_ref()
+		obj.showAxes(self.showAxes.isChecked())
 		AP.updateAllViews()
 
 	@pyqtSlot(float)
@@ -168,3 +176,8 @@ class PropAnnotationElipsoide(PropWidget):
 	def changedAxisZZ(self, _value):
 		"""Obsluguje zmiane skladowej Z dla osi Z."""
 		self._apply_axes()
+
+	@pyqtSlot(bool)
+	def changedShowAxes(self, _checked):
+		"""Obsluguje wlaczenie lub wylaczenie rysowania osi."""
+		self._apply_show_axes()

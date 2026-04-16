@@ -4,7 +4,7 @@ Created on Mon Nov 27 12:58:12 2023
 
 @author: pojdulos
 """
-from .. import Parser, AnnotationPoint, AnnotationSphere, AnnotationTriangle, Object, Transform, Motion
+from .. import Parser, AnnotationElipsoide, AnnotationPoint, AnnotationSphere, AnnotationTriangle, Object, Transform, Motion
 
 import os
 from PyQt5.QtGui import *
@@ -491,6 +491,121 @@ class ParserATMDL(Parser):
 
 			return obj
 		return None
+
+	def parseObject_elipsoide(self, stream):
+		"""Parsuje adnotacje elipsoidy wraz z orientacja zadaną przez wektory osi."""
+		slowo = self.skip_comments(stream)
+
+		if slowo is None:
+			print("Osiągnięto koniec pliku podczas parsowania obiektu 'elipsoide'")
+			return None
+
+		if not slowo == '{':
+			print("BŁĄD. Oczekiwano znaku { odczytano: " + slowo)
+			return None
+
+		opis = {}
+
+		while not slowo == '}':
+			slowo = self.skip_comments(stream)
+
+			if slowo is None:
+				print("Osiągnięto koniec pliku podczas parsowania obiektu 'elipsoide'")
+				return None
+			elif slowo == "}":
+				print("Znaleziono klamrę zamykającą obiekt 'elipsoide'")
+			elif slowo in ['label', 'descr']:
+				tekst = self.parseType_string(stream)
+				if tekst:
+					opis[slowo] = tekst
+			elif slowo in {'coords', 'center', 'origin'}:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis['coords'] = tekst
+			elif slowo in {'radii', 'radius', 'size'}:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis['radii'] = tekst
+			elif slowo in {'axisX', 'axis_x', 'dirX', 'dir_x'}:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis['axis_x'] = tekst
+			elif slowo in {'axisY', 'axis_y', 'dirY', 'dir_y'}:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis['axis_y'] = tekst
+			elif slowo in {'axisZ', 'axis_z', 'dirZ', 'dir_z'}:
+				tekst = self.parseType_matrix(stream)
+				if tekst:
+					opis['axis_z'] = tekst
+			elif slowo == "radiusX":
+				value, _ = self.readWord(stream)
+				if value:
+					opis['radius_x'] = value
+			elif slowo == "radiusY":
+				value, _ = self.readWord(stream)
+				if value:
+					opis['radius_y'] = value
+			elif slowo == "radiusZ":
+				value, _ = self.readWord(stream)
+				if value:
+					opis['radius_z'] = value
+			elif slowo == "color":
+				value, _ = self.readWord(stream)
+				if value:
+					if value[0] != '#':
+						value = '#' + value
+					opis["color"] = value
+			else:
+				print("BLAD1. Nierozpoznany symbol " + slowo)
+				return None
+
+		coords = [0.0, 0.0, 0.0]
+		if 'coords' in opis:
+			qCoords = opis["coords"].split(",")
+			coords = [float(qCoords[0]), float(qCoords[1]), float(qCoords[2])]
+
+		radii = [1.0, 1.0, 1.0]
+		if 'radii' in opis:
+			qRadii = opis['radii'].split(",")
+			if len(qRadii) == 1:
+				value = float(qRadii[0])
+				radii = [value, value, value]
+			elif len(qRadii) >= 3:
+				radii = [float(qRadii[0]), float(qRadii[1]), float(qRadii[2])]
+
+		if 'radius_x' in opis:
+			radii[0] = float(opis['radius_x'])
+		if 'radius_y' in opis:
+			radii[1] = float(opis['radius_y'])
+		if 'radius_z' in opis:
+			radii[2] = float(opis['radius_z'])
+
+		axis_x = [1.0, 0.0, 0.0]
+		axis_y = [0.0, 1.0, 0.0]
+		axis_z = [0.0, 0.0, 1.0]
+
+		if 'axis_x' in opis:
+			qAxis = opis['axis_x'].split(",")
+			axis_x = [float(qAxis[0]), float(qAxis[1]), float(qAxis[2])]
+		if 'axis_y' in opis:
+			qAxis = opis['axis_y'].split(",")
+			axis_y = [float(qAxis[0]), float(qAxis[1]), float(qAxis[2])]
+		if 'axis_z' in opis:
+			qAxis = opis['axis_z'].split(",")
+			axis_z = [float(qAxis[0]), float(qAxis[1]), float(qAxis[2])]
+
+		obj = AnnotationElipsoide(position=coords, radii=radii, axis_x=axis_x, axis_y=axis_y, axis_z=axis_z)
+
+		if obj:
+			if 'color' in opis:
+				obj.setColor(name=opis["color"])
+			if 'label' in opis:
+				obj.label = opis["label"]
+			if 'descr' in opis:
+				obj.description = opis["descr"]
+			return obj
+		return None
 		
 	def parseObject_triangle(self, stream):
 		slowo = self.skip_comments(stream)
@@ -764,6 +879,8 @@ class ParserATMDL(Parser):
 			return self.parseObject_point(stream)
 		elif slowo == "sphere":
 			return self.parseObject_sphere(stream)
+		elif slowo in {"elipsoide", "ellipsoide", "ellipsoid", "ellipsoid3d"}:
+			return self.parseObject_elipsoide(stream)
 		elif slowo == "triangle":
 			return self.parseObject_triangle(stream)
 		elif slowo in ['animation', 'motion', 'movement']:

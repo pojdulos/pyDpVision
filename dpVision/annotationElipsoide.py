@@ -6,6 +6,7 @@ Created on Thu Apr 16 12:00:00 2026
 """
 
 from .annotation import Annotation
+from .mesh import Mesh
 
 import numpy as np
 import OpenGL.GL as gl
@@ -31,13 +32,13 @@ class AnnotationElipsoide(Annotation):
         self.m_lats = 32
         self.m_longs = 32
 
-        self.vertex_vbo = None
-        self.vertex_data = []
+        self._mesh_cache = None
         self._is_initialized = False
 
         self._position = [0.0, 0.0, 0.0]
         self._radii = [1.0, 1.0, 1.0]
         self._axes = np.eye(3, dtype=np.float64)
+        self.m_showAxes = False
 
         self.position = position
         self.setRadii(radii)
@@ -64,7 +65,7 @@ class AnnotationElipsoide(Annotation):
     def _mark_geometry_dirty(self):
         """Oznacza geometrię jako wymagajaca przebudowy po zmianie parametrow."""
         self._is_initialized = False
-        self.vertex_data = []
+        self._mesh_cache = None
 
     @property
     def position(self):
@@ -155,82 +156,113 @@ class AnnotationElipsoide(Annotation):
         scaled = np.asarray(unit_point, dtype=np.float64) * np.asarray(self._radii, dtype=np.float64)
         return self._axes @ scaled
 
-    def generateElipsoideData(self):
-        """Generuje liste wierzcholkow elipsoidy jako zorientowane paski trojkatow."""
-        self.vertex_data.clear()
-        for i in range(self.m_lats):
-            lat0 = np.pi * (-0.5 + float(i) / self.m_lats)
-            z0 = np.sin(lat0)
-            zr0 = np.cos(lat0)
+    def _build_mesh_geometry(self):
+        """Buduje triangulowana siatke elipsoidy z lokalnymi normalnymi wierzcholkow."""
+        vertices = []
+        faces = []
 
-            lat1 = np.pi * (-0.5 + float(i + 1) / self.m_lats)
-            z1 = np.sin(lat1)
-            zr1 = np.cos(lat1)
+        for i in range(self.m_lats + 1):
+            lat = np.pi * (-0.5 + float(i) / self.m_lats)
+            z = np.sin(lat)
+            zr = np.cos(lat)
 
-            for j in range(self.m_longs + 1):
-                lng = 2 * np.pi * float(j) / self.m_longs
+            for j in range(self.m_longs):
+                lng = 2.0 * np.pi * float(j) / self.m_longs
                 x = np.cos(lng)
                 y = np.sin(lng)
+                point = self._local_point_from_unit_sphere((x * zr, y * zr, z))
+                vertices.append(point.tolist())
 
-                p0 = self._local_point_from_unit_sphere((x * zr0, y * zr0, z0))
-                p1 = self._local_point_from_unit_sphere((x * zr1, y * zr1, z1))
+        def vertex_index(lat_idx, long_idx):
+            return lat_idx * self.m_longs + (long_idx % self.m_longs)
 
-                self.vertex_data.extend(p0.tolist())
-                self.vertex_data.extend(p1.tolist())
+        for i in range(self.m_lats):
+            for j in range(self.m_longs):
+                i0 = vertex_index(i, j)
+                i1 = vertex_index(i + 1, j)
+                i2 = vertex_index(i + 1, j + 1)
+                i3 = vertex_index(i, j + 1)
 
-    def initVBO(self):
-        """Tworzy lub aktualizuje bufor OpenGL z geometrią elipsoidy."""
-        vertex_array = np.array(self.vertex_data, dtype=np.float32)
+                if i != 0:
+                    faces.append([i0, i1, i3])
+                if i != self.m_lats - 1:
+                    faces.append([i1, i2, i3])
 
-        if self.vertex_vbo is None:
-            self.vertex_vbo = gl.glGenBuffers(1)
-
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vertex_vbo)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, vertex_array.nbytes, vertex_array, gl.GL_STATIC_DRAW)
-
-        self._is_initialized = True
+        mesh = Mesh.create(vertices=vertices, faces=faces)
+        mesh.label = getattr(self, "label", "AnnotationElipsoide")
+        mesh.description = getattr(self, "description", "")
+        mesh.b_renderSmooth = True
+        mesh.gl_renderAs = gl.GL_TRIANGLES
+        return mesh
 
     def _ensure_geometry(self):
-        """Buduje geometrię i VBO tylko wtedy, gdy dane są nieaktualne."""
+        """Buduje siatke elipsoidy tylko wtedy, gdy dane sa nieaktualne."""
         if not self._is_initialized:
-            self.generateElipsoideData()
-            self.initVBO()
+            self._mesh_cache = self._build_mesh_geometry()
+            self._is_initialized = True
 
-    def drawElipsoide(self):
-        """Rysuje elipsoide przy pomocy wczesniej zbudowanego VBO."""
-        gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vertex_vbo)
-        gl.glVertexPointer(3, gl.GL_FLOAT, 0, None)
-
-        for i in range(self.m_lats):
-            gl.glDrawArrays(gl.GL_QUAD_STRIP, i * (self.m_longs + 1) * 2, (self.m_longs + 1) * 2)
-
-        gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
-
-    def render_wboit(self, pass_idx):
-        """Renderuje elipsoide w trybie WBOIT."""
+    def _sync_mesh_material(self):
+        """Synchronizuje kolor adnotacji z materialem pomocniczego mesha."""
         self._ensure_geometry()
 
-        gl.glPushMatrix()
-        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+        qcolor = self._active_qcolor()
+        material = self._mesh_cache.materials[self._mesh_cache.currentMaterial]
+        material.diffuse = [qcolor.redF(), qcolor.greenF(), qcolor.blueF()]
+        material.alpha = qcolor.alphaF()
 
-        prog = self._prepare_wboit_shader(pass_idx)
-        if prog is None:
-            gl.glPopMatrix()
+    def showAxes(self, show=True):
+        """Wlacza lub wylacza rysowanie osi lokalnych."""
+        self.m_showAxes = bool(show)
+
+    def _render_axes(self):
+        """Rysuje lokalne osie elipsoidy w kolorach RGB."""
+        if not self.m_showAxes:
             return
 
-        gl.glEnableVertexAttribArray(0)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vertex_vbo)
-        gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, False, 0, None)
-        for i in range(self.m_lats):
-            gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, i * (self.m_longs + 1) * 2, (self.m_longs + 1) * 2)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
-        gl.glDisableVertexAttribArray(0)
-        gl.glUseProgram(0)
+        radii = np.asarray(self._radii, dtype=np.float64)
+        axis_vectors = [
+            self._axes[:, 0] * radii[0],
+            self._axes[:, 1] * radii[1],
+            self._axes[:, 2] * radii[2],
+        ]
+        axis_colors = [
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        ]
+
+        gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+        gl.glDisable(gl.GL_TEXTURE_2D)
+        gl.glDisable(gl.GL_BLEND)
+        gl.glDisable(gl.GL_LIGHTING)
+        gl.glLineWidth(2.0)
+
+        for axis_vector, axis_color in zip(axis_vectors, axis_colors):
+            gl.glColor3f(*axis_color)
+            gl.glBegin(gl.GL_LINES)
+            gl.glVertex3f(0.0, 0.0, 0.0)
+            gl.glVertex3f(*axis_vector.tolist())
+            gl.glEnd()
+
+            gl.glLineWidth(4.0)
+            gl.glBegin(gl.GL_LINES)
+            gl.glVertex3f(*(axis_vector * 0.88).tolist())
+            gl.glVertex3f(*(axis_vector * 0.98).tolist())
+            gl.glEnd()
+            gl.glLineWidth(2.0)
+
+        gl.glPopAttrib()
+
+    def render_wboit(self, pass_idx):
+        """Renderuje elipsoide przez pipeline mesha z normalnymi wierzcholkow."""
+        self._sync_mesh_material()
+        gl.glPushMatrix()
+        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+        self._mesh_cache.render_wboit(pass_idx)
         gl.glPopMatrix()
 
     def renderSelf(self):
-        """Renderuje pelna elipsoide w klasycznym pipeline OpenGL."""
+        """Renderuje elipsoide przez pipeline siatki z gladkim cieniowaniem."""
         from .globals import AP
 
         if AP.wboit_pass is not None:
@@ -241,49 +273,31 @@ class AnnotationElipsoide(Annotation):
             if self.is_transparent:
                 if self.transparent_outline_enabled():
                     self.render_outline()
+                gl.glPushMatrix()
+                gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+                self._render_axes()
+                gl.glPopMatrix()
                 return
 
+        self._sync_mesh_material()
+
         gl.glPushMatrix()
-        gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
-
-        gl.glDisable(gl.GL_TEXTURE_2D)
-        gl.glEnable(gl.GL_COLOR_MATERIAL)
-        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
-
-        gl.glEnable(gl.GL_CULL_FACE)
-        gl.glCullFace(gl.GL_FRONT)
-
-        if self.checked:
-            gl.glColor4ub(self.m_selcolor.red(), self.m_selcolor.green(), self.m_selcolor.blue(), self.m_selcolor.alpha())
-        else:
-            gl.glColor4ub(self.m_color.red(), self.m_color.green(), self.m_color.blue(), self.m_color.alpha())
-
         gl.glTranslatef(self.position[0], self.position[1], self.position[2])
-        self._ensure_geometry()
-        self.drawElipsoide()
-
-        gl.glPopAttrib()
+        self._mesh_cache.renderSelf()
+        self._render_axes()
         gl.glPopMatrix()
 
-        if self.is_transparent and self.transparent_outline_enabled():
-            self.render_outline()
-
     def render_outline(self):
-        """Rysuje obrys elipsoidy dla przezroczystych adnotacji."""
-        self._ensure_geometry()
+        """Rysuje obrys elipsoidy wykorzystujac ten sam mesh co render wypelnienia."""
+        self._sync_mesh_material()
 
         gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
-        gl.glDisable(gl.GL_TEXTURE_2D)
-        gl.glDisable(gl.GL_BLEND)
-        gl.glEnable(gl.GL_COLOR_MATERIAL)
-        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
-        gl.glEnable(gl.GL_CULL_FACE)
-        gl.glCullFace(gl.GL_BACK)
+
         gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE)
         gl.glLineWidth(1.5)
         gl.glColor4f(*self._active_outline_rgba())
         gl.glTranslatef(self.position[0], self.position[1], self.position[2])
-        self.drawElipsoide()
+        self._mesh_cache.renderSelf()
         gl.glPopAttrib()
         gl.glPopMatrix()

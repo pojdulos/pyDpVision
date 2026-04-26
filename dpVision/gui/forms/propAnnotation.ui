@@ -7,19 +7,19 @@
     <x>0</x>
     <y>0</y>
     <width>200</width>
-    <height>80</height>
+    <height>105</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
     <width>200</width>
-    <height>80</height>
+    <height>105</height>
    </size>
   </property>
   <property name="maximumSize">
    <size>
     <width>200</width>
-    <height>80</height>
+    <height>105</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -34,7 +34,7 @@
      <x>3</x>
      <y>0</y>
      <width>194</width>
-     <height>80</height>
+     <height>102</height>
     </rect>
    </property>
    <property name="styleSheet">
@@ -114,6 +114,19 @@
     </property>
     <property name="alignment">
      <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="wireframeCheck">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>76</y>
+      <width>170</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Show wireframe</string>
     </property>
    </widget>
   </widget>

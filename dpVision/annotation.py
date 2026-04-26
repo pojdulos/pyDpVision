@@ -22,6 +22,7 @@ class Annotation(BaseObject):
 		r, g, b, a = selcolor
 		self.m_selcolor = QColor(r, g, b, a)
 		self._wboit_shader = None
+		self.m_showWireframe = False
 
 	def setColor(self, name=None, r=0, g=0, b=255, a=102):
 		if name:
@@ -113,4 +114,10 @@ class Annotation(BaseObject):
 		glUniform4f(glGetUniformLocation(prog, "u_color"), *self._active_rgba())
 		glUniform1i(glGetUniformLocation(prog, "u_wboit_pass"), pass_idx)
 		return prog
+
+	def showWireframe(self, show=True):
+		self.m_showWireframe = bool(show)
+
+	def _render_wireframe(self):
+		pass
 	

@@ -18,6 +18,7 @@
                 }
             ]
         }
-    ]
+    ],
+    "cursorpyright.analysis.typeCheckingMode": "off"
     
 }

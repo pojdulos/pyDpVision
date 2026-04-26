@@ -253,6 +253,43 @@ class AnnotationElipsoide(Annotation):
 
         gl.glPopAttrib()
 
+    def _render_wireframe(self):
+        """Rysuje szkielet elipsoidy jako siatke krawedzi lat/lon."""
+        n_lat = 8
+        n_lon = 8
+        n_seg = 64
+
+        gl.glPushMatrix()
+        gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+        gl.glDisable(gl.GL_TEXTURE_2D)
+        gl.glDisable(gl.GL_LIGHTING)
+        gl.glLineWidth(1.0)
+        gl.glColor4f(*self._active_outline_rgba())
+        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+
+        for i in range(1, n_lat + 1):
+            lat = np.pi * (-0.5 + float(i) / (n_lat + 1))
+            z = np.sin(lat)
+            zr = np.cos(lat)
+            gl.glBegin(gl.GL_LINE_LOOP)
+            for j in range(n_seg):
+                lng = 2.0 * np.pi * j / n_seg
+                p = self._local_point_from_unit_sphere((np.cos(lng) * zr, np.sin(lng) * zr, z))
+                gl.glVertex3f(*p)
+            gl.glEnd()
+
+        for i in range(n_lon):
+            lng = 2.0 * np.pi * i / n_lon
+            gl.glBegin(gl.GL_LINE_STRIP)
+            for j in range(n_seg + 1):
+                lat = np.pi * (-0.5 + float(j) / n_seg)
+                p = self._local_point_from_unit_sphere((np.cos(lng) * np.cos(lat), np.sin(lng) * np.cos(lat), np.sin(lat)))
+                gl.glVertex3f(*p)
+            gl.glEnd()
+
+        gl.glPopAttrib()
+        gl.glPopMatrix()
+
     def render_wboit(self, pass_idx):
         """Renderuje elipsoide przez pipeline mesha z normalnymi wierzcholkow."""
         self._sync_mesh_material()
@@ -277,6 +314,8 @@ class AnnotationElipsoide(Annotation):
                 gl.glTranslatef(self.position[0], self.position[1], self.position[2])
                 self._render_axes()
                 gl.glPopMatrix()
+                if self.m_showWireframe:
+                    self._render_wireframe()
                 return
 
         self._sync_mesh_material()
@@ -286,6 +325,9 @@ class AnnotationElipsoide(Annotation):
         self._mesh_cache.renderSelf()
         self._render_axes()
         gl.glPopMatrix()
+
+        if self.m_showWireframe:
+            self._render_wireframe()
 
     def render_outline(self):
         """Rysuje obrys elipsoidy wykorzystujac ten sam mesh co render wypelnienia."""

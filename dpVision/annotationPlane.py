@@ -7,7 +7,6 @@ Created on Sat Nov 25 13:15:53 2023
 
 from .annotation import Annotation
 from OpenGL.GL import *
-import math
 import numpy as np
 import numbers
 import logging
@@ -41,9 +40,13 @@ class AnnotationPlane(Annotation):
                     selcolor=[255,0,0,128]):
 		Annotation.__init__(self, parent, color, selcolor)
 		self.m_center = pC
+		self._corners = None   # (4, 3) float32, relative to center
+		self._vbo = None
+		self._is_initialized = False
+		self.m_grid_u = 4
+		self.m_grid_v = 4
 		self.normal_vector = pN
 		self.setSize(size)
-		self._wboit_vbo = None
 
 	@property
 	def normal_vector(self):
@@ -61,6 +64,7 @@ class AnnotationPlane(Annotation):
 
 		if isinstance(_vec, Vector3d):
 			assign_if_nonzero(_vec.normalized())
+			self._mark_geometry_dirty()
 			return
 
 		if isinstance(_vec, str):
@@ -78,159 +82,196 @@ class AnnotationPlane(Annotation):
 			return
 
 		assign_if_nonzero(Vector3d(*t).normalized())
+		self._mark_geometry_dirty()
 	
 
 	def setSize(self, _size):
 		if isinstance(_size, numbers.Number):
-			# skalar -> kwadrat
 			self.m_size = (_size, _size)
 
 		elif isinstance(_size, str):
-			# specjalne traktowanie stringów
 			print("String:", _size)
 
 		else:
 			try:
 				t = tuple(_size)
 				if len(t) == 1:
-					# np. [5] -> (5, 5)
 					self.m_size = (t[0], t[0])
 				elif len(t) >= 2:
-					# bierzemy tylko pierwsze dwie wartości
 					self.m_size = (t[0], t[1])
 				else:
 					raise ValueError("Pusta sekwencja dla rozmiaru!")
 			except TypeError:
 				raise TypeError(f"Nieobsługiwany typ dla setSize: {type(_size)}")
+		self._mark_geometry_dirty()
 
+	# --- cache geometrii ---
 
-	def renderSelf(self):
-		from .globals import AP
-		normal = Vector3d(*self.m_normal)
-		center = Vector3d(*self.m_center)
+	def _mark_geometry_dirty(self):
+		self._is_initialized = False
+		self._corners = None
+
+	def _build_corners(self):
+		"""Oblicza 4 rogi plastra w układzie lokalnym (względem centrum)."""
+		normal = np.asarray(self.m_normal, dtype=np.float64)
+		norm = np.linalg.norm(normal)
+		if norm < 1e-6:
+			normal = np.array([0.0, 0.0, 1.0])
+		else:
+			normal = normal / norm
+
 		W, H = self.m_size
 
-		if normal.length() > 0.0:
-			normal = normal.normalized()
+		if abs(normal[0]) < 0.9:
+			tmp = np.array([1.0, 0.0, 0.0])
+		else:
+			tmp = np.array([0.0, 1.0, 0.0])
 
-			# wybierz wektor nie równoległy do normal
-			if abs(normal[0]) < 0.9:
-				tmp = Vector3d(1, 0, 0)
-			else:
-				tmp = Vector3d(0, 1, 0)
+		v1 = tmp - np.dot(tmp, normal) * normal
+		if np.linalg.norm(v1) < 1e-6:
+			tmp = np.array([0.0, 0.0, 1.0])
+			v1 = tmp - np.dot(tmp, normal) * normal
+		v1 = v1 / np.linalg.norm(v1) * (W / 2.0)
+		v2_raw = np.cross(normal, v1)
+		v2 = v2_raw / np.linalg.norm(v2_raw) * (H / 2.0)
 
-			# oblicz v1 ortogonalny do normal
-			v1 = tmp - normal * tmp.dot(normal)
-			if v1.length() < 1e-6:
-				# awaryjnie użyj innego wektora
-				tmp = Vector3d(0, 0, 1)
-				v1 = tmp - normal * tmp.dot(normal)
+		# kolejność zgodna z GL_QUADS: obejście CCW
+		return np.array([
+			 v1 + v2,
+			-v1 + v2,
+			-v1 - v2,
+			 v1 - v2,
+		], dtype=np.float32)
 
-			v1 = v1.normalized() * (W / 2.0)
-			v2 = normal.cross(v1).normalized() * (H / 2.0)
+	def _ensure_geometry(self):
+		if not self._is_initialized:
+			self._corners = self._build_corners()
+			self._is_initialized = True
 
-			# rogi prostokąta
-			p1 =  v1 + v2
-			p2 = -v1 + v2
-			p3 = -v1 - v2
-			p4 =  v1 - v2
+	def _upload_vbo(self, verts):
+		"""Ładuje/aktualizuje VBO z tablicą wierzchołków (4×3 float32)."""
+		if self._vbo is None:
+			self._vbo = glGenBuffers(1)
+		glBindBuffer(GL_ARRAY_BUFFER, self._vbo)
+		glBufferData(GL_ARRAY_BUFFER, verts.nbytes, verts, GL_DYNAMIC_DRAW)
 
-			if AP.wboit_pass is not None:
-				if AP.wboit_pass >= 0:
-					if self.is_transparent:
-						self.render_wboit(AP.wboit_pass, (p1, p2, p3, p4), center)
-					return
-				if self.is_transparent:
-					if self.transparent_outline_enabled():
-						self.render_outline((p1, p2, p3, p4), center)
-					return
+	def _render_normal_line(self):
+		"""Rysuje żółtą linię wzdłuż wektora normalnego (przestrzeń lokalna)."""
+		normal = np.asarray(self.m_normal, dtype=np.float64)
+		if np.linalg.norm(normal) < 1e-6:
+			return
+		glLineWidth(1)
+		glColor3f(1.0, 1.0, 0.0)
+		glBegin(GL_LINES)
+		glVertex3f(0.0, 0.0, 0.0)
+		glVertex3f(*(5.0 * normal))
+		glEnd()
 
-			glPushMatrix()
-			glPushAttrib(GL_ALL_ATTRIB_BITS)
+	# --- rendering ---
 
-			glDisable(GL_TEXTURE_2D)
-			glEnable(GL_COLOR_MATERIAL)
-			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
+	def _render_wireframe(self):
+		self._ensure_geometry()
+		v1 = (self._corners[0] - self._corners[1]) / 2.0
+		v2 = (self._corners[0] - self._corners[3]) / 2.0
 
-			glPointSize(9)
+		glPushMatrix()
+		glPushAttrib(GL_ALL_ATTRIB_BITS)
+		glDisable(GL_TEXTURE_2D)
+		glDisable(GL_LIGHTING)
+		glLineWidth(1.0)
+		glColor4f(*self._active_outline_rgba())
+		glTranslatef(self.m_center[0], self.m_center[1], self.m_center[2])
 
-			if self.checked:
-				glColor4ub(self.m_selcolor.red(), self.m_selcolor.green(), self.m_selcolor.blue(), self.m_selcolor.alpha())
-			else:
-				glColor4ub(self.m_color.red(), self.m_color.green(), self.m_color.blue(), self.m_color.alpha())
+		nu, nv = self.m_grid_u, self.m_grid_v
+		glBegin(GL_LINES)
+		for i in range(nu + 1):
+			t = i / nu * 2.0 - 1.0
+			start = t * v1 - v2
+			end   = t * v1 + v2
+			glVertex3f(*start); glVertex3f(*end)
+		for j in range(nv + 1):
+			t = j / nv * 2.0 - 1.0
+			start = -v1 + t * v2
+			end   =  v1 + t * v2
+			glVertex3f(*start); glVertex3f(*end)
+		glEnd()
 
-			glTranslatef(center[0], center[1], center[2])
+		glPopAttrib()
+		glPopMatrix()
 
-			# Rysowanie kwadratu
-			glBegin(GL_QUADS)
-			glVertex3f(*p1)
-			glVertex3f(*p2)
-			glVertex3f(*p3)
-			glVertex3f(*p4)
-			glEnd()
+	def render_wboit(self, pass_idx):
+		self._ensure_geometry()
+		center = np.asarray(self.m_center, dtype=np.float32)
+		verts = self._corners + center   # (4, 3) — absolutne pozycje
 
-			# Wektor normalny jako linia
-			if normal.length() != 0.0:
-				glLineWidth(1)
-				glColor3f(1.0, 1.0, 0.0)
-				glBegin(GL_LINES)
-				glVertex3f(*(5 * normal))
-				glVertex3f(0.0, 0.0, 0.0)
-				glEnd()
-
-			glPopAttrib()
-			glPopMatrix()
-
-			if self.is_transparent and self.transparent_outline_enabled():
-				self.render_outline((p1, p2, p3, p4), center)
-
-	def render_wboit(self, pass_idx, corners, center):
 		prog = self._prepare_wboit_shader(pass_idx)
 		if prog is None:
 			return
 
-		vertices = np.array([
-			corners[0] + center,
-			corners[1] + center,
-			corners[2] + center,
-			corners[0] + center,
-			corners[2] + center,
-			corners[3] + center,
-		], dtype=np.float32)
-
-		if self._wboit_vbo is None:
-			self._wboit_vbo = glGenBuffers(1)
-		glBindBuffer(GL_ARRAY_BUFFER, self._wboit_vbo)
-		glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_DYNAMIC_DRAW)
+		self._upload_vbo(verts)
 		glEnableVertexAttribArray(0)
 		glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, None)
-		glDrawArrays(GL_TRIANGLES, 0, 6)
+		glDrawArrays(GL_QUADS, 0, 4)
 		glDisableVertexAttribArray(0)
 		glBindBuffer(GL_ARRAY_BUFFER, 0)
 		glUseProgram(0)
 
-	def render_outline(self, corners, center):
+	def renderSelf(self):
+		from .globals import AP
+
+		if AP.wboit_pass is not None:
+			if AP.wboit_pass >= 0:
+				if self.is_transparent:
+					self.render_wboit(AP.wboit_pass)
+				return
+			if self.is_transparent:
+				if self.transparent_outline_enabled():
+					self.render_outline()
+				if self.m_showWireframe:
+					self._render_wireframe()
+
 		glPushMatrix()
 		glPushAttrib(GL_ALL_ATTRIB_BITS)
 
 		glDisable(GL_TEXTURE_2D)
-		glDisable(GL_BLEND)
 		glEnable(GL_COLOR_MATERIAL)
 		glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
-		glLineWidth(2.0)
-		glColor4f(*self._active_outline_rgba())
-		glTranslatef(center[0], center[1], center[2])
 
-		glBegin(GL_LINE_LOOP)
-		glVertex3f(*corners[0])
-		glVertex3f(*corners[1])
-		glVertex3f(*corners[2])
-		glVertex3f(*corners[3])
+		qcolor = self._active_qcolor()
+		glColor4ub(qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha())
+
+		glTranslatef(self.m_center[0], self.m_center[1], self.m_center[2])
+
+		glBegin(GL_QUADS)
+		for p in self._corners:
+			glVertex3f(*p)
 		glEnd()
 
-		glBegin(GL_LINES)
-		glVertex3f(*corners[0]); glVertex3f(*corners[2])
-		glVertex3f(*corners[1]); glVertex3f(*corners[3])
+		self._render_normal_line()
+
+		glPopAttrib()
+		glPopMatrix()
+
+		if self.is_transparent and self.transparent_outline_enabled():
+			self.render_outline()
+
+		if self.m_showWireframe:
+			self._render_wireframe()
+
+	def render_outline(self):
+		self._ensure_geometry()
+
+		glPushMatrix()
+		glPushAttrib(GL_ALL_ATTRIB_BITS)
+		glDisable(GL_TEXTURE_2D)
+		glDisable(GL_BLEND)
+		glLineWidth(2.0)
+		glColor4f(*self._active_outline_rgba())
+		glTranslatef(self.m_center[0], self.m_center[1], self.m_center[2])
+
+		glBegin(GL_LINE_LOOP)
+		for p in self._corners:
+			glVertex3f(*p)
 		glEnd()
 
 		glPopAttrib()

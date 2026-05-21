@@ -594,6 +594,18 @@ class Volumetric(Object):
 			metadata.append(mdata)
 		return metadata
 
+	def _valid_voxel_mask(self, points_voxel, volume_shape):
+		"""Return a mask of sampling points that fall inside the source voxel domain."""
+		points_voxel = np.asarray(points_voxel, dtype=np.float32)
+		columns = int(volume_shape[2])
+		rows = int(volume_shape[1])
+		layers = int(volume_shape[0])
+		return (
+			(points_voxel[:, :, 0] >= 0.0) & (points_voxel[:, :, 0] <= float(columns - 1)) &
+			(points_voxel[:, :, 1] >= 0.0) & (points_voxel[:, :, 1] <= float(rows - 1)) &
+			(points_voxel[:, :, 2] >= 0.0) & (points_voxel[:, :, 2] <= float(layers - 1))
+		)
+
 	def _transform_world_points(self, point_world, transform_matrix):
 		"""Apply a 4x4 homogeneous transform to one world point or a 3xN point matrix."""
 		point_world = np.asarray(point_world, dtype=np.float32)
@@ -614,7 +626,7 @@ class Volumetric(Object):
 
 	def resample_to_grid(self, target_origin_world, target_basis_world, target_spacing_xyz, target_shape_zyx,
 	                     interpolation="linear", fill_value=None, label_suffix="resampled",
-	                     source_world_from_target_world=None):
+	                     source_world_from_target_world=None, return_valid_mask=False):
 		"""Resample the volume into a new world-space voxel grid and return a new Volumetric object."""
 		volume = self._volume_array().astype(np.float32, copy=False)
 		if volume.ndim != 3:
@@ -660,6 +672,7 @@ class Volumetric(Object):
 		y_coords = np.arange(rows, dtype=np.float32)
 		grid_x, grid_y = np.meshgrid(x_coords, y_coords)
 		output_volume = np.empty((layers, rows, columns), dtype=np.float32)
+		valid_volume = np.zeros((layers, rows, columns), dtype=bool) if return_valid_mask else None
 
 		for layer_idx in range(layers):
 			slice_origin_world = target_origin_world + target_basis_world[:, 2] * (float(layer_idx) * target_spacing_xyz[2])
@@ -673,6 +686,8 @@ class Volumetric(Object):
 				source_world_from_target_world,
 			)
 			points_voxel = self.world_to_voxel(source_points_world).T.reshape(rows, columns, 3)
+			if return_valid_mask:
+				valid_volume[layer_idx] = self._valid_voxel_mask(points_voxel, volume.shape)
 			sampled_slice = map_coordinates(
 				volume,
 				[
@@ -699,6 +714,8 @@ class Volumetric(Object):
 		)
 		resampled.m_dicom_files = list(self.m_dicom_files)
 		resampled.adjustMinMax()
+		if return_valid_mask:
+			return resampled, valid_volume
 		return resampled
 
 	def resample_like(self, other_volumetric, interpolation="linear", fill_value=None, label_suffix="resampled_like"):
@@ -716,6 +733,334 @@ class Volumetric(Object):
 			fill_value=fill_value,
 			label_suffix=label_suffix,
 		)
+
+	def resample_like_global(self, other_volumetric, source_global_transform, target_global_transform,
+	                         interpolation="linear", fill_value=None, label_suffix="matched_global"):
+		"""Resample this volume into another volume grid while respecting both hierarchy transforms."""
+		if not isinstance(other_volumetric, Volumetric):
+			raise TypeError("other_volumetric must be an instance of Volumetric.")
+
+		source_global_transform = np.asarray(source_global_transform, dtype=np.float32)
+		target_global_transform = np.asarray(target_global_transform, dtype=np.float32)
+		if source_global_transform.shape != (4, 4):
+			raise ValueError("source_global_transform must be a 4x4 homogeneous matrix.")
+		if target_global_transform.shape != (4, 4):
+			raise ValueError("target_global_transform must be a 4x4 homogeneous matrix.")
+
+		source_world_from_target_world = np.linalg.inv(source_global_transform) @ target_global_transform
+		target_origin_world, target_basis_world, target_spacing_xyz = other_volumetric.get_volume_geometry()
+		return self.resample_to_grid(
+			target_origin_world=target_origin_world,
+			target_basis_world=target_basis_world,
+			target_spacing_xyz=target_spacing_xyz,
+			target_shape_zyx=other_volumetric.shape,
+			interpolation=interpolation,
+			fill_value=fill_value,
+			label_suffix=label_suffix,
+			source_world_from_target_world=source_world_from_target_world,
+		)
+
+	@staticmethod
+	def _volume_corners_world(volumetric, global_transform=None):
+		"""Return the eight world-space corners of a volumetric bounding box."""
+		if not isinstance(volumetric, Volumetric):
+			raise TypeError("volumetric must be an instance of Volumetric.")
+
+		origin_world, basis_world, spacing_xyz = volumetric.get_volume_geometry()
+		global_transform = np.eye(4, dtype=np.float32) if global_transform is None else np.asarray(global_transform, dtype=np.float32)
+		if global_transform.shape != (4, 4):
+			raise ValueError("global_transform must be a 4x4 homogeneous matrix.")
+
+		shape_xyz = np.array([volumetric.shape[2], volumetric.shape[1], volumetric.shape[0]], dtype=np.float32)
+		max_indices_xyz = np.maximum(shape_xyz - 1.0, 0.0)
+		local_corners = []
+		for x_idx in (0.0, max_indices_xyz[0]):
+			for y_idx in (0.0, max_indices_xyz[1]):
+				for z_idx in (0.0, max_indices_xyz[2]):
+					local_corner = origin_world + basis_world @ np.array([
+						x_idx * spacing_xyz[0],
+						y_idx * spacing_xyz[1],
+						z_idx * spacing_xyz[2],
+					], dtype=np.float32)
+					local_corners.append(local_corner)
+
+		local_corners = np.asarray(local_corners, dtype=np.float32)
+		corners_h = np.column_stack((local_corners, np.ones(local_corners.shape[0], dtype=np.float32)))
+		return (global_transform @ corners_h.T).T[:, :3]
+
+	@classmethod
+	def compute_common_grid_global(cls, source_volumes, source_global_transforms, spacing_policy="reference",
+	                               reference_volume=None, reference_global_transform=None, manual_spacing_xyz=None,
+	                               basis_policy="reference", align_origin=True):
+		"""Compute one world-space voxel grid that can hold multiple transformed volumes."""
+		if not source_volumes:
+			raise ValueError("source_volumes must contain at least one volumetric object.")
+		if len(source_volumes) != len(source_global_transforms):
+			raise ValueError("source_volumes and source_global_transforms must have the same length.")
+
+		normalized_policy = str(spacing_policy).lower()
+		if normalized_policy not in ("reference", "finest", "coarsest", "manual"):
+			raise ValueError("spacing_policy must be one of: reference, finest, coarsest, manual.")
+
+		normalized_basis_policy = str(basis_policy).lower()
+		if normalized_basis_policy not in ("reference", "global_xyz"):
+			raise ValueError("basis_policy must be one of: reference, global_xyz.")
+
+		if normalized_policy == "reference" or normalized_basis_policy == "reference":
+			if reference_volume is None:
+				raise ValueError("reference_volume is required for reference-based grid policies.")
+			if not isinstance(reference_volume, Volumetric):
+				raise TypeError("reference_volume must be an instance of Volumetric.")
+			if reference_global_transform is None:
+				raise ValueError("reference_global_transform is required for reference-based grid policies.")
+			reference_global_transform = np.asarray(reference_global_transform, dtype=np.float32)
+			if reference_global_transform.shape != (4, 4):
+				raise ValueError("reference_global_transform must be a 4x4 homogeneous matrix.")
+
+		if normalized_basis_policy == "reference":
+			reference_origin_world, reference_basis_world, reference_spacing_xyz = reference_volume.get_volume_geometry()
+			target_basis_world = reference_global_transform[:3, :3] @ reference_basis_world
+			target_basis_world = source_volumes[0]._normalize_basis_world(target_basis_world)
+		else:
+			target_basis_world = np.eye(3, dtype=np.float32)
+			reference_origin_world = None
+			reference_spacing_xyz = None
+
+		if normalized_policy == "manual":
+			if manual_spacing_xyz is None:
+				raise ValueError("manual_spacing_xyz is required when spacing_policy='manual'.")
+			target_spacing_xyz = np.asarray(manual_spacing_xyz, dtype=np.float32)
+		elif normalized_policy == "reference":
+			target_spacing_xyz = np.asarray(reference_spacing_xyz, dtype=np.float32)
+		else:
+			spacing_candidates = []
+			for source_vol, source_global_transform in zip(source_volumes, source_global_transforms):
+				if not isinstance(source_vol, Volumetric):
+					raise TypeError("Every source volume must be an instance of Volumetric.")
+				_source_origin, source_basis_world, source_spacing_xyz = source_vol.get_volume_geometry()
+				source_global_transform = np.asarray(source_global_transform, dtype=np.float32)
+				world_steps = np.column_stack([
+					source_global_transform[:3, :3] @ (source_basis_world[:, axis_idx] * source_spacing_xyz[axis_idx])
+					for axis_idx in range(3)
+				])
+				spacing_candidates.extend(np.linalg.norm(world_steps, axis=0).astype(np.float32).tolist())
+
+			picker = np.min if normalized_policy == "finest" else np.max
+			iso_spacing = float(picker(np.asarray(spacing_candidates, dtype=np.float32)))
+			target_spacing_xyz = np.array([iso_spacing, iso_spacing, iso_spacing], dtype=np.float32)
+
+		if target_spacing_xyz.shape != (3,) or np.any(target_spacing_xyz <= 0.0):
+			raise ValueError("Resolved target spacing must be a positive 3-element vector.")
+
+		projection_mins = []
+		projection_maxs = []
+		for source_vol, source_global_transform in zip(source_volumes, source_global_transforms):
+			corners_world = cls._volume_corners_world(source_vol, global_transform=source_global_transform)
+			projected = corners_world @ target_basis_world
+			projection_mins.append(projected.min(axis=0))
+			projection_maxs.append(projected.max(axis=0))
+
+		global_min_proj = np.min(np.stack(projection_mins, axis=0), axis=0)
+		global_max_proj = np.max(np.stack(projection_maxs, axis=0), axis=0)
+
+		if normalized_basis_policy == "reference" and align_origin:
+			reference_origin_global = (reference_global_transform @ np.array([*reference_origin_world, 1.0], dtype=np.float32))[:3]
+			reference_origin_proj = reference_origin_global @ target_basis_world
+			start_indices = np.floor((global_min_proj - reference_origin_proj) / target_spacing_xyz)
+			target_origin_proj = reference_origin_proj + start_indices * target_spacing_xyz
+		elif align_origin:
+			target_origin_proj = np.floor(global_min_proj / target_spacing_xyz) * target_spacing_xyz
+		else:
+			target_origin_proj = global_min_proj
+
+		target_extent_proj = np.maximum(global_max_proj - target_origin_proj, 0.0)
+		target_shape_xyz = np.maximum(1, np.ceil(target_extent_proj / target_spacing_xyz).astype(np.int32) + 1)
+		target_origin_world = target_basis_world @ target_origin_proj.astype(np.float32)
+		target_shape_zyx = (int(target_shape_xyz[2]), int(target_shape_xyz[1]), int(target_shape_xyz[0]))
+		return target_origin_world.astype(np.float32), target_basis_world.astype(np.float32), target_spacing_xyz.astype(np.float32), target_shape_zyx
+
+	@classmethod
+	def merge_to_common_grid_global(cls, source_volumes, source_global_transforms, spacing_policy="reference",
+	                                reference_volume=None, reference_global_transform=None, manual_spacing_xyz=None,
+	                                basis_policy="reference", align_origin=True, interpolation="linear",
+	                                merge_mode="max", fill_value=None, label="merged_common"):
+		"""Compute a common world-space grid for multiple volumes and merge them into one result."""
+		target_origin_world, target_basis_world, target_spacing_xyz, target_shape_zyx = cls.compute_common_grid_global(
+			source_volumes=source_volumes,
+			source_global_transforms=source_global_transforms,
+			spacing_policy=spacing_policy,
+			reference_volume=reference_volume,
+			reference_global_transform=reference_global_transform,
+			manual_spacing_xyz=manual_spacing_xyz,
+			basis_policy=basis_policy,
+			align_origin=align_origin,
+		)
+		return cls.merge_to_grid_global(
+			source_volumes=source_volumes,
+			source_global_transforms=source_global_transforms,
+			target_origin_world=target_origin_world,
+			target_basis_world=target_basis_world,
+			target_spacing_xyz=target_spacing_xyz,
+			target_shape_zyx=target_shape_zyx,
+			interpolation=interpolation,
+			merge_mode=merge_mode,
+			fill_value=fill_value,
+			label=label,
+		)
+
+	@staticmethod
+	def _merge_resampled_arrays(sampled_arrays, valid_masks, merge_mode="max", fill_value=0.0):
+		"""Merge arrays that already live on the same voxel grid using the selected conflict policy."""
+		merge_mode = str(merge_mode).lower()
+		if not sampled_arrays:
+			raise ValueError("sampled_arrays must contain at least one resampled volume.")
+		if len(sampled_arrays) != len(valid_masks):
+			raise ValueError("sampled_arrays and valid_masks must have the same length.")
+
+		stack = np.stack([np.asarray(arr, dtype=np.float32) for arr in sampled_arrays], axis=0)
+		mask_stack = np.stack([np.asarray(mask, dtype=bool) for mask in valid_masks], axis=0)
+		fill_value = float(fill_value)
+
+		if merge_mode == "overwrite":
+			result = np.full(stack.shape[1:], fill_value, dtype=np.float32)
+			for idx in range(stack.shape[0]):
+				current_mask = mask_stack[idx]
+				result[current_mask] = stack[idx][current_mask]
+			return result
+
+		if merge_mode == "first_non_empty":
+			result = np.full(stack.shape[1:], fill_value, dtype=np.float32)
+			filled_mask = np.zeros(stack.shape[1:], dtype=bool)
+			for idx in range(stack.shape[0]):
+				current_mask = mask_stack[idx] & (~filled_mask)
+				result[current_mask] = stack[idx][current_mask]
+				filled_mask |= current_mask
+			return result
+
+		masked_stack = np.where(mask_stack, stack, np.nan).astype(np.float32, copy=False)
+		with np.errstate(invalid='ignore'):
+			if merge_mode == "max":
+				result = np.nanmax(masked_stack, axis=0)
+			elif merge_mode == "min":
+				result = np.nanmin(masked_stack, axis=0)
+			elif merge_mode == "sum":
+				result = np.nansum(masked_stack, axis=0)
+				result[np.sum(mask_stack, axis=0) == 0] = np.nan
+			elif merge_mode == "mean":
+				result = np.nanmean(masked_stack, axis=0)
+			else:
+				raise ValueError("merge_mode must be one of: max, min, mean, sum, overwrite, first_non_empty.")
+
+		return np.nan_to_num(result, nan=fill_value).astype(np.float32, copy=False)
+
+	@classmethod
+	def merge_to_grid_global(cls, source_volumes, source_global_transforms, target_origin_world, target_basis_world,
+	                         target_spacing_xyz, target_shape_zyx, interpolation="linear", merge_mode="max",
+	                         fill_value=None, label="merged"):
+		"""Resample multiple volumes into one world-space grid and merge them into a new Volumetric."""
+		if not source_volumes:
+			raise ValueError("source_volumes must contain at least one volumetric object.")
+		if len(source_volumes) != len(source_global_transforms):
+			raise ValueError("source_volumes and source_global_transforms must have the same length.")
+
+		resampled_volumes = []
+		valid_masks = []
+		resolved_fill_value = float(source_volumes[0].m_min if fill_value is None else fill_value)
+
+		for source_vol, source_global_transform in zip(source_volumes, source_global_transforms):
+			if not isinstance(source_vol, Volumetric):
+				raise TypeError("Every source volume must be an instance of Volumetric.")
+			resampled, valid_mask = source_vol.resample_to_grid(
+				target_origin_world=target_origin_world,
+				target_basis_world=target_basis_world,
+				target_spacing_xyz=target_spacing_xyz,
+				target_shape_zyx=target_shape_zyx,
+				interpolation=interpolation,
+				fill_value=resolved_fill_value,
+				label_suffix="merge_tmp",
+				source_world_from_target_world=np.linalg.inv(np.asarray(source_global_transform, dtype=np.float32)),
+				return_valid_mask=True,
+			)
+			resampled_volumes.append(np.asarray(resampled.m_volume, dtype=np.float32))
+			valid_masks.append(valid_mask)
+
+		merged_volume = cls._merge_resampled_arrays(
+			sampled_arrays=resampled_volumes,
+			valid_masks=valid_masks,
+			merge_mode=merge_mode,
+			fill_value=resolved_fill_value,
+		)
+
+		merged = Volumetric()
+		merged.label = label
+		merged.description = "Merged volumetric"
+		merged.m_volume = merged_volume
+		merged.shape = merged_volume.shape
+		merged.metadata = source_volumes[0]._build_metadata_for_grid(
+			target_origin_world=np.asarray(target_origin_world, dtype=np.float32),
+			target_basis_world=np.asarray(target_basis_world, dtype=np.float32),
+			target_spacing_xyz=np.asarray(target_spacing_xyz, dtype=np.float32),
+			target_shape_zyx=merged_volume.shape,
+		)
+		merged.adjustMinMax()
+		return merged
+
+	@classmethod
+	def merge_like_global(cls, source_volumes, source_global_transforms, reference_volume, reference_global_transform,
+	                      interpolation="linear", merge_mode="max", fill_value=None, label=None):
+		"""Merge multiple volumes directly into the voxel grid of a reference volume."""
+		if not isinstance(reference_volume, Volumetric):
+			raise TypeError("reference_volume must be an instance of Volumetric.")
+
+		target_origin_world, target_basis_world, target_spacing_xyz = reference_volume.get_volume_geometry()
+		if label is None:
+			label = f"merged_like_{reference_volume.label}"
+		if len(source_volumes) != len(source_global_transforms):
+			raise ValueError("source_volumes and source_global_transforms must have the same length.")
+
+		resampled_volumes = []
+		valid_masks = []
+		reference_global_transform = np.asarray(reference_global_transform, dtype=np.float32)
+		resolved_fill_value = float(source_volumes[0].m_min if fill_value is None else fill_value)
+
+		for source_vol, source_global_transform in zip(source_volumes, source_global_transforms):
+			if not isinstance(source_vol, Volumetric):
+				raise TypeError("Every source volume must be an instance of Volumetric.")
+			source_global_transform = np.asarray(source_global_transform, dtype=np.float32)
+			resampled, valid_mask = source_vol.resample_to_grid(
+				target_origin_world=target_origin_world,
+				target_basis_world=target_basis_world,
+				target_spacing_xyz=target_spacing_xyz,
+				target_shape_zyx=reference_volume.shape,
+				interpolation=interpolation,
+				fill_value=resolved_fill_value,
+				label_suffix="merge_tmp",
+				source_world_from_target_world=np.linalg.inv(source_global_transform) @ reference_global_transform,
+				return_valid_mask=True,
+			)
+			resampled_volumes.append(np.asarray(resampled.m_volume, dtype=np.float32))
+			valid_masks.append(valid_mask)
+
+		merged_volume = cls._merge_resampled_arrays(
+			sampled_arrays=resampled_volumes,
+			valid_masks=valid_masks,
+			merge_mode=merge_mode,
+			fill_value=resolved_fill_value,
+		)
+
+		merged = Volumetric()
+		merged.label = label
+		merged.description = "Merged volumetric"
+		merged.m_volume = merged_volume
+		merged.shape = merged_volume.shape
+		merged.metadata = reference_volume._build_metadata_for_grid(
+			target_origin_world=target_origin_world,
+			target_basis_world=target_basis_world,
+			target_spacing_xyz=target_spacing_xyz,
+			target_shape_zyx=merged_volume.shape,
+		)
+		merged.adjustMinMax()
+		return merged
 
 	def get_oblique_slice_array(self, center_xyz, yaw_degrees=0.0, pitch_degrees=0.0,
 	                            yaw_axis="Y", pitch_axis="X", output_size=None,

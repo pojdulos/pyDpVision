@@ -194,6 +194,9 @@ class ContextMenu(QMenu):
 		action = QAction("resample to global grid", self)
 		action.triggered.connect(self.volumetric_resample_to_global_grid)
 		menu.addAction(action)
+		action = QAction("resample to another volume grid", self)
+		action.triggered.connect(self.volumetric_resample_to_other_volume)
+		menu.addAction(action)
 		menu.addSeparator()
 		action = QAction("create SIFT cloud", self)
 		action.triggered.connect(self.volumetric_sift)
@@ -346,6 +349,68 @@ class ContextMenu(QMenu):
 		QApplication.restoreOverrideCursor()
 
 		AP.addObject(resampled, parent=None)
+
+	def _collect_objects_by_type_recursive(self, root, object_type):
+		"""Collect objects of the requested type from the scene subtree rooted at `root`."""
+		matches = []
+		if isinstance(root, object_type):
+			matches.append(root)
+		for child in root.children():
+			matches.extend(self._collect_objects_by_type_recursive(child, object_type))
+		return matches
+
+	def _object_path_label(self, obj):
+		"""Build a readable path label for object pickers in context menus."""
+		parts = []
+		current = obj
+		while current is not None:
+			parts.append(current.label)
+			current = current.parent
+		return "/".join(reversed(parts))
+
+	@pyqtSlot()
+	def volumetric_resample_to_other_volume(self):
+		"""Resample the selected volume directly into the voxel grid of another volume."""
+		source_vol : Volumetric = self.m_obj
+		all_volumes = self._collect_objects_by_type_recursive(AP.mainWin.workspace, Volumetric)
+		candidate_volumes = [vol for vol in all_volumes if vol is not source_vol]
+		if not candidate_volumes:
+			QMessageBox.information(AP.mainWin, "Volumetric", "No other volumetric object is available in the workspace.")
+			return
+
+		path_labels = [self._object_path_label(vol) for vol in candidate_volumes]
+		selected_label, ok = QInputDialog.getItem(
+			AP.mainWin,
+			"Resample To Another Volume Grid",
+			"Target volume:",
+			path_labels,
+			0,
+			False,
+		)
+		if not ok:
+			return
+
+		target_vol = candidate_volumes[path_labels.index(selected_label)]
+		source_global_transform = np.asarray(source_vol.getGlobalTransformation(), dtype=np.float32)
+		target_global_transform = np.asarray(target_vol.getGlobalTransformation(), dtype=np.float32)
+
+		QApplication.setOverrideCursor(Qt.WaitCursor)
+		try:
+			resampled = source_vol.resample_like_global(
+				other_volumetric=target_vol,
+				source_global_transform=source_global_transform,
+				target_global_transform=target_global_transform,
+				interpolation="linear",
+				fill_value=float(source_vol.m_min),
+				label_suffix=f"as_{target_vol.label}",
+			)
+		except Exception as error:
+			QApplication.restoreOverrideCursor()
+			QMessageBox.critical(AP.mainWin, "Volumetric", str(error))
+			return
+		QApplication.restoreOverrideCursor()
+
+		AP.addObject(resampled, parent=target_vol.parent)
 
 	@pyqtSlot()
 	def volumetric_sift(self):

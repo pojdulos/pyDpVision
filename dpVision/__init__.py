@@ -32,6 +32,18 @@ from .sphere import Sphere
 from .transform import Transform
 from .volumetric import Volumetric, SliceMetadata
 from .workspace import Workspace
+from .xrayProjection import (
+	XRayProjectionGeometry,
+	XRayPhysicsModel,
+	XRaySampleSource,
+	VolumetricXRaySource,
+	XRayProjector,
+	normalize_projection_to_uint8,
+	normalize_projection_to_uint16,
+	save_projection_png,
+	save_projection_tiff,
+	save_projection_dicom,
+)
 
 
 __all__ = [
@@ -55,6 +67,9 @@ __all__ = [
 			"Sphere",
 			"Transform",
 			"Volumetric", "SliceMetadata",
-			"Workspace" 
+			"Workspace",
+			"XRayProjectionGeometry", "XRayPhysicsModel", "XRaySampleSource", "VolumetricXRaySource", "XRayProjector",
+			"normalize_projection_to_uint8", "normalize_projection_to_uint16",
+			"save_projection_png", "save_projection_tiff", "save_projection_dicom",
 		]
 

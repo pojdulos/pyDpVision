@@ -1,3 +1,6 @@
+import os
+import numpy as np
+
 from dpVision import AP, Transform, Image, AnnotationPoint, AnnotationSphere, AnnotationPath
 
 from PyQt5.QtCore import QTimer
@@ -7,6 +10,15 @@ from dpVision.annotationPlane import AnnotationPlane
 from dpVision.mesh import Mesh
 from dpVision.meshUncertaintyModel import MeshUncertaintyModel, colorize_mesh_by_confidence, confidence_to_rgba, uncertainty_colormap
 from dpVision.volumetric import Volumetric
+from dpVision.xrayProjection import (
+	XRayProjectionGeometry,
+	XRayPhysicsModel,
+	VolumetricXRaySource,
+	XRayProjector,
+	save_projection_png,
+	save_projection_tiff,
+	save_projection_dicom,
+)
 
 def fastTest1():
 	obj = Image(path = "d:\\rozmiary2.PNG")
@@ -119,8 +131,154 @@ def fast_test_7():
 	# volum.drawSphere(origin=[256,216,256], radius=120, color=2000.)
 	AP.addObject(volum)
 
+
+def _demo_output_dir(*parts):
+	"""Return an absolute path inside `sample_data/generated`."""
+	return os.path.join(os.path.dirname(__file__), "sample_data", "generated", *parts)
+
+
+def _make_jaw_transform(translation_xyz=(0.0, 0.0, 0.0), rotation_deg_z=0.0):
+	"""Build a simple rigid transform for synthetic jaw motion tests."""
+	tx, ty, tz = translation_xyz
+	angle = np.deg2rad(float(rotation_deg_z))
+	cos_a = np.cos(angle)
+	sin_a = np.sin(angle)
+	transform = np.eye(4, dtype=np.float32)
+	transform[:3, :3] = np.array([
+		[cos_a, -sin_a, 0.0],
+		[sin_a,  cos_a, 0.0],
+		[0.0,    0.0,   1.0],
+	], dtype=np.float32)
+	transform[:3, 3] = np.array([tx, ty, tz], dtype=np.float32)
+	return transform
+
+
+def create_synthetic_xray_demo_dicoms(base_dir=None, overwrite=False):
+	"""Create two simple synthetic DICOM sets: a fixed skull and a movable jaw."""
+	if base_dir is None:
+		base_dir = _demo_output_dir("xray_demo_dicoms")
+
+	skull_dir = os.path.join(base_dir, "skull")
+	jaw_dir = os.path.join(base_dir, "jaw")
+	if not overwrite and os.path.isdir(skull_dir) and os.path.isdir(jaw_dir):
+		return {
+			"base_dir": base_dir,
+			"skull_dir": skull_dir,
+			"jaw_dir": jaw_dir,
+		}
+
+	os.makedirs(skull_dir, exist_ok=True)
+	os.makedirs(jaw_dir, exist_ok=True)
+
+	skull = Volumetric.create(layers=96, rows=96, columns=96)
+	skull.label = "synthetic_skull"
+	skull.set_position(x=-48.0, y=-48.0, z=-48.0)
+	skull.set_pixel_size(image_x=1.0, image_y=1.0, slice_thickness=1.0)
+	skull.drawSphere(origin=[48, 50, 48], radius=34, color=1800.0)
+	skull.drawSphere(origin=[48, 50, 48], radius=28, color=200.0)
+	skull.drawBox(origin=[0, 0, 0], size=[96, 22, 96], color=0.0)
+	skull.export(dir=skull_dir, file_base="skull_", ext=".dcm")
+
+	jaw = Volumetric.create(layers=96, rows=96, columns=96)
+	jaw.label = "synthetic_jaw"
+	jaw.set_position(x=-48.0, y=-48.0, z=-48.0)
+	jaw.set_pixel_size(image_x=1.0, image_y=1.0, slice_thickness=1.0)
+	jaw.drawBox(origin=[24, 18, 18], size=[12, 26, 18], color=1800.0)
+	jaw.drawBox(origin=[24, 18, 60], size=[12, 26, 18], color=1800.0)
+	jaw.drawBox(origin=[18, 12, 18], size=[12, 10, 60], color=1800.0)
+	jaw.drawBox(origin=[30, 18, 30], size=[6, 16, 36], color=0.0)
+	jaw.export(dir=jaw_dir, file_base="jaw_", ext=".dcm")
+
+	return {
+		"base_dir": base_dir,
+		"skull_dir": skull_dir,
+		"jaw_dir": jaw_dir,
+	}
+
+
+def build_synthetic_xray_demo_volumes():
+	"""Create in-memory synthetic skull and jaw volumes for X-ray projection tests."""
+	skull = Volumetric.create(layers=96, rows=96, columns=96)
+	skull.label = "synthetic_skull"
+	skull.set_position(x=-48.0, y=-48.0, z=-48.0)
+	skull.set_pixel_size(image_x=1.0, image_y=1.0, slice_thickness=1.0)
+	skull.drawSphere(origin=[48, 50, 48], radius=34, color=1800.0)
+	skull.drawSphere(origin=[48, 50, 48], radius=28, color=200.0)
+	skull.drawBox(origin=[0, 0, 0], size=[96, 22, 96], color=0.0)
+
+	jaw = Volumetric.create(layers=96, rows=96, columns=96)
+	jaw.label = "synthetic_jaw"
+	jaw.set_position(x=-48.0, y=-48.0, z=-48.0)
+	jaw.set_pixel_size(image_x=1.0, image_y=1.0, slice_thickness=1.0)
+	jaw.drawBox(origin=[24, 18, 18], size=[12, 26, 18], color=1800.0)
+	jaw.drawBox(origin=[24, 18, 60], size=[12, 26, 18], color=1800.0)
+	jaw.drawBox(origin=[18, 12, 18], size=[12, 10, 60], color=1800.0)
+	jaw.drawBox(origin=[30, 18, 30], size=[6, 16, 36], color=0.0)
+	return skull, jaw
+
+
+def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8.0, 0.0), jaw_rotation_deg_z=8.0):
+	"""Generate synthetic DICOM sets and one example multi-volume X-ray projection."""
+	create_synthetic_xray_demo_dicoms()
+	skull, jaw = build_synthetic_xray_demo_volumes()
+	if output_dir is None:
+		output_dir = _demo_output_dir("xray_demo_output")
+	os.makedirs(output_dir, exist_ok=True)
+
+	skull_transform = np.eye(4, dtype=np.float32)
+	jaw_transform = _make_jaw_transform(
+		translation_xyz=jaw_translation_xyz,
+		rotation_deg_z=jaw_rotation_deg_z,
+	)
+
+	geometry = XRayProjectionGeometry(
+		detector_origin_ref=[-120.0, -120.0, 180.0],
+		detector_u_ref=[1.0, 0.0, 0.0],
+		detector_v_ref=[0.0, 1.0, 0.0],
+		detector_shape_hw=[256, 256],
+		step_mm=1.5,
+		source_position_ref=[0.0, 0.0, -220.0],
+	)
+	physics = XRayPhysicsModel(
+		mu_air=0.0,
+		mu_water=0.02,
+		attenuation_scale=1.0,
+		output_mode="integral",
+	)
+	projector = XRayProjector([
+		VolumetricXRaySource(skull, global_transform=skull_transform, interpolation="linear"),
+		VolumetricXRaySource(jaw, global_transform=jaw_transform, interpolation="linear"),
+	])
+
+	image = projector.project(
+		geometry=geometry,
+		physics_model=physics,
+		reference_transform=np.eye(4, dtype=np.float32),
+	)
+
+	png_path = os.path.join(output_dir, "synthetic_xray.png")
+	tiff_path = os.path.join(output_dir, "synthetic_xray.tiff")
+	dicom_path = os.path.join(output_dir, "synthetic_xray.dcm")
+	save_projection_png(image, png_path, invert=True)
+	save_projection_tiff(image, tiff_path, mode="float32")
+	save_projection_dicom(
+		image,
+		dicom_path,
+		patient_name="Synthetic^XRay",
+		patient_id="XRAYDEMO",
+		study_description="Synthetic multi-volume demo",
+		series_description="Skull + Jaw projection",
+		invert=True,
+	)
+	return {
+		"image": image,
+		"png_path": png_path,
+		"tiff_path": tiff_path,
+		"dicom_path": dicom_path,
+		"jaw_transform": jaw_transform,
+	}
+
 from dpVision import NDimCloud
-import numpy as np
 
 # Macierz obrotu wokół płaszczyzny xw
 def rotation_matrix_xw(theta):
@@ -517,3 +675,8 @@ def test_uncertainty():
 
 # test_uncertainty()
 #fastTest2()
+
+result = demo_synthetic_xray_projection()
+print(result["png_path"])
+print(result["tiff_path"])
+print(result["dicom_path"])

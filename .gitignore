@@ -5,3 +5,4 @@ dist/
 plugins/*/quantum
 .venv/
 .aider*
+generated/

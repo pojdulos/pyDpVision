@@ -23,6 +23,10 @@ class ParserNRRD(Parser):
 		origin = list(image.GetOrigin())
 		size = list(image.GetSize())
 		spacing = list(image.GetSpacing())
+		direction = np.array(image.GetDirection(), dtype=np.float64).reshape(3, 3)
+		axis_x = direction[:, 0]
+		axis_y = direction[:, 1]
+		axis_z = direction[:, 2]
 
 		for idx in range(size[2]):
 			slice_metadata = SliceMetadata()
@@ -30,6 +34,10 @@ class ParserNRRD(Parser):
 			slice_metadata.slice_location = origin[2]+spacing[2]*idx
 			slice_metadata.image_position_patient = [origin[0], origin[1], origin[2]+spacing[2]*idx]
 			slice_metadata.pixel_spacing = spacing
+			slice_metadata.axis_x = axis_x.tolist()
+			slice_metadata.axis_y = axis_y.tolist()
+			slice_metadata.axis_z = axis_z.tolist()
+			slice_metadata.voxel_spacing = [float(spacing[0]), float(spacing[1]), float(spacing[2])]
 			slice_metadata.slice_thickness = spacing[2]
 
 			if idx > 0:

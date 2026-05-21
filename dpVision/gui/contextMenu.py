@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import *
 from dpVision.volumetric import Volumetric
 
 from .dialogSiftParameters import DialogSiftParameters
+from .dialogVolumetricPreview import DialogVolumetricPreview
 from .dialogVolumetricMetadata import DialogVolumetricMetadata
 from .taskManager import FunctionTaskRunner
 
@@ -183,6 +184,10 @@ class ContextMenu(QMenu):
 
 	def create_volumetric_menu(self):
 		menu = QMenu("volumetric...", self)
+		action = QAction("slice preview", self)
+		action.triggered.connect(self.volumetric_slice_preview)
+		menu.addAction(action)
+		menu.addSeparator()
 		action = QAction("set metadata", self)
 		action.triggered.connect(self.volumetric_set_metadata)
 		menu.addAction(action)
@@ -254,6 +259,12 @@ class ContextMenu(QMenu):
 		AP.updateAllViews()
 
 		
+	@pyqtSlot()
+	def volumetric_slice_preview(self):
+		"""Open a 2D preview dialog for orthogonal volumetric slices."""
+		dlg = DialogVolumetricPreview(self.m_obj, parent=AP.mainWin)
+		dlg.exec_()
+
 	@pyqtSlot()
 	def volumetric_set_metadata(self):
 		dlg = DialogVolumetricMetadata(self.m_obj)

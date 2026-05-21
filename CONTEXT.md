@@ -133,6 +133,14 @@ Parsery dziedziczą po `Parser` lub `ThreadedParser`, deklarują `load_exts` / `
 
 ---
 
+## Uwagi DICOM
+
+- `ParserDICOM` sortuje warstwy przede wszystkim według `ImagePositionPatient` oraz `ImageOrientationPatient`, a dopiero później używa `SliceLocation` lub `InstanceNumber`.
+- Odstęp między warstwami powinien być wyznaczany z geometrii serii (`ImagePositionPatient`), ponieważ część zestawów nie zawiera `SliceLocation`, `SliceThickness` ani `SpacingBetweenSlices`.
+- Parser filtruje pliki wczytywane z katalogu do tej samej `SeriesInstanceUID` co plik startowy, aby nie mieszać kilku serii obecnych w jednym folderze.
+
+---
+
 ## Renderowanie WBOIT
 
 Order-Independent Transparency (Weighted Blended):
@@ -168,3 +176,23 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 4. **`multiprocessing.freeze_support()`** na początku `main.py` — wymagane dla PyInstaller + E57
 5. **Locale `pl_PL.UTF-8`** ustawiane przy starcie (separator dziesiętny: przecinek)
 6. **`m_data`** — standardowa nazwa listy dzieci w `Object` i `Workspace`
+---
+
+## Slice Preview
+
+- Wolumen ma osobny dialog 2D do przegladania przekrojow `XY`, `YZ` i `ZX`.
+- Punkt wejscia w GUI: menu kontekstowe obiektu `Volumetric` -> `volumetric...` -> `slice preview`.
+- Logika pobierania przekrojow i projekcji siedzi w `dpVision/volumetric.py`, a sam dialog w `dpVision/gui/dialogVolumetricPreview.py`.
+- Aktualna wersja dialogu `slice preview` jest tri-planar: trzy widoki sa zsynchronizowane wspolnym crosshairem oraz klikaniem w panelach.
+- Dialog ma tez panel `OBLIQUE`, liczony wokol aktualnego crosshaira na podstawie katow `yaw/pitch`.
+- `OBLIQUE` probkuje teraz wolumen w przestrzeni `world/patient`, wykorzystujac osie i spacing zachowane w `SliceMetadata`, a nie tylko indeksy tablicy.
+- Uzytkownik moze wybrac osie swiata `X/Y/Z` niezaleznie dla `yaw` i `pitch`, bez zmiany backendowego modelu przekroju.
+- Preview obsluguje tez `slab`: grubosc w mm, liczbe probek oraz tryby redukcji `center/mean/max/min` dla widokow ortogonalnych i `OBLIQUE`.
+- Tryb `RTG` ma teraz kilka metod projekcji: `mean`, `sum`, `max` oraz `xray` (pseudo-Beer-Lambert).
+- Dla `xray` w preview dostepne sa parametry `Xray gain` i `Xray gamma`; wynik `xray` uzywa lagodnej kompresji logarytmicznej oraz robust range z percentyla, zeby zachowac widocznosc slabych struktur bez agresywnego auto-rozciagania.
+- Zakres `Xray gain` w GUI jest dostosowany do logarytmicznego modelu `xray`, zeby uzyteczne strojenie nie bylo scisniete przy samym koncu skali.
+- Podczas dluzszych przeliczen dialog pokazuje kursor oczekiwania.
+- Przelacznik `RTG` dziala per panel (`XY`, `YZ`, `ZX`, `OBLIQUE`), a `RTG all` w gornej belce jest tylko szybkim skrotem do ustawienia wszystkich naraz.
+- Dialog preview obsluguje tez przejscie `Quad <-> Full` per panel: checkbox `Full` w naglowku danego widoku wypelnia nim caly obszar preview, a jego wylaczenie wraca do ukladu czterech okien.
+- W trybie `Full` dialog przelicza tylko aktualnie widoczny panel, zeby nie spowalniac pracy ukrytymi widokami.
+- Panel `OBLIQUE` jest opcjonalny i domyslnie ukryty przez `Show oblique`, zeby ograniczyc koszt najciezszych przeliczen podczas zwyklej pracy na ortogonalnych przekrojach.

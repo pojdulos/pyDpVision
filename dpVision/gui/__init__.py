@@ -2,6 +2,7 @@
 
 from .contextMenu import ContextMenu
 from .dialogSiftParameters import DialogSiftParameters
+from .dialogVolumetricPreview import DialogVolumetricPreview
 from .dialogVolumetricMetadata import DialogVolumetricMetadata
 from .dockWidgetPluginList import DockWidgetPluginList
 from .dockWidgetPluginPanel import DockWidgetPluginPanel
@@ -28,7 +29,7 @@ from .propWidget import PropWidget
 
 __all__ = [
 			"ContextMenu",
-			"DialogSiftParameters", "DialogVolumetricMetadata",
+			"DialogSiftParameters", "DialogVolumetricPreview", "DialogVolumetricMetadata",
 			"DockWidgetPluginList", "DockWidgetPluginPanel", "DockWidgetProperties", "DockWidgetWorkspace",
 			"GLViewer",
 			"TaskManager", "BaseTaskRunner", "FunctionTaskRunner", "ParserLoadTaskRunner", "ParserSaveTaskRunner",

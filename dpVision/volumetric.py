@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import cv2
 import os
 import pydicom
+from scipy.ndimage import map_coordinates
 from tqdm import tqdm
 
 from .globals import AP
@@ -18,7 +19,12 @@ from .mesh import Mesh
 
 class SliceMetadata():
 	def __init__(self):
+		"""Initialize per-slice geometry and display metadata."""
 		self.image_position_patient = [0.0,0.0,0.0]
+		self.axis_x = [1.0, 0.0, 0.0]
+		self.axis_y = [0.0, 1.0, 0.0]
+		self.axis_z = [0.0, 0.0, 1.0]
+		self.voxel_spacing = [1.0, 1.0, 1.0]
 		self.slice_location = 0.0
 		self.pixel_spacing = [1.0, 1.0]
 		self.slice_thickness = 1.0
@@ -26,11 +32,13 @@ class SliceMetadata():
 		self.gantry_detector_tilt = 0.0
 	
 	def __str__(self):
+		"""Return a short debug string with the current geometry."""
 		txt  = f"SliceMetadata"
 		txt += f"( gantry_detector_tilt = {self.gantry_detector_tilt}"
 		txt += f", slice_thickness = {self.slice_thickness}"
 		txt += f", slice_location = {self.slice_location}"
 		txt += f", pixel_spacing = {self.pixel_spacing}"
+		txt += f", voxel_spacing = {self.voxel_spacing}"
 		txt += f", image_position_patient = {self.image_position_patient} )"
 		return txt
 	
@@ -149,6 +157,516 @@ class Volumetric(Object):
 		plt.grid(axis='y', alpha=0.5)
 		plt.show()
 
+
+	def _volume_array(self):
+		"""Return the current voxel buffer as a NumPy array."""
+		return np.asarray(self.m_volume)
+
+	def get_plane_count(self, plane="XY"):
+		"""Return the number of slices available for the requested anatomical plane."""
+		shape = self.shape
+		if plane == "YZ":
+			return int(shape[2])
+		if plane == "ZX":
+			return int(shape[1])
+		return int(shape[0])
+
+	def get_slice_array(self, index, plane="XY"):
+		"""Return one 2D slice as a float32 array for the selected plane."""
+		volume = self._volume_array()
+		if volume.ndim != 3:
+			raise ValueError("Volumetric data must be a 3D array.")
+
+		if plane == "YZ":
+			index = int(np.clip(index, 0, volume.shape[2] - 1))
+			return volume[:, :, index].T.astype(np.float32, copy=False)
+
+		if plane == "ZX":
+			index = int(np.clip(index, 0, volume.shape[1] - 1))
+			return volume[:, index, :].astype(np.float32, copy=False)
+
+		index = int(np.clip(index, 0, volume.shape[0] - 1))
+		return volume[index, :, :].astype(np.float32, copy=False)
+
+	def _reduce_projection_stack(self, sampled_stack, mode="mean", step_mm=1.0, xray_gain=0.03):
+		"""Reduce a stack of samples into one 2D projection image."""
+		mode = str(mode).lower()
+		step_mm = max(1e-6, float(step_mm))
+		xray_gain = max(1e-6, float(xray_gain))
+
+		if mode == "sum":
+			return np.sum(sampled_stack, axis=0)
+		if mode == "max":
+			return np.max(sampled_stack, axis=0)
+		if mode == "min":
+			return np.min(sampled_stack, axis=0)
+		if mode == "xray":
+			line_integral = np.sum(sampled_stack, axis=0) * step_mm
+			# Preview-friendly pseudo-radiograph with smoother low-end response.
+			# Log compression keeps weak structures visible without requiring very large gains.
+			return np.log1p(xray_gain * line_integral)
+		return np.mean(sampled_stack, axis=0)
+
+	def _xray_display_range(self, image):
+		"""Return a robust display range for pseudo-Xray preview images."""
+		image = np.asarray(image, dtype=np.float32)
+		finite_values = image[np.isfinite(image)]
+		if finite_values.size == 0:
+			return (0.0, 1.0)
+
+		vmin = float(np.min(finite_values))
+		vmax = float(np.percentile(finite_values, 99.5))
+		if vmax <= vmin:
+			vmax = float(np.max(finite_values))
+		if vmax <= vmin:
+			vmax = vmin + 1.0
+		return (vmin, vmax)
+
+	def _map_to_xray_attenuation(self, volume, use_display_window=False):
+		"""Map scalar voxel intensities into a positive attenuation proxy for pseudo-Xray."""
+		volume = np.asarray(volume, dtype=np.float32)
+
+		if use_display_window:
+			low = float(self.m_minDisplWin)
+			high = float(self.m_maxDisplWin)
+			if high <= low:
+				high = low + 1.0
+			clipped = np.clip(volume, low, high)
+			return (clipped - low) / (high - low)
+
+		# Fallback tuned for CT-like HU ranges: air -> low attenuation, dense tissue/bone -> high.
+		low = -1000.0
+		high = 2000.0
+		clipped = np.clip(volume, low, high)
+		return (clipped - low) / (high - low)
+
+	def get_projection_array(self, plane="XY", use_display_window=False, projection_mode="mean", xray_gain=0.03):
+		"""Return a projection image for the selected plane."""
+		volume = self._volume_array().astype(np.float32, copy=False)
+		if volume.ndim != 3:
+			raise ValueError("Volumetric data must be a 3D array.")
+
+		if projection_mode == "xray":
+			volume = self._map_to_xray_attenuation(
+				volume,
+				use_display_window=use_display_window,
+			)
+		elif use_display_window:
+			volume = np.clip(volume, self.m_minDisplWin, self.m_maxDisplWin)
+
+		_origin, _basis, spacing = self.get_volume_geometry()
+		if plane == "YZ":
+			stack = np.transpose(volume, (2, 1, 0))
+			return self._reduce_projection_stack(stack, mode=projection_mode, step_mm=spacing[0], xray_gain=xray_gain).astype(np.float32, copy=False)
+		if plane == "ZX":
+			stack = np.transpose(volume, (1, 0, 2))
+			return self._reduce_projection_stack(stack, mode=projection_mode, step_mm=spacing[1], xray_gain=xray_gain).astype(np.float32, copy=False)
+		return self._reduce_projection_stack(volume, mode=projection_mode, step_mm=spacing[2], xray_gain=xray_gain).astype(np.float32, copy=False)
+
+	def normalize_slice_to_uint8(self, image, use_display_window=False, invert=False, fixed_range=None, gamma=1.0):
+		"""Normalize a 2D float image into an 8-bit grayscale preview buffer."""
+		image = np.asarray(image, dtype=np.float32)
+
+		if fixed_range is not None:
+			vmin = float(fixed_range[0])
+			vmax = float(fixed_range[1])
+		elif use_display_window:
+			vmin = float(self.m_minDisplWin)
+			vmax = float(self.m_maxDisplWin)
+		else:
+			vmin = float(np.nanmin(image))
+			vmax = float(np.nanmax(image))
+
+		if not np.isfinite(vmin):
+			vmin = 0.0
+		if not np.isfinite(vmax):
+			vmax = vmin + 1.0
+		if vmax <= vmin:
+			vmax = vmin + 1.0
+
+		normalized = np.clip((image - vmin) / (vmax - vmin), 0.0, 1.0)
+		gamma = max(1e-6, float(gamma))
+		if abs(gamma - 1.0) > 1e-6:
+			normalized = np.power(normalized, 1.0 / gamma)
+		if invert:
+			normalized = 1.0 - normalized
+
+		return np.ascontiguousarray(np.round(normalized * 255.0).astype(np.uint8))
+
+	def get_preview_qimage(self, index, plane="XY", use_display_window=False, invert=False, rtg=False,
+	                      projection_mode="mean", xray_gain=0.03, xray_gamma=1.0):
+		"""Build a QImage preview for one slice or projection."""
+		if rtg:
+			image = self.get_projection_array(
+				plane=plane,
+				use_display_window=use_display_window,
+				projection_mode=projection_mode,
+				xray_gain=xray_gain,
+			)
+		else:
+			image = self.get_slice_array(index=index, plane=plane)
+
+		buffer = self.normalize_slice_to_uint8(
+			image=image,
+			use_display_window=(use_display_window and (not rtg or projection_mode != "xray")),
+			invert=invert,
+			fixed_range=self._xray_display_range(image) if (rtg and projection_mode == "xray") else None,
+			gamma=xray_gamma if (rtg and projection_mode == "xray") else 1.0,
+		)
+		height, width = buffer.shape
+		qimage = QImage(buffer.data, width, height, buffer.strides[0], QImage.Format_Grayscale8)
+		return qimage.copy()
+
+	def _reduce_slab_samples(self, sampled_stack, slab_mode="mean", step_mm=1.0, xray_gain=0.03):
+		"""Reduce stacked slab samples into one 2D preview image."""
+		slab_mode = str(slab_mode).lower()
+		if slab_mode == "max":
+			return np.max(sampled_stack, axis=0)
+		if slab_mode == "min":
+			return np.min(sampled_stack, axis=0)
+		if slab_mode == "center":
+			return sampled_stack[len(sampled_stack) // 2]
+		return self._reduce_projection_stack(sampled_stack, mode=slab_mode, step_mm=step_mm, xray_gain=xray_gain)
+
+	def _slab_offsets(self, slab_thickness_mm=0.0, slab_samples=1):
+		"""Return world-space offsets along the slab normal."""
+		slab_samples = max(1, int(slab_samples))
+		slab_thickness_mm = max(0.0, float(slab_thickness_mm))
+		if slab_samples == 1 or slab_thickness_mm <= 0.0:
+			return np.array([0.0], dtype=np.float32)
+		return np.linspace(
+			-slab_thickness_mm / 2.0,
+			slab_thickness_mm / 2.0,
+			slab_samples,
+			dtype=np.float32,
+		)
+
+	def get_slice_array_slab(self, index, plane="XY", slab_thickness_mm=0.0, slab_samples=1,
+	                        slab_mode="mean", use_display_window=False, xray_gain=0.03):
+		"""Return one orthogonal slice or slab reduced along the selected plane normal."""
+		slab_samples = max(1, int(slab_samples))
+		slab_thickness_mm = max(0.0, float(slab_thickness_mm))
+		if slab_samples == 1 or slab_thickness_mm <= 0.0:
+			return self.get_slice_array(index=index, plane=plane)
+
+		volume = self._volume_array().astype(np.float32, copy=False)
+		slab_mode = str(slab_mode).lower()
+		if slab_mode == "xray":
+			volume = self._map_to_xray_attenuation(volume, use_display_window=use_display_window)
+		origin, basis, spacing = self.get_volume_geometry()
+		offsets = self._slab_offsets(slab_thickness_mm=slab_thickness_mm, slab_samples=slab_samples)
+		step_mm = float(abs(offsets[1] - offsets[0])) if len(offsets) > 1 else float(spacing[0] if plane == "YZ" else spacing[1] if plane == "ZX" else spacing[2])
+
+		if plane == "YZ":
+			axis_index = 0
+			base_voxel = np.array([float(index), 0.0, 0.0], dtype=np.float32)
+			height = volume.shape[1]
+			width = volume.shape[0]
+			x_coords = np.arange(width, dtype=np.float32)
+			y_coords = np.arange(height, dtype=np.float32)
+			grid_x, grid_y = np.meshgrid(x_coords, y_coords)
+			base_points_voxel = np.stack([
+				np.full_like(grid_x, base_voxel[0]),
+				grid_y,
+				grid_x,
+			], axis=-1)
+		elif plane == "ZX":
+			axis_index = 1
+			base_voxel = np.array([0.0, float(index), 0.0], dtype=np.float32)
+			height = volume.shape[0]
+			width = volume.shape[2]
+			x_coords = np.arange(width, dtype=np.float32)
+			y_coords = np.arange(height, dtype=np.float32)
+			grid_x, grid_y = np.meshgrid(x_coords, y_coords)
+			base_points_voxel = np.stack([
+				grid_x,
+				np.full_like(grid_x, base_voxel[1]),
+				grid_y,
+			], axis=-1)
+		else:
+			axis_index = 2
+			base_voxel = np.array([0.0, 0.0, float(index)], dtype=np.float32)
+			height = volume.shape[1]
+			width = volume.shape[2]
+			x_coords = np.arange(width, dtype=np.float32)
+			y_coords = np.arange(height, dtype=np.float32)
+			grid_x, grid_y = np.meshgrid(x_coords, y_coords)
+			base_points_voxel = np.stack([
+				grid_x,
+				grid_y,
+				np.full_like(grid_x, base_voxel[2]),
+			], axis=-1)
+
+		base_world = self.voxel_to_world(base_points_voxel.reshape(-1, 3).T).T.reshape(height, width, 3)
+		normal_world = basis[:, axis_index]
+		normal_world = normal_world / max(np.linalg.norm(normal_world), 1e-8)
+
+		sampled_images = []
+		for offset in offsets:
+			points_world = base_world + offset * normal_world[None, None, :]
+			points_voxel = self.world_to_voxel(points_world.reshape(-1, 3).T).T.reshape(height, width, 3)
+			sampled = map_coordinates(
+				volume,
+				[
+					points_voxel[:, :, 2].ravel(),
+					points_voxel[:, :, 1].ravel(),
+					points_voxel[:, :, 0].ravel(),
+				],
+				order=1,
+				mode='constant',
+				cval=0.0 if slab_mode == "xray" else float(self.m_min),
+			).reshape(height, width)
+			sampled_images.append(sampled.astype(np.float32, copy=False))
+
+		return self._reduce_slab_samples(
+			np.stack(sampled_images, axis=0),
+			slab_mode=slab_mode,
+			step_mm=step_mm,
+			xray_gain=xray_gain,
+		).astype(np.float32, copy=False)
+
+	def _axis_vector_from_name(self, axis_name):
+		"""Return a unit world axis vector for a short axis name."""
+		axis_name = str(axis_name).upper()
+		if axis_name == "Y":
+			return np.array([0.0, 1.0, 0.0], dtype=np.float32)
+		if axis_name == "Z":
+			return np.array([0.0, 0.0, 1.0], dtype=np.float32)
+		return np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+	def _rotation_matrix_world(self, axis_vector, angle_degrees):
+		"""Build a world-space rotation matrix from axis-angle parameters."""
+		axis_vector = np.asarray(axis_vector, dtype=np.float32)
+		norm = np.linalg.norm(axis_vector)
+		if norm <= 0.0:
+			return np.eye(3, dtype=np.float32)
+
+		axis_vector = axis_vector / norm
+		angle_radians = np.deg2rad(float(angle_degrees))
+		cos_angle = np.cos(angle_radians)
+		sin_angle = np.sin(angle_radians)
+		one_minus_cos = 1.0 - cos_angle
+		x_val, y_val, z_val = axis_vector
+
+		return np.array([
+			[
+				cos_angle + x_val * x_val * one_minus_cos,
+				x_val * y_val * one_minus_cos - z_val * sin_angle,
+				x_val * z_val * one_minus_cos + y_val * sin_angle,
+			],
+			[
+				y_val * x_val * one_minus_cos + z_val * sin_angle,
+				cos_angle + y_val * y_val * one_minus_cos,
+				y_val * z_val * one_minus_cos - x_val * sin_angle,
+			],
+			[
+				z_val * x_val * one_minus_cos - y_val * sin_angle,
+				z_val * y_val * one_minus_cos + x_val * sin_angle,
+				cos_angle + z_val * z_val * one_minus_cos,
+			],
+		], dtype=np.float32)
+
+	def _oblique_basis_world(self, base_right, base_up, base_normal,
+	                         yaw_degrees=0.0, pitch_degrees=0.0,
+	                         yaw_axis="Y", pitch_axis="X"):
+		"""Rotate the default slice basis around selected world axes."""
+		rotation_yaw = self._rotation_matrix_world(
+			self._axis_vector_from_name(yaw_axis),
+			yaw_degrees,
+		)
+		rotation_pitch = self._rotation_matrix_world(
+			self._axis_vector_from_name(pitch_axis),
+			pitch_degrees,
+		)
+		rotation_total = rotation_pitch @ rotation_yaw
+
+		right_world = rotation_total @ np.asarray(base_right, dtype=np.float32)
+		up_world = rotation_total @ np.asarray(base_up, dtype=np.float32)
+		normal_world = rotation_total @ np.asarray(base_normal, dtype=np.float32)
+
+		normal_world /= max(np.linalg.norm(normal_world), 1e-8)
+		right_world = np.cross(up_world, normal_world)
+		if np.linalg.norm(right_world) < 1e-6:
+			fallback_axis = self._axis_vector_from_name("X")
+			right_world = np.cross(fallback_axis, normal_world)
+		right_world /= max(np.linalg.norm(right_world), 1e-8)
+		up_world = np.cross(normal_world, right_world)
+		up_world /= max(np.linalg.norm(up_world), 1e-8)
+		return right_world, up_world, normal_world
+
+	def get_volume_geometry(self):
+		"""Return origin, unit axes and voxel spacing for the current volume geometry."""
+		if not self.metadata:
+			return (
+				np.zeros(3, dtype=np.float32),
+				np.eye(3, dtype=np.float32),
+				np.ones(3, dtype=np.float32),
+			)
+
+		metadata0 = self.metadata[0]
+		origin = np.asarray(metadata0.image_position_patient, dtype=np.float32)
+		axis_x = np.asarray(getattr(metadata0, "axis_x", [1.0, 0.0, 0.0]), dtype=np.float32)
+		axis_y = np.asarray(getattr(metadata0, "axis_y", [0.0, 1.0, 0.0]), dtype=np.float32)
+		axis_z = np.asarray(getattr(metadata0, "axis_z", [0.0, 0.0, 1.0]), dtype=np.float32)
+
+		for axis in (axis_x, axis_y, axis_z):
+			norm = np.linalg.norm(axis)
+			if norm > 0.0:
+				axis /= norm
+
+		default_spacing = np.array([
+			float(metadata0.pixel_spacing[0]) if len(metadata0.pixel_spacing) > 0 else 1.0,
+			float(metadata0.pixel_spacing[1]) if len(metadata0.pixel_spacing) > 1 else 1.0,
+			float(metadata0.slice_distance or metadata0.slice_thickness or 1.0),
+		], dtype=np.float32)
+		stored_spacing = np.asarray(getattr(metadata0, "voxel_spacing", default_spacing), dtype=np.float32)
+		spacing = np.where(stored_spacing > 0.0, stored_spacing, default_spacing)
+
+		if len(self.metadata) > 1:
+			position0 = np.asarray(self.metadata[0].image_position_patient, dtype=np.float32)
+			position1 = np.asarray(self.metadata[1].image_position_patient, dtype=np.float32)
+			delta = position1 - position0
+			distance = float(np.linalg.norm(delta))
+			if distance > 1e-6:
+				axis_z = delta / distance
+				spacing[2] = distance
+
+		basis = np.column_stack((axis_x, axis_y, axis_z)).astype(np.float32)
+		return origin, basis, spacing
+
+	def voxel_to_world(self, point_xyz):
+		"""Convert voxel indices [x, y, z] into world coordinates."""
+		origin, basis, spacing = self.get_volume_geometry()
+		point_xyz = np.asarray(point_xyz, dtype=np.float32)
+		if point_xyz.ndim == 1:
+			scaled = point_xyz * spacing
+			return origin + basis @ scaled
+
+		scaled = point_xyz * spacing[:, None]
+		return origin[:, None] + basis @ scaled
+
+	def world_to_voxel(self, point_world):
+		"""Convert world coordinates into fractional voxel indices [x, y, z]."""
+		origin, basis, spacing = self.get_volume_geometry()
+		point_world = np.asarray(point_world, dtype=np.float32)
+		transform = basis @ np.diag(spacing)
+		inverse = np.linalg.inv(transform)
+		if point_world.ndim == 1:
+			return inverse @ (point_world - origin)
+
+		return inverse @ (point_world - origin[:, None])
+
+	def get_oblique_slice_array(self, center_xyz, yaw_degrees=0.0, pitch_degrees=0.0,
+	                            yaw_axis="Y", pitch_axis="X", output_size=None,
+	                            slab_thickness_mm=0.0, slab_samples=1, slab_mode="mean",
+	                            use_display_window=False, xray_gain=0.03):
+		"""Sample an oblique slice around the given voxel-space center in world coordinates."""
+
+		volume = self._volume_array().astype(np.float32, copy=False)
+		slab_mode = str(slab_mode).lower()
+		if slab_mode == "xray":
+			volume = self._map_to_xray_attenuation(volume, use_display_window=use_display_window)
+		if volume.ndim != 3:
+			raise ValueError("Volumetric data must be a 3D array.")
+
+		layers, rows, columns = volume.shape
+		origin, basis, spacing = self.get_volume_geometry()
+		volume_extent = basis @ np.array([
+			spacing[0] * max(columns - 1, 1),
+			spacing[1] * max(rows - 1, 1),
+			spacing[2] * max(layers - 1, 1),
+		], dtype=np.float32)
+		world_diagonal = float(np.linalg.norm(volume_extent))
+		in_plane_step = max(1e-6, float(np.min(spacing)))
+
+		if output_size is None:
+			side = int(np.ceil(world_diagonal / in_plane_step))
+			width = max(32, side)
+			height = max(32, side)
+		else:
+			width, height = output_size
+			width = max(8, int(width))
+			height = max(8, int(height))
+
+		base_right = basis[:, 0]
+		base_up = basis[:, 1]
+		base_normal = basis[:, 2]
+		right_world, up_world, _normal_world = self._oblique_basis_world(
+			base_right=base_right,
+			base_up=base_up,
+			base_normal=base_normal,
+			yaw_degrees=yaw_degrees,
+			pitch_degrees=pitch_degrees,
+			yaw_axis=yaw_axis,
+			pitch_axis=pitch_axis,
+		)
+
+		center_world = self.voxel_to_world(center_xyz)
+		x_coords = np.linspace(-(width - 1) / 2.0, (width - 1) / 2.0, width, dtype=np.float32)
+		y_coords = np.linspace(-(height - 1) / 2.0, (height - 1) / 2.0, height, dtype=np.float32)
+		grid_x, grid_y = np.meshgrid(x_coords, y_coords)
+
+		base_points_world = (
+			center_world[None, None, :]
+			+ (grid_x[:, :, None] * in_plane_step) * right_world[None, None, :]
+			+ (grid_y[:, :, None] * in_plane_step) * up_world[None, None, :]
+		)
+		offsets = self._slab_offsets(slab_thickness_mm=slab_thickness_mm, slab_samples=slab_samples)
+		step_mm = float(abs(offsets[1] - offsets[0])) if len(offsets) > 1 else in_plane_step
+		sampled_images = []
+
+		for offset in offsets:
+			points_world = base_points_world + offset * _normal_world[None, None, :]
+			points_voxel = self.world_to_voxel(points_world.reshape(-1, 3).T).T.reshape(height, width, 3)
+			sampled = map_coordinates(
+				volume,
+				[
+					points_voxel[:, :, 2].ravel(),
+					points_voxel[:, :, 1].ravel(),
+					points_voxel[:, :, 0].ravel(),
+				],
+				order=1,
+				mode='constant',
+				cval=0.0 if slab_mode == "xray" else float(self.m_min),
+			).reshape(height, width)
+			sampled_images.append(sampled.astype(np.float32, copy=False))
+
+		return self._reduce_slab_samples(
+			np.stack(sampled_images, axis=0),
+			slab_mode=slab_mode,
+			step_mm=step_mm,
+			xray_gain=xray_gain,
+		).astype(np.float32, copy=False)
+
+	def get_oblique_preview_qimage(self, center_xyz, yaw_degrees=0.0, pitch_degrees=0.0,
+	                               yaw_axis="Y", pitch_axis="X",
+	                               use_display_window=False, invert=False, output_size=None,
+	                               slab_thickness_mm=0.0, slab_samples=1, slab_mode="mean",
+	                               xray_gain=0.03, xray_gamma=1.0):
+		"""Build a QImage preview for an oblique slice around the selected center."""
+		image = self.get_oblique_slice_array(
+			center_xyz=center_xyz,
+			yaw_degrees=yaw_degrees,
+			pitch_degrees=pitch_degrees,
+			yaw_axis=yaw_axis,
+			pitch_axis=pitch_axis,
+			output_size=output_size,
+			slab_thickness_mm=slab_thickness_mm,
+			slab_samples=slab_samples,
+			slab_mode=slab_mode,
+			use_display_window=use_display_window,
+			xray_gain=xray_gain,
+		)
+		buffer = self.normalize_slice_to_uint8(
+			image=image,
+			use_display_window=(use_display_window and slab_mode != "xray"),
+			invert=invert,
+			fixed_range=self._xray_display_range(image) if slab_mode == "xray" else None,
+			gamma=xray_gamma if slab_mode == "xray" else 1.0,
+		)
+		height, width = buffer.shape
+		qimage = QImage(buffer.data, width, height, buffer.strides[0], QImage.Format_Grayscale8)
+		return qimage.copy()
 
 	def on_mouse_move(self, dx, dy):
 		self.m_minDisplWin = self.m_minDisplWin + dx
@@ -1079,8 +1597,10 @@ class Volumetric(Object):
 		self.adjustMinMaxColor(color)
 
 	def set_pixel_size(self, image_x=1.0, image_y=1.0, slice_thickness=1.0):
+		"""Update spacing metadata for procedurally created or edited volumes."""
 		for n,mdata in enumerate(self.metadata):
 			mdata.pixel_spacing = [image_x, image_y]
+			mdata.voxel_spacing = [image_x, image_y, slice_thickness]
 			mdata.slice_thickness = slice_thickness
 			mdata.slice_distance = slice_thickness
 			mdata.slice_location = slice_thickness*n

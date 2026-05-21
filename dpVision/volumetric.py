@@ -556,6 +556,167 @@ class Volumetric(Object):
 
 		return inverse @ (point_world - origin[:, None])
 
+	def _normalize_basis_world(self, basis_world):
+		"""Return a basis matrix with unit-length world axes stored in columns."""
+		basis_world = np.asarray(basis_world, dtype=np.float32)
+		if basis_world.shape != (3, 3):
+			raise ValueError("target_basis_world must be a 3x3 matrix with axes in columns.")
+
+		normalized_basis = basis_world.copy()
+		for axis_idx in range(3):
+			axis_vector = normalized_basis[:, axis_idx]
+			norm = float(np.linalg.norm(axis_vector))
+			if norm <= 1e-8:
+				raise ValueError("Every target basis axis must have non-zero length.")
+			normalized_basis[:, axis_idx] = axis_vector / norm
+		return normalized_basis
+
+	def _build_metadata_for_grid(self, target_origin_world, target_basis_world, target_spacing_xyz, target_shape_zyx):
+		"""Create per-slice metadata that describes the supplied world-space voxel grid."""
+		target_origin_world = np.asarray(target_origin_world, dtype=np.float32)
+		target_basis_world = self._normalize_basis_world(target_basis_world)
+		target_spacing_xyz = np.asarray(target_spacing_xyz, dtype=np.float32)
+		layers, _rows, _columns = [int(v) for v in target_shape_zyx]
+
+		metadata = []
+		for layer_idx in range(layers):
+			mdata = SliceMetadata()
+			slice_origin = target_origin_world + target_basis_world[:, 2] * (float(layer_idx) * target_spacing_xyz[2])
+			mdata.image_position_patient = slice_origin.astype(np.float32).tolist()
+			mdata.axis_x = target_basis_world[:, 0].astype(np.float32).tolist()
+			mdata.axis_y = target_basis_world[:, 1].astype(np.float32).tolist()
+			mdata.axis_z = target_basis_world[:, 2].astype(np.float32).tolist()
+			mdata.voxel_spacing = target_spacing_xyz.astype(np.float32).tolist()
+			mdata.pixel_spacing = target_spacing_xyz[:2].astype(np.float32).tolist()
+			mdata.slice_thickness = float(target_spacing_xyz[2])
+			mdata.slice_distance = float(target_spacing_xyz[2])
+			mdata.slice_location = float(layer_idx) * float(target_spacing_xyz[2])
+			metadata.append(mdata)
+		return metadata
+
+	def _transform_world_points(self, point_world, transform_matrix):
+		"""Apply a 4x4 homogeneous transform to one world point or a 3xN point matrix."""
+		point_world = np.asarray(point_world, dtype=np.float32)
+		transform_matrix = np.asarray(transform_matrix, dtype=np.float32)
+		if transform_matrix.shape != (4, 4):
+			raise ValueError("transform_matrix must be a 4x4 homogeneous matrix.")
+
+		if point_world.ndim == 1:
+			point_h = np.ones(4, dtype=np.float32)
+			point_h[:3] = point_world
+			return (transform_matrix @ point_h)[:3]
+
+		points_h = np.vstack((
+			point_world,
+			np.ones((1, point_world.shape[1]), dtype=np.float32),
+		))
+		return (transform_matrix @ points_h)[:3, :]
+
+	def resample_to_grid(self, target_origin_world, target_basis_world, target_spacing_xyz, target_shape_zyx,
+	                     interpolation="linear", fill_value=None, label_suffix="resampled",
+	                     source_world_from_target_world=None):
+		"""Resample the volume into a new world-space voxel grid and return a new Volumetric object."""
+		volume = self._volume_array().astype(np.float32, copy=False)
+		if volume.ndim != 3:
+			raise ValueError("Volumetric data must be a 3D array.")
+
+		target_origin_world = np.asarray(target_origin_world, dtype=np.float32)
+		if target_origin_world.shape != (3,):
+			raise ValueError("target_origin_world must be a 3-element world coordinate.")
+
+		target_basis_world = self._normalize_basis_world(target_basis_world)
+		target_spacing_xyz = np.asarray(target_spacing_xyz, dtype=np.float32)
+		if target_spacing_xyz.shape != (3,):
+			raise ValueError("target_spacing_xyz must be a 3-element spacing vector.")
+		if np.any(target_spacing_xyz <= 0.0):
+			raise ValueError("target_spacing_xyz must contain only positive values.")
+
+		layers, rows, columns = [int(v) for v in target_shape_zyx]
+		if layers <= 0 or rows <= 0 or columns <= 0:
+			raise ValueError("target_shape_zyx must contain positive dimensions.")
+
+		interpolation = str(interpolation).lower()
+		order_by_interpolation = {
+			"nearest": 0,
+			"linear": 1,
+			"cubic": 3,
+		}
+		if interpolation not in order_by_interpolation:
+			raise ValueError("interpolation must be one of: nearest, linear, cubic.")
+
+		if fill_value is None:
+			fill_value = float(self.m_min)
+		else:
+			fill_value = float(fill_value)
+
+		if source_world_from_target_world is None:
+			source_world_from_target_world = np.eye(4, dtype=np.float32)
+		else:
+			source_world_from_target_world = np.asarray(source_world_from_target_world, dtype=np.float32)
+			if source_world_from_target_world.shape != (4, 4):
+				raise ValueError("source_world_from_target_world must be a 4x4 homogeneous matrix.")
+
+		x_coords = np.arange(columns, dtype=np.float32)
+		y_coords = np.arange(rows, dtype=np.float32)
+		grid_x, grid_y = np.meshgrid(x_coords, y_coords)
+		output_volume = np.empty((layers, rows, columns), dtype=np.float32)
+
+		for layer_idx in range(layers):
+			slice_origin_world = target_origin_world + target_basis_world[:, 2] * (float(layer_idx) * target_spacing_xyz[2])
+			points_world = (
+				slice_origin_world[None, None, :]
+				+ (grid_x[:, :, None] * target_spacing_xyz[0]) * target_basis_world[:, 0][None, None, :]
+				+ (grid_y[:, :, None] * target_spacing_xyz[1]) * target_basis_world[:, 1][None, None, :]
+			)
+			source_points_world = self._transform_world_points(
+				points_world.reshape(-1, 3).T,
+				source_world_from_target_world,
+			)
+			points_voxel = self.world_to_voxel(source_points_world).T.reshape(rows, columns, 3)
+			sampled_slice = map_coordinates(
+				volume,
+				[
+					points_voxel[:, :, 2].ravel(),
+					points_voxel[:, :, 1].ravel(),
+					points_voxel[:, :, 0].ravel(),
+				],
+				order=order_by_interpolation[interpolation],
+				mode='constant',
+				cval=fill_value,
+			).reshape(rows, columns)
+			output_volume[layer_idx] = sampled_slice.astype(np.float32, copy=False)
+
+		resampled = Volumetric()
+		resampled.label = f"{self.label}_{label_suffix}" if label_suffix else self.label
+		resampled.description = self.description
+		resampled.m_volume = output_volume
+		resampled.shape = output_volume.shape
+		resampled.metadata = self._build_metadata_for_grid(
+			target_origin_world=target_origin_world,
+			target_basis_world=target_basis_world,
+			target_spacing_xyz=target_spacing_xyz,
+			target_shape_zyx=output_volume.shape,
+		)
+		resampled.m_dicom_files = list(self.m_dicom_files)
+		resampled.adjustMinMax()
+		return resampled
+
+	def resample_like(self, other_volumetric, interpolation="linear", fill_value=None, label_suffix="resampled_like"):
+		"""Resample this volume into the world-space voxel grid used by another volumetric object."""
+		if not isinstance(other_volumetric, Volumetric):
+			raise TypeError("other_volumetric must be an instance of Volumetric.")
+
+		target_origin_world, target_basis_world, target_spacing_xyz = other_volumetric.get_volume_geometry()
+		return self.resample_to_grid(
+			target_origin_world=target_origin_world,
+			target_basis_world=target_basis_world,
+			target_spacing_xyz=target_spacing_xyz,
+			target_shape_zyx=other_volumetric.shape,
+			interpolation=interpolation,
+			fill_value=fill_value,
+			label_suffix=label_suffix,
+		)
+
 	def get_oblique_slice_array(self, center_xyz, yaw_degrees=0.0, pitch_degrees=0.0,
 	                            yaw_axis="Y", pitch_axis="X", output_size=None,
 	                            slab_thickness_mm=0.0, slab_samples=1, slab_mode="mean",

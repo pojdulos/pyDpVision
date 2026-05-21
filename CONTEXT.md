@@ -196,3 +196,5 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Dialog preview obsluguje tez przejscie `Quad <-> Full` per panel: checkbox `Full` w naglowku danego widoku wypelnia nim caly obszar preview, a jego wylaczenie wraca do ukladu czterech okien.
 - W trybie `Full` dialog przelicza tylko aktualnie widoczny panel, zeby nie spowalniac pracy ukrytymi widokami.
 - Panel `OBLIQUE` jest opcjonalny i domyslnie ukryty przez `Show oblique`, zeby ograniczyc koszt najciezszych przeliczen podczas zwyklej pracy na ortogonalnych przekrojach.
+- `Volumetric` ma teraz backendowy resampling w przestrzeni swiata: `resample_to_grid(...)` buduje nowy wolumen dla zadanej siatki `origin/basis/spacing/shape`, a `resample_like(other)` pozwala przepisac dane do siatki innego wolumenu.
+- Testowo w menu kontekstowym `Volumetric` jest akcja `resample to global grid`: bierze `getGlobalTransformation()` obiektu, pyta o izotropowy voxel i tworzy nowy wolumen osadzony bezposrednio w root workspace. Docelowa siatka jest osiowo wyrownana do globalnego `XYZ`, bo aktualny renderer wolumenu nie rysuje jeszcze poprawnie danych z dowolnie obrocona baza voxeli.

@@ -191,6 +191,9 @@ class ContextMenu(QMenu):
 		action = QAction("set metadata", self)
 		action.triggered.connect(self.volumetric_set_metadata)
 		menu.addAction(action)
+		action = QAction("resample to global grid", self)
+		action.triggered.connect(self.volumetric_resample_to_global_grid)
+		menu.addAction(action)
 		menu.addSeparator()
 		action = QAction("create SIFT cloud", self)
 		action.triggered.connect(self.volumetric_sift)
@@ -271,6 +274,78 @@ class ContextMenu(QMenu):
 		if dlg.exec():
 			print("OK")
 			AP.updateAllViews()
+
+	@pyqtSlot()
+	def volumetric_resample_to_global_grid(self):
+		"""Resample the selected volume into an axis-aligned global grid using its current hierarchy transform."""
+		vol : Volumetric = self.m_obj
+		global_matrix = np.asarray(vol.getGlobalTransformation(), dtype=np.float64)
+		source_origin_world, source_basis_world, source_spacing_xyz = vol.get_volume_geometry()
+		linear_part = global_matrix[:3, :3]
+		if np.linalg.det(linear_part) == 0.0:
+			QMessageBox.warning(AP.mainWin, "Volumetric", "Global transformation is singular and cannot be resampled.")
+			return
+
+		source_shape_xyz = np.array([vol.shape[2], vol.shape[1], vol.shape[0]], dtype=np.float64)
+		max_indices_xyz = np.maximum(source_shape_xyz - 1.0, 0.0)
+		local_corners = []
+		for x_idx in (0.0, max_indices_xyz[0]):
+			for y_idx in (0.0, max_indices_xyz[1]):
+				for z_idx in (0.0, max_indices_xyz[2]):
+					local_corner = source_origin_world + source_basis_world @ np.array([
+						x_idx * source_spacing_xyz[0],
+						y_idx * source_spacing_xyz[1],
+						z_idx * source_spacing_xyz[2],
+					], dtype=np.float64)
+					local_corners.append(local_corner)
+
+		local_corners = np.asarray(local_corners, dtype=np.float64)
+		global_corners = (global_matrix @ np.column_stack((local_corners, np.ones(len(local_corners), dtype=np.float64))).T).T[:, :3]
+		global_min = global_corners.min(axis=0).astype(np.float32)
+		global_max = global_corners.max(axis=0).astype(np.float32)
+
+		source_step_world = np.column_stack([
+			linear_part @ (source_basis_world[:, axis_idx] * source_spacing_xyz[axis_idx])
+			for axis_idx in range(3)
+		]).astype(np.float64)
+		default_spacing = float(max(np.min(np.linalg.norm(source_step_world, axis=0)), 1e-3))
+		voxel_size, ok = QInputDialog.getDouble(
+			AP.mainWin,
+			"Resample To Global Grid",
+			"Target isotropic voxel size [world units]:",
+			default_spacing,
+			0.0001,
+			1000.0,
+			4,
+		)
+		if not ok:
+			return
+
+		target_spacing_xyz = np.array([voxel_size, voxel_size, voxel_size], dtype=np.float32)
+		target_basis_world = np.eye(3, dtype=np.float32)
+		target_extent_xyz = np.maximum(global_max - global_min, 0.0)
+		target_shape_xyz = np.maximum(1, np.ceil(target_extent_xyz / target_spacing_xyz).astype(np.int32) + 1)
+		target_origin_world = global_min
+
+		QApplication.setOverrideCursor(Qt.WaitCursor)
+		try:
+			resampled = vol.resample_to_grid(
+				target_origin_world=target_origin_world,
+				target_basis_world=target_basis_world,
+				target_spacing_xyz=target_spacing_xyz,
+				target_shape_zyx=(int(target_shape_xyz[2]), int(target_shape_xyz[1]), int(target_shape_xyz[0])),
+				interpolation="linear",
+				fill_value=float(vol.m_min),
+				label_suffix="global",
+				source_world_from_target_world=np.linalg.inv(global_matrix),
+			)
+		except Exception as error:
+			QApplication.restoreOverrideCursor()
+			QMessageBox.critical(AP.mainWin, "Volumetric", str(error))
+			return
+		QApplication.restoreOverrideCursor()
+
+		AP.addObject(resampled, parent=None)
 
 	@pyqtSlot()
 	def volumetric_sift(self):

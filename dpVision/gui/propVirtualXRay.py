@@ -6,7 +6,7 @@ from __future__ import annotations
 import weakref
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import Qt, QEventLoop, pyqtSlot
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
 	QApplication,
@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import (
 	QGroupBox,
 	QHBoxLayout,
 	QLabel,
+	QMessageBox,
+		QProgressBar,
 	QPushButton,
 	QSpinBox,
 	QTabWidget,
@@ -180,8 +182,8 @@ class PropVirtualXRay(PropWidget):
 		presentation_layout.addRow("Gamma:", self.presentationGammaSpin)
 		presentation_layout.addRow("Contrast:", self.presentationContrastSpin)
 		presentation_layout.addRow("Robust [%]:", self.presentationPercentileSpin)
-		presentation_layout.addRow("Projection center:", self.presentationWindowCenterSpin)
-		presentation_layout.addRow("Projection width:", self.presentationWindowWidthSpin)
+		presentation_layout.addRow("Window center:", self.presentationWindowCenterSpin)
+		presentation_layout.addRow("Window width:", self.presentationWindowWidthSpin)
 		self.presentationTabLayout.addWidget(self.presentationGroup)
 		self.presentationTabLayout.addStretch(1)
 		self.tabs.addTab(self.presentationTab, "Presentation")
@@ -245,10 +247,18 @@ class PropVirtualXRay(PropWidget):
 		actions_layout.setContentsMargins(0, 0, 0, 0)
 		self.refreshButton = QPushButton("Refresh")
 		self.runSimulationButton = QPushButton("Run Simulation")
+		self.updateDisplayButton = QPushButton("Update display")
+		self.updateDisplayButton.setEnabled(False)
 		self.renderInfoLabel = QLabel("")
 		actions_layout.addWidget(self.refreshButton)
 		actions_layout.addWidget(self.runSimulationButton)
+		actions_layout.addWidget(self.updateDisplayButton)
 		self.runTabLayout.addWidget(self.actionsWidget)
+		self.progressBar = QProgressBar()
+		self.progressBar.setRange(0, 100)
+		self.progressBar.setValue(0)
+		self.progressBar.setVisible(False)
+		self.runTabLayout.addWidget(self.progressBar)
 		self.runTabLayout.addWidget(self.renderInfoLabel)
 		self.runTabLayout.addStretch(1)
 		self.tabs.addTab(self.runTab, "Run")
@@ -290,6 +300,7 @@ class PropVirtualXRay(PropWidget):
 		self.sourceFillValueSpin.valueChanged.connect(self.on_advanced_source_changed)
 		self.refreshButton.clicked.connect(self.on_refresh_requested)
 		self.runSimulationButton.clicked.connect(self.on_run_simulation)
+		self.updateDisplayButton.clicked.connect(self.on_update_display)
 
 	@staticmethod
 	def create(m, parent=0):
@@ -335,7 +346,7 @@ class PropVirtualXRay(PropWidget):
 
 	def _update_mode_visibility(self, obj: VirtualXRay):
 		"""Enable either the point-source editor or the parallel-ray editor based on the current mode."""
-		is_cone = obj.source_position_ref is not None
+		is_cone = str(obj.projection_mode).lower() == "cone"
 		self.sourcePositionSpin.setEnabled(is_cone)
 		self.rayDirectionSpin.setEnabled(not is_cone)
 
@@ -369,15 +380,15 @@ class PropVirtualXRay(PropWidget):
 		if obj is None:
 			return
 		self.blockAll(True)
-		self.modeCombo.setCurrentText("cone" if obj.source_position_ref is not None else "parallel")
+		self.modeCombo.setCurrentText(str(obj.projection_mode))
 		self.detectorCenterSpin.setValue(obj.detector_center_ref)
 		self.detectorNormalSpin.setValue(obj.detector_normal_ref)
 		self.detectorUpSpin.setValue(obj.detector_up_ref)
 		self.detectorPixelSizeSpin.setValue(obj.detector_pixel_size_mm)
 		self.detectorHeightSpin.setValue(int(obj.detector_shape_hw[0]))
 		self.detectorWidthSpin.setValue(int(obj.detector_shape_hw[1]))
-		self.sourcePositionSpin.setValue(obj.source_position_ref if obj.source_position_ref is not None else (0.0, 0.0, 0.0))
-		self.rayDirectionSpin.setValue(obj.ray_direction_ref if obj.ray_direction_ref is not None else (0.0, 0.0, 1.0))
+		self.sourcePositionSpin.setValue(obj.source_position_ref)
+		self.rayDirectionSpin.setValue(obj.ray_direction_ref)
 		self.stepSpin.setValue(float(obj.step_mm))
 		self.qualityCombo.setCurrentText(str(obj.quality_profile_name))
 		self.physicsMaterialWindowCenterSpin.setValue(0.0 if obj.physics_material_window_center is None else float(obj.physics_material_window_center))
@@ -402,6 +413,7 @@ class PropVirtualXRay(PropWidget):
 		self.sourceFillValueSpin.setValue(0.0 if obj.source_fill_value is None else float(obj.source_fill_value))
 		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
 		self.renderInfoLabel.setText(obj.info())
+		self.updateDisplayButton.setEnabled(obj.last_raw_projection is not None)
 		self._update_mode_visibility(obj)
 		self._update_physics_visibility(obj)
 		self._update_advanced_source_visibility(obj)
@@ -421,16 +433,7 @@ class PropVirtualXRay(PropWidget):
 		obj = self.obj_ref()
 		if obj is None:
 			return
-		if str(mode).lower() == "parallel":
-			obj.source_position_ref = None
-			if obj.ray_direction_ref is None:
-				direction = np.asarray(obj.detector_normal_ref, dtype=np.float32)
-				norm = np.linalg.norm(direction)
-				obj.ray_direction_ref = (direction / norm) if norm > 1e-8 else np.array([0.0, 0.0, 1.0], dtype=np.float32)
-		else:
-			obj.ray_direction_ref = None
-			if obj.source_position_ref is None:
-				obj.source_position_ref = np.array([42.2, 42.2, -220.0], dtype=np.float32)
+		obj.projection_mode = str(mode).lower()
 		self._after_change(obj)
 
 	@pyqtSlot(tuple)
@@ -472,17 +475,15 @@ class PropVirtualXRay(PropWidget):
 	def on_source_position_changed(self, values):
 		"""Store point-source position in the local X-ray reference frame."""
 		obj = self.obj_ref()
-		if obj.source_position_ref is not None:
-			obj.source_position_ref = np.asarray(values, dtype=np.float32)
-			self._after_change(obj)
+		obj.source_position_ref = np.asarray(values, dtype=np.float32)
+		self._after_change(obj)
 
 	@pyqtSlot(tuple)
 	def on_ray_direction_changed(self, values):
 		"""Store parallel-ray direction in the local X-ray reference frame."""
 		obj = self.obj_ref()
-		if obj.ray_direction_ref is not None:
-			obj.ray_direction_ref = np.asarray(values, dtype=np.float32)
-			self._after_change(obj)
+		obj.ray_direction_ref = np.asarray(values, dtype=np.float32)
+		self._after_change(obj)
 
 	@pyqtSlot(float)
 	def on_step_changed(self, value):
@@ -595,41 +596,82 @@ class PropVirtualXRay(PropWidget):
 		self._after_change(obj)
 
 	@pyqtSlot()
+	def _display_image_array(self, obj, display_image):
+		"""Convert a float display image to uint8, wrap in QImage and add to workspace."""
+		mode = str(obj.presentation_mode).lower()
+		if mode == "raw":
+			image_u8 = normalize_projection_to_uint8(
+				display_image,
+				robust_percentile=float(obj.presentation_robust_percentile),
+				invert=False,
+			)
+		else:
+			image_u8 = normalize_projection_to_uint8(
+				display_image,
+				fixed_range=(0.0, 1.0),
+				invert=False,
+			)
+		height, width = image_u8.shape
+		qimage = QImage(
+			image_u8.data,
+			width,
+			height,
+			image_u8.strides[0],
+			QImage.Format_Grayscale8,
+		).copy()
+		image_obj = Image(image=qimage)
+		image_obj.label = f"{obj.label}_projection"
+		AP.addObject(image_obj)
+
 	def on_run_simulation(self):
-		"""Run one X-ray projection and insert the result into the workspace as an image object."""
+		"""Run one X-ray projection, cache the raw result and insert the display image into the workspace."""
 		obj = self.obj_ref()
 		if obj is None:
 			return
 
+		self.progressBar.setValue(0)
+		self.progressBar.setVisible(True)
+		self.runSimulationButton.setEnabled(False)
+
+		# Zamroź viewery GL przed processEvents — renderowanie Image przez glTexImage2D
+		# poza normalnym cyklem paintGL powoduje crash przy drugiej symulacji.
+		gl_viewers = AP.mainWin.allGLViewers()
+		for v in gl_viewers:
+			v.setUpdatesEnabled(False)
+
+		QApplication.processEvents()  # odmaluj pasek przed startem blokującego obliczenia
+
+		def _on_progress(fraction):
+			self.progressBar.setValue(int(fraction * 100))
+			QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+
 		QApplication.setOverrideCursor(Qt.WaitCursor)
 		try:
-			display_image, stats = obj.render_projection(return_stats=True)
-			mode = str(obj.presentation_mode).lower()
-			if mode == "raw":
-				image_u8 = normalize_projection_to_uint8(
-					display_image,
-					robust_percentile=float(obj.presentation_robust_percentile),
-					invert=False,
-				)
-			else:
-				image_u8 = normalize_projection_to_uint8(
-					display_image,
-					fixed_range=(0.0, 1.0),
-					invert=False,
-				)
-			height, width = image_u8.shape
-			qimage = QImage(
-				image_u8.data,
-				width,
-				height,
-				image_u8.strides[0],
-				QImage.Format_Grayscale8,
-			).copy()
-			image_obj = Image(image=qimage)
-			image_obj.label = f"{obj.label}_projection"
-			AP.addObject(image_obj)
+			try:
+				_, stats = obj.project_and_cache(return_stats=True, progress_callback=_on_progress)
+				display_image = obj.apply_presentation()
+			except Exception as exc:
+				QMessageBox.critical(self, "Simulation error", str(exc))
+				return
+			self._display_image_array(obj, display_image)
+			self.updateDisplayButton.setEnabled(True)
 			self.renderInfoLabel.setText(
 				f"{stats.elapsed_seconds:.2f}s, traced={stats.traced_pixels}, avgS={stats.average_samples_per_traced_pixel:.1f}"
 			)
 		finally:
 			QApplication.restoreOverrideCursor()
+			for v in gl_viewers:
+				v.setUpdatesEnabled(True)
+			AP.updateAllViews()
+			self.progressBar.setVisible(False)
+			self.runSimulationButton.setEnabled(True)
+
+	def on_update_display(self):
+		"""Re-apply the current presentation model to the cached raw projection without re-projecting."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		display_image = obj.apply_presentation()
+		if display_image is None:
+			return
+		self._display_image_array(obj, display_image)

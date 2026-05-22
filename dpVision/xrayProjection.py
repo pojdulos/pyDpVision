@@ -71,6 +71,37 @@ def _ray_box_intersection(ray_origin, ray_direction, box_min, box_max):
 	return float(t_min), float(t_max)
 
 
+def _ray_box_intersections_vectorized(ray_origins, ray_directions, box_min, box_max):
+	"""Vectorized AABB intersection for N rays. Returns t_start (N,), t_end (N,), hit_mask (N,)."""
+	ray_origins = np.asarray(ray_origins, dtype=np.float32)
+	ray_directions = np.asarray(ray_directions, dtype=np.float32)
+	box_min = np.asarray(box_min, dtype=np.float32)
+	box_max = np.asarray(box_max, dtype=np.float32)
+
+	n = ray_origins.shape[0]
+	t_start = np.full(n, -np.inf, dtype=np.float32)
+	t_end = np.full(n, np.inf, dtype=np.float32)
+	hit_mask = np.ones(n, dtype=bool)
+
+	for axis in range(3):
+		d = ray_directions[:, axis]
+		o = ray_origins[:, axis]
+		parallel = np.abs(d) <= 1e-8
+		nonparallel = ~parallel
+		hit_mask &= ~(parallel & ((o < box_min[axis]) | (o > box_max[axis])))
+		safe_d = np.where(nonparallel, d, 1.0)
+		inv_d = np.where(nonparallel, 1.0 / safe_d, 0.0)
+		t0 = (box_min[axis] - o) * inv_d
+		t1 = (box_max[axis] - o) * inv_d
+		t_near = np.where(nonparallel, np.minimum(t0, t1), -np.inf)
+		t_far = np.where(nonparallel, np.maximum(t0, t1), np.inf)
+		t_start = np.maximum(t_start, t_near)
+		t_end = np.minimum(t_end, t_far)
+		hit_mask &= t_end >= t_start
+
+	return t_start, t_end, hit_mask
+
+
 def normalize_projection_to_uint8(image, fixed_range=None, robust_percentile=99.5, invert=False):
 	"""Normalize a projection image into an 8-bit grayscale image."""
 	image = np.asarray(image, dtype=np.float32)
@@ -166,8 +197,13 @@ def save_projection_dicom(image, file_path, patient_name="Anonymous", patient_id
 		robust_percentile=robust_percentile,
 		invert=invert,
 	)
-	ds = pydicom.FileDataset(str(file_path), {}, file_meta=None, preamble=b"\0" * 128)
-	ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+	file_meta = pydicom.Dataset()
+	file_meta.MediaStorageSOPClassUID = pydicom.uid.SecondaryCaptureImageStorage
+	file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
+	file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+	ds = pydicom.FileDataset(str(file_path), {}, file_meta=file_meta, preamble=b"\0" * 128)
+	ds.is_implicit_VR = True
+	ds.is_little_endian = True
 	ds.SOPClassUID = pydicom.uid.SecondaryCaptureImageStorage
 	ds.SOPInstanceUID = pydicom.uid.generate_uid()
 	ds.StudyInstanceUID = pydicom.uid.generate_uid()
@@ -429,7 +465,7 @@ class XRayPhysicsModel:
 	mu_water: float = 0.02
 	hounsfield_air: float = -1000.0
 	attenuation_scale: float = 1.0
-	output_mode: str = "intensity"
+	output_mode: str = "integral"
 	intensity_floor: float = 0.0
 	material_window_center: float | None = None
 	material_window_width: float | None = None
@@ -598,16 +634,16 @@ class XRayScene:
 		"""Return a projector bound to the sources stored in this scene."""
 		return XRayProjector(self.sample_sources)
 
-	def project(self, config, return_stats=False):
+	def project(self, config, return_stats=False, progress_callback=None):
 		"""Project the scene using a single combined configuration object."""
-		return self.build_projector().project_config(config=config, return_stats=return_stats)
+		return self.build_projector().project_config(config=config, return_stats=return_stats, progress_callback=progress_callback)
 
-	def render(self, config, return_stats=False):
+	def render(self, config, return_stats=False, progress_callback=None):
 		"""Project the scene and optionally apply the configured presentation model."""
 		if return_stats:
-			raw_image, stats = self.project(config=config, return_stats=True)
+			raw_image, stats = self.project(config=config, return_stats=True, progress_callback=progress_callback)
 			return config.apply_presentation(raw_image), stats
-		return config.apply_presentation(self.project(config=config, return_stats=False))
+		return config.apply_presentation(self.project(config=config, return_stats=False, progress_callback=progress_callback))
 
 
 class XRaySampleSource(ABC):
@@ -636,7 +672,8 @@ class VolumetricXRaySource(XRaySampleSource):
 			raise ValueError("global_transform must be a 4x4 homogeneous matrix.")
 
 		self.interpolation = str(interpolation).lower()
-		self.fill_value = float(volumetric.m_min if fill_value is None else fill_value)
+		default_fill = float(getattr(volumetric, 'm_min', -1000.0))
+		self.fill_value = float(default_fill if fill_value is None else fill_value)
 		self._inverse_global_transform = np.linalg.inv(self.global_transform)
 		self._volume = np.asarray(self.volumetric.m_volume, dtype=np.float32)
 
@@ -709,8 +746,8 @@ class XRayProjector:
 		ray_direction_world = _normalize_vector(_transform_direction(reference_transform, geometry.ray_direction_ref))
 		return ray_origin_world, ray_direction_world
 
-	def project(self, geometry, physics_model, reference_transform=None, return_stats=False):
-		"""Project all sample sources through the provided X-ray geometry."""
+	def project(self, geometry, physics_model, reference_transform=None, return_stats=False, progress_callback=None):
+		"""Project all sample sources through the provided X-ray geometry (vectorized slab marching)."""
 		geometry.validate()
 		reference_transform = np.eye(4, dtype=np.float32) if reference_transform is None else np.asarray(reference_transform, dtype=np.float32)
 		if reference_transform.shape != (4, 4):
@@ -718,42 +755,76 @@ class XRayProjector:
 
 		scene_min_world, scene_max_world = self.scene_bounds_world()
 		height, width = int(geometry.detector_shape_hw[0]), int(geometry.detector_shape_hw[1])
-		projection = np.zeros((height, width), dtype=np.float32)
-		total_sample_count = 0
-		traced_pixels = 0
+		n_pixels = height * width
+		step_mm = float(geometry.step_mm)
 		start_time = perf_counter()
 
-		for row_idx in range(height):
-			for col_idx in range(width):
-				detector_point_world = self._detector_pixel_world(geometry, reference_transform, row_idx, col_idx)
-				ray_origin_world, ray_direction_world = self._ray_definition_world(
-					geometry=geometry,
-					reference_transform=reference_transform,
-					detector_point_world=detector_point_world,
-				)
-				interval = _ray_box_intersection(
-					ray_origin=ray_origin_world,
-					ray_direction=ray_direction_world,
-					box_min=scene_min_world,
-					box_max=scene_max_world,
-				)
-				if interval is None:
-					continue
+		# Build all detector pixel centers (H*W, 3)
+		detector_origin_world = _transform_point(reference_transform, geometry.detector_origin_ref).astype(np.float32)
+		detector_u_world = _transform_direction(reference_transform, geometry.detector_u_ref).astype(np.float32)
+		detector_v_world = _transform_direction(reference_transform, geometry.detector_v_ref).astype(np.float32)
+		col_grid, row_grid = np.meshgrid(
+			np.arange(width, dtype=np.float32),
+			np.arange(height, dtype=np.float32),
+		)
+		pixel_centers = (
+			detector_origin_world
+			+ detector_u_world * col_grid[:, :, np.newaxis]
+			+ detector_v_world * row_grid[:, :, np.newaxis]
+		).reshape(n_pixels, 3)
 
-				t_start, t_end = interval
-				if t_end < 0.0:
+		# Build per-ray origins and normalized directions (H*W, 3)
+		if geometry.source_position_ref is not None:
+			source_world = _transform_point(reference_transform, geometry.source_position_ref).astype(np.float32)
+			ray_origins = np.empty((n_pixels, 3), dtype=np.float32)
+			ray_origins[:] = source_world
+			raw_dirs = pixel_centers - source_world
+			norms = np.linalg.norm(raw_dirs, axis=1, keepdims=True)
+			ray_directions = raw_dirs / np.maximum(norms, 1e-8)
+		else:
+			ray_dir_world = _normalize_vector(
+				_transform_direction(reference_transform, geometry.ray_direction_ref)
+			).astype(np.float32)
+			ray_origins = pixel_centers
+			ray_directions = np.empty((n_pixels, 3), dtype=np.float32)
+			ray_directions[:] = ray_dir_world
+
+		# Vectorized AABB intersection for all rays
+		t_starts, t_ends, hit_mask = _ray_box_intersections_vectorized(
+			ray_origins, ray_directions, scene_min_world, scene_max_world,
+		)
+		t_starts = np.maximum(t_starts, 0.0)
+		hit_mask &= t_ends > t_starts
+
+		# Slab marching: one Python iteration per depth step, all active rays batched
+		projection_flat = np.zeros(n_pixels, dtype=np.float32)
+		total_sample_count = 0
+		traced_pixels = int(np.sum(hit_mask))
+
+		if traced_pixels > 0:
+			t_global_max = float(np.max(t_ends[hit_mask]))
+			t_values = np.arange(0.0, t_global_max + step_mm * 0.5, step_mm, dtype=np.float64)
+			n_steps = len(t_values)
+
+			for i, t_k in enumerate(t_values):
+				if progress_callback is not None and i % 10 == 0:
+					progress_callback(i / n_steps)
+				t_k_f = float(t_k)
+				active = hit_mask & (t_k_f >= t_starts) & (t_k_f <= t_ends)
+				if not np.any(active):
 					continue
-				t_start = max(0.0, t_start)
-				sample_count = max(1, int(np.ceil((t_end - t_start) / float(geometry.step_mm))) + 1)
-				total_sample_count += sample_count
-				traced_pixels += 1
-				t_values = np.linspace(t_start, t_end, sample_count, dtype=np.float32)
-				points_world = ray_origin_world[None, :] + t_values[:, None] * ray_direction_world[None, :]
-				total_mu = np.zeros(sample_count, dtype=np.float32)
+				active_idx = np.where(active)[0]
+				points_world = ray_origins[active_idx] + t_k_f * ray_directions[active_idx]
+				total_mu = np.zeros(len(active_idx), dtype=np.float32)
 				for source in self.sample_sources:
 					total_mu += source.sample_attenuation_world(points_world, physics_model)
-				line_integral = np.sum(total_mu) * float(geometry.step_mm)
-				projection[row_idx, col_idx] = physics_model.integral_to_image(line_integral)
+				projection_flat[active_idx] += total_mu * step_mm
+				total_sample_count += len(active_idx)
+
+			if progress_callback is not None:
+				progress_callback(1.0)
+
+		projection = physics_model.integral_to_image(projection_flat).reshape(height, width)
 
 		if not return_stats:
 			return projection
@@ -761,17 +832,17 @@ class XRayProjector:
 		elapsed_seconds = perf_counter() - start_time
 		stats = XRayProjectionStats(
 			elapsed_seconds=float(elapsed_seconds),
-			total_pixels=int(height * width),
-			traced_pixels=int(traced_pixels),
-			total_sample_count=int(total_sample_count),
+			total_pixels=n_pixels,
+			traced_pixels=traced_pixels,
+			total_sample_count=total_sample_count,
 			source_count=int(len(self.sample_sources)),
-			step_mm=float(geometry.step_mm),
+			step_mm=step_mm,
 			projection_mode="cone" if geometry.is_cone_beam() else "parallel",
 			detector_shape_hw=(height, width),
 		)
 		return projection, stats
 
-	def project_config(self, config, return_stats=False):
+	def project_config(self, config, return_stats=False, progress_callback=None):
 		"""Project the scene using a higher-level configuration object."""
 		if not isinstance(config, XRayProjectionConfig):
 			raise TypeError("config must be an instance of XRayProjectionConfig.")
@@ -780,4 +851,5 @@ class XRayProjector:
 			physics_model=config.physics_model,
 			reference_transform=config.reference_transform,
 			return_stats=return_stats,
+			progress_callback=progress_callback,
 		)

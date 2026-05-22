@@ -343,15 +343,15 @@ def create_real_xray_demo():
 		setup = VirtualXRay()
 		setup.detector_center_ref = np.array([0, 0, 400.0], dtype=np.float32)
 		setup.source_position_ref = np.array([0, 0, -1500.0], dtype=np.float32)
-		setup.detector_shape_hw = [512, 512]
-		setup.detector_pixel_size_mm = [0.4, 0.4]
-		setup.step_mm = 1.0
+		setup.detector_shape_hw = [1024, 1024]
+		setup.detector_pixel_size_mm = [0.2, 0.2]
+		setup.step_mm = 0.5
 		setup.quality_profile_name = "normal"
 
 		AP.removeObject(child=skull.parent)
 
 		skull_transform = Transform()
-		skull_transform.translate(-80, 45, 0)
+		skull_transform.translate(-100, 45, 0)
 		skull_transform.rotate(90, [1,0,0])
 		skull_transform.rotate(90, [0,1,0])
 		skull_transform.addChild(skull)

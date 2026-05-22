@@ -29,15 +29,17 @@ class VirtualXRay(Object):
 		super().__init__(parent)
 		self.label = "VirtualXRay"
 
-		self.detector_center_ref = np.array([42.2, 42.2, 180.0], dtype=np.float32)
+		self.detector_center_ref = np.array([0.0, 0.0, 180.0], dtype=np.float32)
 		self.detector_normal_ref = np.array([0.0, 0.0, -1.0], dtype=np.float32)
 		self.detector_up_ref = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 		self.detector_shape_hw = [512, 512]
 		self.detector_pixel_size_mm = [0.4, 0.4]
 
-		self.source_position_ref = np.array([42.2, 42.2, -220.0], dtype=np.float32)
-		self.ray_direction_ref = None
+		self.source_position_ref = np.array([0.0, 0.0, -220.0], dtype=np.float32)
+		self.ray_direction_ref = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+		self.projection_mode = "cone"
 		self.step_mm = 1.0
+		self.last_raw_projection = None
 
 		self.quality_profile_name = "normal"
 		self.source_interpolation = "linear"
@@ -128,6 +130,7 @@ class VirtualXRay(Object):
 
 	def build_geometry(self):
 		"""Build the current projection geometry from intuitive detector pose parameters."""
+		is_cone = str(self.projection_mode).lower() == "cone"
 		return XRayProjectionGeometry.from_detector_pose(
 			detector_center_ref=self.detector_center_ref,
 			detector_normal_ref=self.detector_normal_ref,
@@ -135,8 +138,8 @@ class VirtualXRay(Object):
 			detector_shape_hw=self.detector_shape_hw,
 			detector_pixel_size_mm=self.detector_pixel_size_mm,
 			step_mm=self.step_mm,
-			source_position_ref=self.source_position_ref,
-			ray_direction_ref=self.ray_direction_ref,
+			source_position_ref=self.source_position_ref if is_cone else None,
+			ray_direction_ref=self.ray_direction_ref if not is_cone else None,
 		)
 
 	def build_physics_model(self):
@@ -193,6 +196,25 @@ class VirtualXRay(Object):
 		"""Project and immediately apply the configured presentation model."""
 		return self.build_scene().render(self.build_projection_config(), return_stats=return_stats)
 
+	def project_and_cache(self, return_stats=False, progress_callback=None):
+		"""Project the scene, store the raw result in `last_raw_projection`, and return it."""
+		if return_stats:
+			raw, stats = self.build_scene().project(self.build_projection_config(), return_stats=True, progress_callback=progress_callback)
+			self.last_raw_projection = np.asarray(raw, dtype=np.float32)
+			return self.last_raw_projection, stats
+		raw = self.build_scene().project(self.build_projection_config(), return_stats=False, progress_callback=progress_callback)
+		self.last_raw_projection = np.asarray(raw, dtype=np.float32)
+		return self.last_raw_projection
+
+	def apply_presentation(self):
+		"""Apply the current presentation model to `last_raw_projection` without re-projecting.
+
+		Returns the display-ready float32 image, or ``None`` if no projection has been cached yet.
+		"""
+		if self.last_raw_projection is None:
+			return None
+		return self.build_presentation_model().apply(self.last_raw_projection)
+
 	def detector_corners_ref(self):
 		"""Return detector corners in local reference coordinates for gizmo drawing and bounding box computation."""
 		geometry = self.build_geometry()
@@ -210,7 +232,7 @@ class VirtualXRay(Object):
 	def getLocalBB(self):
 		"""Return a local bounding box covering the source and detector gizmos."""
 		points = [self.detector_corners_ref()]
-		if self.source_position_ref is not None:
+		if str(self.projection_mode).lower() == "cone":
 			points.append(np.asarray(self.source_position_ref, dtype=np.float32)[None, :])
 		all_points = np.vstack(points)
 		return True, all_points.min(axis=0).tolist(), all_points.max(axis=0).tolist()
@@ -262,7 +284,7 @@ class VirtualXRay(Object):
 			gl.glVertex3f(*axis_end)
 		gl.glEnd()
 
-		if self.source_position_ref is not None:
+		if self.projection_mode == "cone":
 			source = np.asarray(self.source_position_ref, dtype=np.float32)
 			size = float(self.source_gizmo_size_mm)
 
@@ -288,7 +310,7 @@ class VirtualXRay(Object):
 			gl.glColor3f(*self.link_color)
 			gl.glVertex3f(*source); gl.glVertex3f(*center)
 			gl.glEnd()
-		elif self.ray_direction_ref is not None:
+		elif self.projection_mode == "parallel":
 			ray_dir = np.asarray(self.ray_direction_ref, dtype=np.float32)
 			norm = np.linalg.norm(ray_dir)
 			if norm > 1e-8:
@@ -304,6 +326,5 @@ class VirtualXRay(Object):
 
 	def info(self):
 		"""Return a compact textual summary for debugging and quick inspection."""
-		mode = "cone" if self.source_position_ref is not None else "parallel"
 		volumes = len(self.collect_volumetrics())
-		return f"VirtualXRay(mode={mode}, volumes={volumes}, detector_shape={self.detector_shape_hw}, step_mm={self.step_mm})"
+		return f"VirtualXRay(mode={self.projection_mode}, volumes={volumes}, detector_shape={self.detector_shape_hw}, step_mm={self.step_mm})"

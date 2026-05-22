@@ -360,7 +360,8 @@ def create_real_xray_demo():
 		AP.addObject(setup)
 		AP.updateAllViews()
 
-	AP.load("d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm",
+	AP.load("c:/Users/darek/Desktop/praca/dane/20210312_142843/DCT0000.dcm",
+	# AP.load("d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm",
 		on_success=on_success)
 	
 

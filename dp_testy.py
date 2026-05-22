@@ -13,6 +13,8 @@ from dpVision.volumetric import Volumetric
 from dpVision.xrayProjection import (
 	XRayProjectionGeometry,
 	XRayPhysicsModel,
+	RawPresentationModel,
+	DigitalRadiographyPresentationModel,
 	VolumetricXRaySource,
 	XRayProjector,
 	save_projection_png,
@@ -255,26 +257,40 @@ def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8
 		physics_model=physics,
 		reference_transform=np.eye(4, dtype=np.float32),
 	)
+	raw_presentation = RawPresentationModel()
+	dr_presentation = DigitalRadiographyPresentationModel(
+		invert=False,
+		gamma=0.7,
+		contrast=1.2,
+	)
+	raw_image = raw_presentation.apply(image)
+	display_image = dr_presentation.apply(image)
 
-	png_path = os.path.join(output_dir, "synthetic_xray.png")
-	tiff_path = os.path.join(output_dir, "synthetic_xray.tiff")
-	dicom_path = os.path.join(output_dir, "synthetic_xray.dcm")
-	save_projection_png(image, png_path, invert=True)
-	save_projection_tiff(image, tiff_path, mode="float32")
+	png_path = os.path.join(output_dir, "synthetic_xray_display.png")
+	tiff_path = os.path.join(output_dir, "synthetic_xray_display.tiff")
+	dicom_path = os.path.join(output_dir, "synthetic_xray_display.dcm")
+	raw_tiff_path = os.path.join(output_dir, "synthetic_xray_raw.tiff")
+	save_projection_png(display_image, png_path, invert=False, fixed_range=(0.0, 1.0))
+	save_projection_tiff(display_image, tiff_path, mode="uint16", invert=False, fixed_range=(0.0, 1.0))
 	save_projection_dicom(
-		image,
+		display_image,
 		dicom_path,
 		patient_name="Synthetic^XRay",
 		patient_id="XRAYDEMO",
 		study_description="Synthetic multi-volume demo",
-		series_description="Skull + Jaw projection",
-		invert=True,
+		series_description="Skull + Jaw projection display",
+		invert=False,
+		fixed_range=(0.0, 1.0),
 	)
+	save_projection_tiff(raw_image, raw_tiff_path, mode="float32")
 	return {
 		"image": image,
+		"raw_image": raw_image,
+		"display_image": display_image,
 		"png_path": png_path,
 		"tiff_path": tiff_path,
 		"dicom_path": dicom_path,
+		"raw_tiff_path": raw_tiff_path,
 		"jaw_transform": jaw_transform,
 	}
 
@@ -676,7 +692,7 @@ def test_uncertainty():
 # test_uncertainty()
 #fastTest2()
 
-result = demo_synthetic_xray_projection()
-print(result["png_path"])
-print(result["tiff_path"])
-print(result["dicom_path"])
+# result = demo_synthetic_xray_projection()
+# print(result["png_path"])
+# print(result["tiff_path"])
+# print(result["dicom_path"])

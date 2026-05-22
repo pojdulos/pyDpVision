@@ -35,6 +35,10 @@ from .workspace import Workspace
 from .xrayProjection import (
 	XRayProjectionGeometry,
 	XRayPhysicsModel,
+	XRayPresentationModel,
+	RawPresentationModel,
+	FilmLikePresentationModel,
+	DigitalRadiographyPresentationModel,
 	XRaySampleSource,
 	VolumetricXRaySource,
 	XRayProjector,
@@ -68,8 +72,9 @@ __all__ = [
 			"Transform",
 			"Volumetric", "SliceMetadata",
 			"Workspace",
-			"XRayProjectionGeometry", "XRayPhysicsModel", "XRaySampleSource", "VolumetricXRaySource", "XRayProjector",
+			"XRayProjectionGeometry", "XRayPhysicsModel",
+			"XRayPresentationModel", "RawPresentationModel", "FilmLikePresentationModel", "DigitalRadiographyPresentationModel",
+			"XRaySampleSource", "VolumetricXRaySource", "XRayProjector",
 			"normalize_projection_to_uint8", "normalize_projection_to_uint16",
 			"save_projection_png", "save_projection_tiff", "save_projection_dicom",
 		]
-

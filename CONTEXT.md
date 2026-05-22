@@ -219,3 +219,5 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Dalsze RTG: `XRayPhysicsModel` obsluguje teraz rozne tryby okna materialowego (`hard`, `linear`, `sigmoid`) z parametrem `material_window_softness`, zeby ograniczac material na wejsciu bez brutalnego wycinania cienkich struktur.
 - Dalsze RTG: w panelu `VirtualXRay` zakladka `Physics` steruje oknem materialowym na etapie `scalar -> mu`, a zakladka `Presentation` steruje tylko obrazem koncowym po projekcji.
 - Dalsze RTG: przy przejsciu `cone -> parallel` panel `VirtualXRay` ustawia domyslny kierunek promieni przeciwny do normalnej detektora, zeby projekcja rownolegla nie startowala w zla strone i nie dawala pustego obrazu.
+- Dalsze RTG: gizmo `VirtualXRay` ma teraz subtelniejsze kolory i delikatne osie lokalne, z osobnym kolorem wypelnienia i ramki detektora, cieplejszym oznaczeniem zrodla oraz dyskretnym polaczeniem z centrum detektora.
+- Dalsze RTG: dla trybu `cone` gizmo rysuje teraz cienkie linie od zrodla do naroznikow detektora, zeby bylo widac pole widzenia ukladu.

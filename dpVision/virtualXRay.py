@@ -62,9 +62,21 @@ class VirtualXRay(Object):
 		self.presentation_window_center = None
 		self.presentation_window_width = None
 
-		self.gizmo_color = (1.0, 0.8, 0.0)
-		self.detector_fill_alpha = 0.08
+		self.detector_fill_color = (0.18, 0.55, 0.62)
+		self.detector_edge_color = (0.42, 0.90, 0.95)
+		self.detector_cross_color = (0.24, 0.72, 0.78)
+		self.source_color = (1.00, 0.72, 0.22)
+		self.link_color = (0.96, 0.78, 0.34)
+		self.frustum_color = (0.86, 0.84, 0.52)
+		self.axis_colors = (
+			(0.92, 0.30, 0.30),
+			(0.30, 0.82, 0.42),
+			(0.34, 0.54, 0.95),
+		)
+		self.detector_fill_alpha = 0.10
+		self.frustum_alpha = 0.28
 		self.source_gizmo_size_mm = 4.0
+		self.axis_gizmo_length_mm = 18.0
 
 	def reference_transform(self):
 		"""Return the global transform of this scene node used as a local X-ray reference frame."""
@@ -207,37 +219,73 @@ class VirtualXRay(Object):
 		"""Render a lightweight source-detector gizmo directly in the current OpenGL model space."""
 		corners = self.detector_corners_ref()
 		center = corners.mean(axis=0)
+		axis_length = float(self.axis_gizmo_length_mm)
 
 		gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
 		gl.glDisable(gl.GL_TEXTURE_2D)
+		gl.glDisable(gl.GL_LIGHTING)
+		gl.glDisable(gl.GL_COLOR_MATERIAL)
 		gl.glEnable(gl.GL_BLEND)
 		gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 		gl.glLineWidth(2.0)
 
-		gl.glColor4f(self.gizmo_color[0], self.gizmo_color[1], self.gizmo_color[2], self.detector_fill_alpha)
+		gl.glColor4f(
+			self.detector_fill_color[0],
+			self.detector_fill_color[1],
+			self.detector_fill_color[2],
+			self.detector_fill_alpha,
+		)
 		gl.glBegin(gl.GL_QUADS)
 		for corner in corners:
 			gl.glVertex3f(*corner)
 		gl.glEnd()
 
-		gl.glColor3f(*self.gizmo_color)
+		gl.glColor3f(*self.detector_edge_color)
 		gl.glBegin(gl.GL_LINE_LOOP)
 		for corner in corners:
 			gl.glVertex3f(*corner)
 		gl.glEnd()
 
+		gl.glColor3f(*self.detector_cross_color)
 		gl.glBegin(gl.GL_LINES)
 		gl.glVertex3f(*corners[0]); gl.glVertex3f(*corners[2])
 		gl.glVertex3f(*corners[1]); gl.glVertex3f(*corners[3])
 		gl.glEnd()
 
+		gl.glLineWidth(1.5)
+		gl.glBegin(gl.GL_LINES)
+		for axis_idx, axis_color in enumerate(self.axis_colors):
+			gl.glColor3f(*axis_color)
+			axis_end = np.array(center, dtype=np.float32)
+			axis_end[axis_idx] += axis_length
+			gl.glVertex3f(*center)
+			gl.glVertex3f(*axis_end)
+		gl.glEnd()
+
 		if self.source_position_ref is not None:
 			source = np.asarray(self.source_position_ref, dtype=np.float32)
 			size = float(self.source_gizmo_size_mm)
+
+			gl.glLineWidth(1.0)
+			gl.glColor4f(
+				self.frustum_color[0],
+				self.frustum_color[1],
+				self.frustum_color[2],
+				self.frustum_alpha,
+			)
+			gl.glBegin(gl.GL_LINES)
+			for corner in corners:
+				gl.glVertex3f(*source)
+				gl.glVertex3f(*corner)
+			gl.glEnd()
+
+			gl.glLineWidth(2.0)
+			gl.glColor3f(*self.source_color)
 			gl.glBegin(gl.GL_LINES)
 			gl.glVertex3f(source[0] - size, source[1], source[2]); gl.glVertex3f(source[0] + size, source[1], source[2])
 			gl.glVertex3f(source[0], source[1] - size, source[2]); gl.glVertex3f(source[0], source[1] + size, source[2])
 			gl.glVertex3f(source[0], source[1], source[2] - size); gl.glVertex3f(source[0], source[1], source[2] + size)
+			gl.glColor3f(*self.link_color)
 			gl.glVertex3f(*source); gl.glVertex3f(*center)
 			gl.glEnd()
 		elif self.ray_direction_ref is not None:
@@ -247,6 +295,7 @@ class VirtualXRay(Object):
 				ray_dir = ray_dir / norm
 				arrow_length = max(20.0, 0.25 * np.linalg.norm(corners[2] - corners[0]))
 				arrow_start = center - ray_dir * arrow_length
+				gl.glColor3f(*self.link_color)
 				gl.glBegin(gl.GL_LINES)
 				gl.glVertex3f(*arrow_start); gl.glVertex3f(*center)
 				gl.glEnd()

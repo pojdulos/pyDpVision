@@ -221,3 +221,5 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Dalsze RTG: przy przejsciu `cone -> parallel` panel `VirtualXRay` ustawia domyslny kierunek promieni przeciwny do normalnej detektora, zeby projekcja rownolegla nie startowala w zla strone i nie dawala pustego obrazu.
 - Dalsze RTG: gizmo `VirtualXRay` ma teraz subtelniejsze kolory i delikatne osie lokalne, z osobnym kolorem wypelnienia i ramki detektora, cieplejszym oznaczeniem zrodla oraz dyskretnym polaczeniem z centrum detektora.
 - Dalsze RTG: dla trybu `cone` gizmo rysuje teraz cienkie linie od zrodla do naroznikow detektora, zeby bylo widac pole widzenia ukladu.
+- Dalsze RTG: panel `VirtualXRay` ma teraz tez zakladke `Advanced`, ktora wystawia do szybkich testow nizszy poziom parametrow backendu, m.in. `mu_air`, `mu_water`, `hounsfield_air`, `attenuation_scale`, `output_mode`, `intensity_floor`, `source_interpolation` i opcjonalny `source_fill_value`.
+- GUI: kontener `PropWidget.build(...)` nie blokuje juz szerokosci paneli wlasciwosci do poczatkowego `sizeHint()`. Panele, w tym `VirtualXRay`, powinny teraz rozszerzac sie poziomo wraz z dockiem `Properties`.

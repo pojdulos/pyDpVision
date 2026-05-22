@@ -186,6 +186,57 @@ class PropVirtualXRay(PropWidget):
 		self.presentationTabLayout.addStretch(1)
 		self.tabs.addTab(self.presentationTab, "Presentation")
 
+		self.advancedTab = QWidget()
+		self.advancedTabLayout = QVBoxLayout(self.advancedTab)
+
+		self.advancedPhysicsGroup = QGroupBox("Advanced Physics")
+		advanced_physics_layout = QFormLayout(self.advancedPhysicsGroup)
+		self.physicsMuAirSpin = QDoubleSpinBox()
+		self.physicsMuAirSpin.setRange(-1e6, 1e6)
+		self.physicsMuAirSpin.setDecimals(6)
+		self.physicsMuAirSpin.setSingleStep(0.001)
+		self.physicsMuWaterSpin = QDoubleSpinBox()
+		self.physicsMuWaterSpin.setRange(-1e6, 1e6)
+		self.physicsMuWaterSpin.setDecimals(6)
+		self.physicsMuWaterSpin.setSingleStep(0.001)
+		self.physicsHounsfieldAirSpin = QDoubleSpinBox()
+		self.physicsHounsfieldAirSpin.setRange(-1e6, 1e6)
+		self.physicsHounsfieldAirSpin.setDecimals(3)
+		self.physicsHounsfieldAirSpin.setSingleStep(1.0)
+		self.physicsAttenuationScaleSpin = QDoubleSpinBox()
+		self.physicsAttenuationScaleSpin.setRange(0.0, 1e6)
+		self.physicsAttenuationScaleSpin.setDecimals(6)
+		self.physicsAttenuationScaleSpin.setSingleStep(0.01)
+		self.physicsOutputModeCombo = QComboBox()
+		self.physicsOutputModeCombo.addItems(["integral", "intensity"])
+		self.physicsIntensityFloorSpin = QDoubleSpinBox()
+		self.physicsIntensityFloorSpin.setRange(0.0, 1e6)
+		self.physicsIntensityFloorSpin.setDecimals(6)
+		self.physicsIntensityFloorSpin.setSingleStep(0.001)
+		advanced_physics_layout.addRow("mu_air:", self.physicsMuAirSpin)
+		advanced_physics_layout.addRow("mu_water:", self.physicsMuWaterSpin)
+		advanced_physics_layout.addRow("hounsfield_air:", self.physicsHounsfieldAirSpin)
+		advanced_physics_layout.addRow("attenuation_scale:", self.physicsAttenuationScaleSpin)
+		advanced_physics_layout.addRow("output_mode:", self.physicsOutputModeCombo)
+		advanced_physics_layout.addRow("intensity_floor:", self.physicsIntensityFloorSpin)
+		self.advancedTabLayout.addWidget(self.advancedPhysicsGroup)
+
+		self.advancedSourceGroup = QGroupBox("Advanced Source")
+		advanced_source_layout = QFormLayout(self.advancedSourceGroup)
+		self.sourceInterpolationCombo = QComboBox()
+		self.sourceInterpolationCombo.addItems(["nearest", "linear", "cubic"])
+		self.sourceUseFillValueCheck = QCheckBox("Use explicit fill value")
+		self.sourceFillValueSpin = QDoubleSpinBox()
+		self.sourceFillValueSpin.setRange(-1e9, 1e9)
+		self.sourceFillValueSpin.setDecimals(3)
+		self.sourceFillValueSpin.setSingleStep(1.0)
+		advanced_source_layout.addRow("interpolation:", self.sourceInterpolationCombo)
+		advanced_source_layout.addRow("", self.sourceUseFillValueCheck)
+		advanced_source_layout.addRow("fill_value:", self.sourceFillValueSpin)
+		self.advancedTabLayout.addWidget(self.advancedSourceGroup)
+		self.advancedTabLayout.addStretch(1)
+		self.tabs.addTab(self.advancedTab, "Advanced")
+
 		self.runTab = QWidget()
 		self.runTabLayout = QVBoxLayout(self.runTab)
 
@@ -228,6 +279,15 @@ class PropVirtualXRay(PropWidget):
 		self.presentationPercentileSpin.valueChanged.connect(self.on_presentation_percentile_changed)
 		self.presentationWindowCenterSpin.valueChanged.connect(self.on_presentation_window_changed)
 		self.presentationWindowWidthSpin.valueChanged.connect(self.on_presentation_window_changed)
+		self.physicsMuAirSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsMuWaterSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsHounsfieldAirSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsAttenuationScaleSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsOutputModeCombo.currentTextChanged.connect(self.on_advanced_physics_changed)
+		self.physicsIntensityFloorSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.sourceInterpolationCombo.currentTextChanged.connect(self.on_advanced_source_changed)
+		self.sourceUseFillValueCheck.toggled.connect(self.on_advanced_source_changed)
+		self.sourceFillValueSpin.valueChanged.connect(self.on_advanced_source_changed)
 		self.refreshButton.clicked.connect(self.on_refresh_requested)
 		self.runSimulationButton.clicked.connect(self.on_run_simulation)
 
@@ -261,6 +321,15 @@ class PropVirtualXRay(PropWidget):
 			self.presentationPercentileSpin,
 			self.presentationWindowCenterSpin,
 			self.presentationWindowWidthSpin,
+			self.physicsMuAirSpin,
+			self.physicsMuWaterSpin,
+			self.physicsHounsfieldAirSpin,
+			self.physicsAttenuationScaleSpin,
+			self.physicsOutputModeCombo,
+			self.physicsIntensityFloorSpin,
+			self.sourceInterpolationCombo,
+			self.sourceUseFillValueCheck,
+			self.sourceFillValueSpin,
 		):
 			widget.blockSignals(b)
 
@@ -288,6 +357,11 @@ class PropVirtualXRay(PropWidget):
 		mode = str(obj.physics_material_window_mode).lower()
 		self.physicsMaterialWindowModeCombo.setEnabled(width_enabled)
 		self.physicsMaterialWindowSoftnessSpin.setEnabled(width_enabled and mode in {"linear", "sigmoid"})
+		self.physicsIntensityFloorSpin.setEnabled(str(obj.physics_output_mode).lower() == "intensity")
+
+	def _update_advanced_source_visibility(self, obj: VirtualXRay):
+		"""Enable explicit source fill value only when that override is active."""
+		self.sourceFillValueSpin.setEnabled(obj.source_fill_value is not None)
 
 	def updateProperties(self):
 		"""Synchronize widget values with the current state of the bound VirtualXRay object."""
@@ -317,10 +391,20 @@ class PropVirtualXRay(PropWidget):
 		self.presentationPercentileSpin.setValue(float(obj.presentation_robust_percentile))
 		self.presentationWindowCenterSpin.setValue(0.0 if obj.presentation_window_center is None else float(obj.presentation_window_center))
 		self.presentationWindowWidthSpin.setValue(0.0 if obj.presentation_window_width is None else float(obj.presentation_window_width))
+		self.physicsMuAirSpin.setValue(float(obj.physics_mu_air))
+		self.physicsMuWaterSpin.setValue(float(obj.physics_mu_water))
+		self.physicsHounsfieldAirSpin.setValue(float(obj.physics_hounsfield_air))
+		self.physicsAttenuationScaleSpin.setValue(float(obj.physics_attenuation_scale))
+		self.physicsOutputModeCombo.setCurrentText(str(obj.physics_output_mode))
+		self.physicsIntensityFloorSpin.setValue(float(obj.physics_intensity_floor))
+		self.sourceInterpolationCombo.setCurrentText(str(obj.source_interpolation))
+		self.sourceUseFillValueCheck.setChecked(obj.source_fill_value is not None)
+		self.sourceFillValueSpin.setValue(0.0 if obj.source_fill_value is None else float(obj.source_fill_value))
 		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
 		self.renderInfoLabel.setText(obj.info())
 		self._update_mode_visibility(obj)
 		self._update_physics_visibility(obj)
+		self._update_advanced_source_visibility(obj)
 		self._update_presentation_visibility(obj)
 		self.blockAll(False)
 
@@ -489,6 +573,26 @@ class PropVirtualXRay(PropWidget):
 		obj = self.obj_ref()
 		self.renderInfoLabel.setText(obj.info())
 		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
+
+	@pyqtSlot()
+	def on_advanced_physics_changed(self):
+		"""Store lower-level physics parameters exposed for quick backend testing."""
+		obj = self.obj_ref()
+		obj.physics_mu_air = float(self.physicsMuAirSpin.value())
+		obj.physics_mu_water = float(self.physicsMuWaterSpin.value())
+		obj.physics_hounsfield_air = float(self.physicsHounsfieldAirSpin.value())
+		obj.physics_attenuation_scale = float(self.physicsAttenuationScaleSpin.value())
+		obj.physics_output_mode = str(self.physicsOutputModeCombo.currentText())
+		obj.physics_intensity_floor = float(self.physicsIntensityFloorSpin.value())
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_advanced_source_changed(self):
+		"""Store lower-level source sampling parameters exposed for quick backend testing."""
+		obj = self.obj_ref()
+		obj.source_interpolation = str(self.sourceInterpolationCombo.currentText())
+		obj.source_fill_value = float(self.sourceFillValueSpin.value()) if self.sourceUseFillValueCheck.isChecked() else None
+		self._after_change(obj)
 
 	@pyqtSlot()
 	def on_run_simulation(self):

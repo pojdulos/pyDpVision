@@ -232,6 +232,7 @@ class ContextMenu(QMenu):
 		action = QAction(".. here ..", self)
 		action.setData(obj)
 		action.triggered.connect(self.move_to)
+		menu2.addAction(action)
 		menu2.addSeparator()
 
 		for m in obj.children():
@@ -561,9 +562,9 @@ class ContextMenu(QMenu):
 		newModel = Transform()
 		newModel.matrix = Transform.fromTo(m0 = _m0, m1 = _m1)
 
+		AP.removeObject(child=self.m_obj, parent=oldParent)
 		AP.addObject(child=newModel, parent=newParent)
 		AP.addObject(child=self.m_obj, parent=newModel)
-		AP.removeObject(child=self.m_obj, parent=oldParent)
 
 		AP.updateAllViews()
 

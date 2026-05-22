@@ -30,11 +30,15 @@ from .prosta import Prosta, Prosta3D, intersection_point, intersection_point2
 from .shaders import load_and_compile_shader, compile_shader
 from .sphere import Sphere
 from .transform import Transform
+from .virtualXRay import VirtualXRay
 from .volumetric import Volumetric, SliceMetadata
 from .workspace import Workspace
 from .xrayProjection import (
 	XRayProjectionGeometry,
 	XRayPhysicsModel,
+	XRayProjectionQualityProfile,
+	XRayProjectionConfig,
+	XRayProjectionStats,
 	XRayPresentationModel,
 	RawPresentationModel,
 	FilmLikePresentationModel,
@@ -42,6 +46,7 @@ from .xrayProjection import (
 	XRaySampleSource,
 	VolumetricXRaySource,
 	XRayProjector,
+	XRayScene,
 	normalize_projection_to_uint8,
 	normalize_projection_to_uint16,
 	save_projection_png,
@@ -70,11 +75,12 @@ __all__ = [
 			"load_and_compile_shader", "load_shader", "compile_shader",
 			"Sphere",
 			"Transform",
+			"VirtualXRay",
 			"Volumetric", "SliceMetadata",
 			"Workspace",
-			"XRayProjectionGeometry", "XRayPhysicsModel",
+			"XRayProjectionGeometry", "XRayPhysicsModel", "XRayProjectionQualityProfile", "XRayProjectionConfig", "XRayProjectionStats",
 			"XRayPresentationModel", "RawPresentationModel", "FilmLikePresentationModel", "DigitalRadiographyPresentationModel",
-			"XRaySampleSource", "VolumetricXRaySource", "XRayProjector",
+			"XRaySampleSource", "VolumetricXRaySource", "XRayProjector", "XRayScene",
 			"normalize_projection_to_uint8", "normalize_projection_to_uint16",
 			"save_projection_png", "save_projection_tiff", "save_projection_dicom",
 		]

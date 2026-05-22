@@ -18,6 +18,7 @@ from .propMesh import PropMesh
 from .propPointCloud import PropPointCloud
 from .propNDimCloud import PropNDimCloud
 from .propTransform import PropTransform
+from .propVirtualXRay import PropVirtualXRay
 from .propAnnotation import PropAnnotation
 from .propAnnotationElipsoide import PropAnnotationElipsoide
 from .propAnnotationPlane import PropAnnotationPlane
@@ -26,6 +27,7 @@ from .propAnnotationSphere import PropAnnotationSphere
 from .propGridData64 import PropGridData64
 from .propSphereGrid import PropSphereGrid
 from .propDHJoint import PropDHJoint
+from .propImage import PropImage
 
 from .. import BaseObject, Object, Annotation, AP
 
@@ -60,8 +62,10 @@ class DockWidgetProperties(QDockWidget):
 				'GridData64' : PropGridData64,
 				'SphereGrid' : PropSphereGrid,
 				'NDimCloud': PropNDimCloud,
+				'Image': PropImage,
 				'Motion': PropMotion,
 				'Volumetric': PropVolumetric,
+				'VirtualXRay': PropVirtualXRay,
 				'default': PropBaseObject,
 			},
 			Annotation: {
@@ -80,6 +84,8 @@ class DockWidgetProperties(QDockWidget):
 	
 	@pyqtSlot(QObject)	
 	def selectionChanged( self, obj ):
+		if obj is None:
+			return
 		name = obj.__class__.__name__
 		#print(name+" selected")
 

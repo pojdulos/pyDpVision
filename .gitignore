@@ -6,3 +6,4 @@ plugins/*/quantum
 .venv/
 .aider*
 generated/
+.output_local/

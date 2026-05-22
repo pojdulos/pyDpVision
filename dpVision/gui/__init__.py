@@ -9,6 +9,7 @@ from .dockWidgetPluginPanel import DockWidgetPluginPanel
 from .dockWidgetProperties import DockWidgetProperties
 from .dockWidgetWorkspace import DockWidgetWorkspace
 from .gLViewer import GLViewer
+from .imageViewer import ImageViewer
 from .loadTaskManager import LoadTaskManager
 from .taskManager import TaskManager, BaseTaskRunner, FunctionTaskRunner, ParserLoadTaskRunner, ParserSaveTaskRunner
 from .mainWindow import MainWindow
@@ -19,6 +20,7 @@ from .propAnnotationElipsoide import PropAnnotationElipsoide
 from .propAnnotationPoint import PropAnnotationPoint
 from .propAnnotationSphere import PropAnnotationSphere
 from .propBaseObject import PropBaseObject
+from .propImage import PropImage
 from .propMesh import PropMesh
 from .propMotion import PropMotion
 from .propPointCloud import PropPointCloud

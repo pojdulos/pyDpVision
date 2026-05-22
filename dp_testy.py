@@ -1,7 +1,7 @@
 import os
 import numpy as np
 
-from dpVision import AP, Transform, Image, AnnotationPoint, AnnotationSphere, AnnotationPath
+from dpVision import AP, Transform, Image, AnnotationPoint, AnnotationSphere, AnnotationPath, VirtualXRay
 
 from PyQt5.QtCore import QTimer
 
@@ -13,10 +13,12 @@ from dpVision.volumetric import Volumetric
 from dpVision.xrayProjection import (
 	XRayProjectionGeometry,
 	XRayPhysicsModel,
+	XRayProjectionQualityProfile,
+	XRayProjectionConfig,
 	RawPresentationModel,
 	DigitalRadiographyPresentationModel,
 	VolumetricXRaySource,
-	XRayProjector,
+	XRayScene,
 	save_projection_png,
 	save_projection_tiff,
 	save_projection_dicom,
@@ -233,13 +235,14 @@ def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8
 		rotation_deg_z=jaw_rotation_deg_z,
 	)
 
-	geometry = XRayProjectionGeometry(
-		detector_origin_ref=[-120.0, -120.0, 180.0],
-		detector_u_ref=[1.0, 0.0, 0.0],
-		detector_v_ref=[0.0, 1.0, 0.0],
-		detector_shape_hw=[256, 256],
-		step_mm=1.5,
-		source_position_ref=[0.0, 0.0, -220.0],
+	geometry = XRayProjectionGeometry.from_detector_pose(
+		detector_center_ref=[42.2, 42.2, 180.0],
+		detector_normal_ref=[0.0, 0.0, -1.0],
+		detector_up_ref=[0.0, 1.0, 0.0],
+		detector_shape_hw=[512, 512],
+		detector_pixel_size_mm=0.4,
+		step_mm=1.0,
+		source_position_ref=[42.2, 42.2, -220.0],
 	)
 	physics = XRayPhysicsModel(
 		mu_air=0.0,
@@ -247,24 +250,26 @@ def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8
 		attenuation_scale=1.0,
 		output_mode="integral",
 	)
-	projector = XRayProjector([
+	scene = XRayScene.from_sample_sources([
 		VolumetricXRaySource(skull, global_transform=skull_transform, interpolation="linear"),
 		VolumetricXRaySource(jaw, global_transform=jaw_transform, interpolation="linear"),
 	])
-
-	image = projector.project(
+	config = XRayProjectionConfig(
 		geometry=geometry,
 		physics_model=physics,
+		presentation_model=DigitalRadiographyPresentationModel(
+			invert=False,
+			gamma=0.7,
+			contrast=1.2,
+		),
 		reference_transform=np.eye(4, dtype=np.float32),
+		quality_profile=XRayProjectionQualityProfile.normal(),
 	)
+
+	image, stats = scene.project(config=config, return_stats=True)
 	raw_presentation = RawPresentationModel()
-	dr_presentation = DigitalRadiographyPresentationModel(
-		invert=False,
-		gamma=0.7,
-		contrast=1.2,
-	)
 	raw_image = raw_presentation.apply(image)
-	display_image = dr_presentation.apply(image)
+	display_image = config.apply_presentation(image)
 
 	png_path = os.path.join(output_dir, "synthetic_xray_display.png")
 	tiff_path = os.path.join(output_dir, "synthetic_xray_display.tiff")
@@ -292,7 +297,73 @@ def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8
 		"dicom_path": dicom_path,
 		"raw_tiff_path": raw_tiff_path,
 		"jaw_transform": jaw_transform,
+		"stats": stats,
+		"config": config,
 	}
+
+
+def create_virtual_xray_demo_object():
+	"""Create one `VirtualXRay` scene node with synthetic skull and jaw descendants."""
+	skull, jaw = build_synthetic_xray_demo_volumes()
+	jaw_transform = _make_jaw_transform(
+		translation_xyz=(0.0, -8.0, 0.0),
+		rotation_deg_z=8.0,
+	)
+
+	setup = VirtualXRay()
+	setup.detector_center_ref = np.array([42.2, 42.2, 180.0], dtype=np.float32)
+	setup.source_position_ref = np.array([42.2, 42.2, -220.0], dtype=np.float32)
+	setup.detector_shape_hw = [512, 512]
+	setup.detector_pixel_size_mm = [0.4, 0.4]
+	setup.step_mm = 1.0
+	setup.quality_profile_name = "normal"
+
+	skull_transform = Transform()
+	skull_transform.addChild(skull)
+	setup.addChild(skull_transform)
+
+	jaw_node = Transform(matrix=jaw_transform)
+	jaw_node.label = "jaw_pose"
+	jaw_node.addChild(jaw)
+	setup.addChild(jaw_node)
+
+	AP.addObject(setup)
+	return setup
+
+
+def create_real_xray_demo():
+
+	"""Create one `VirtualXRay` scene node with synthetic skull and jaw descendants."""
+	
+	def on_success(skull):
+		if skull is None:
+			return
+
+
+		setup = VirtualXRay()
+		setup.detector_center_ref = np.array([0, 0, 400.0], dtype=np.float32)
+		setup.source_position_ref = np.array([0, 0, -1500.0], dtype=np.float32)
+		setup.detector_shape_hw = [512, 512]
+		setup.detector_pixel_size_mm = [0.4, 0.4]
+		setup.step_mm = 1.0
+		setup.quality_profile_name = "normal"
+
+		AP.removeObject(child=skull.parent)
+
+		skull_transform = Transform()
+		skull_transform.translate(-80, 45, 0)
+		skull_transform.rotate(90, [1,0,0])
+		skull_transform.rotate(90, [0,1,0])
+		skull_transform.addChild(skull)
+		setup.addChild(skull_transform)
+
+		AP.addObject(setup)
+		AP.updateAllViews()
+
+	AP.load("d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm",
+		on_success=on_success)
+	
+
 
 from dpVision import NDimCloud
 
@@ -692,7 +763,9 @@ def test_uncertainty():
 # test_uncertainty()
 #fastTest2()
 
+create_real_xray_demo()
 # result = demo_synthetic_xray_projection()
 # print(result["png_path"])
 # print(result["tiff_path"])
 # print(result["dicom_path"])
+

@@ -1,0 +1,531 @@
+# -*- coding: utf-8 -*-
+"""Property panel for the `VirtualXRay` scene object."""
+
+from __future__ import annotations
+
+import weakref
+
+import numpy as np
+from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtGui import QImage
+from PyQt5.QtWidgets import (
+	QApplication,
+	QCheckBox,
+	QComboBox,
+	QFormLayout,
+	QGroupBox,
+	QHBoxLayout,
+	QLabel,
+	QPushButton,
+	QSpinBox,
+	QTabWidget,
+	QVBoxLayout,
+	QWidget,
+	QDoubleSpinBox,
+)
+
+from .. import AP, Image, VirtualXRay, normalize_projection_to_uint8
+from .multiSpinBox import MultiSpinBox
+from .propBaseObject import PropBaseObject
+from .propWidget import PropWidget
+
+
+class PropVirtualXRay(PropWidget):
+	"""Edit basic source and detector parameters of one `VirtualXRay` scene node."""
+
+	def __init__(self, _obj: VirtualXRay, parent=None):
+		"""Build the property editor widgets and bind them to the provided scene object."""
+		super().__init__(parent)
+		self.obj_ref = weakref.ref(_obj)
+		self._setup_ui()
+		self._connect_signals()
+
+	def _setup_ui(self):
+		"""Create the full property form for detector, source and sampling parameters."""
+		layout = QVBoxLayout(self)
+
+		self.tabs = QTabWidget()
+		layout.addWidget(self.tabs)
+
+		self.sceneTab = QWidget()
+		self.sceneTabLayout = QVBoxLayout(self.sceneTab)
+
+		self.sceneGroup = QGroupBox("Scene")
+		scene_layout = QFormLayout(self.sceneGroup)
+		self.volumesLabel = QLabel("-")
+		self.modeCombo = QComboBox()
+		self.modeCombo.addItems(["cone", "parallel"])
+		scene_layout.addRow("Volumes:", self.volumesLabel)
+		scene_layout.addRow("Mode:", self.modeCombo)
+		self.sceneTabLayout.addWidget(self.sceneGroup)
+		self.sceneTabLayout.addStretch(1)
+		self.tabs.addTab(self.sceneTab, "Scene")
+
+		self.detectorTab = QWidget()
+		self.detectorTabLayout = QVBoxLayout(self.detectorTab)
+
+		self.detectorGroup = QGroupBox("Detector")
+		detector_layout = QFormLayout(self.detectorGroup)
+		self.detectorCenterSpin = MultiSpinBox(3, labels=("X", "Y", "Z"))
+		self.detectorNormalSpin = MultiSpinBox(3, labels=("X", "Y", "Z"))
+		self.detectorUpSpin = MultiSpinBox(3, labels=("X", "Y", "Z"))
+		self.detectorPixelSizeSpin = MultiSpinBox(2, labels=("U", "V"))
+		self.detectorShapeWidget = QWidget()
+		detector_shape_layout = QHBoxLayout(self.detectorShapeWidget)
+		detector_shape_layout.setContentsMargins(0, 0, 0, 0)
+		self.detectorHeightSpin = QSpinBox()
+		self.detectorWidthSpin = QSpinBox()
+		for spin in (self.detectorHeightSpin, self.detectorWidthSpin):
+			spin.setRange(1, 8192)
+		detector_shape_layout.addWidget(QLabel("H"))
+		detector_shape_layout.addWidget(self.detectorHeightSpin)
+		detector_shape_layout.addWidget(QLabel("W"))
+		detector_shape_layout.addWidget(self.detectorWidthSpin)
+		detector_layout.addRow("Center [mm]:", self.detectorCenterSpin)
+		detector_layout.addRow("Normal:", self.detectorNormalSpin)
+		detector_layout.addRow("Up:", self.detectorUpSpin)
+		detector_layout.addRow("Pixel size [mm]:", self.detectorPixelSizeSpin)
+		detector_layout.addRow("Shape [px]:", self.detectorShapeWidget)
+		self.detectorTabLayout.addWidget(self.detectorGroup)
+		self.detectorTabLayout.addStretch(1)
+		self.tabs.addTab(self.detectorTab, "Detector")
+
+		self.sourceTab = QWidget()
+		self.sourceTabLayout = QVBoxLayout(self.sourceTab)
+
+		self.sourceGroup = QGroupBox("Source")
+		source_layout = QFormLayout(self.sourceGroup)
+		self.sourcePositionSpin = MultiSpinBox(3, labels=("X", "Y", "Z"))
+		self.rayDirectionSpin = MultiSpinBox(3, labels=("X", "Y", "Z"))
+		source_layout.addRow("Position [mm]:", self.sourcePositionSpin)
+		source_layout.addRow("Direction:", self.rayDirectionSpin)
+		self.sourceTabLayout.addWidget(self.sourceGroup)
+		self.sourceTabLayout.addStretch(1)
+		self.tabs.addTab(self.sourceTab, "Source")
+
+		self.samplingTab = QWidget()
+		self.samplingTabLayout = QVBoxLayout(self.samplingTab)
+
+		self.samplingGroup = QGroupBox("Sampling")
+		sampling_layout = QFormLayout(self.samplingGroup)
+		self.stepSpin = QDoubleSpinBox()
+		self.stepSpin.setRange(0.01, 50.0)
+		self.stepSpin.setDecimals(3)
+		self.stepSpin.setSingleStep(0.1)
+		self.qualityCombo = QComboBox()
+		self.qualityCombo.addItems(["draft", "normal", "high"])
+		sampling_layout.addRow("Step [mm]:", self.stepSpin)
+		sampling_layout.addRow("Quality:", self.qualityCombo)
+		self.samplingTabLayout.addWidget(self.samplingGroup)
+		self.samplingTabLayout.addStretch(1)
+		self.tabs.addTab(self.samplingTab, "Sampling")
+
+		self.physicsTab = QWidget()
+		self.physicsTabLayout = QVBoxLayout(self.physicsTab)
+
+		self.physicsGroup = QGroupBox("Physics")
+		physics_layout = QFormLayout(self.physicsGroup)
+		self.physicsMaterialWindowCenterSpin = QDoubleSpinBox()
+		self.physicsMaterialWindowCenterSpin.setRange(-1e6, 1e6)
+		self.physicsMaterialWindowCenterSpin.setDecimals(3)
+		self.physicsMaterialWindowCenterSpin.setSingleStep(1.0)
+		self.physicsMaterialWindowWidthSpin = QDoubleSpinBox()
+		self.physicsMaterialWindowWidthSpin.setRange(0.0, 1e6)
+		self.physicsMaterialWindowWidthSpin.setDecimals(3)
+		self.physicsMaterialWindowWidthSpin.setSingleStep(1.0)
+		self.physicsMaterialWindowModeCombo = QComboBox()
+		self.physicsMaterialWindowModeCombo.addItems(["hard", "linear", "sigmoid"])
+		self.physicsMaterialWindowSoftnessSpin = QDoubleSpinBox()
+		self.physicsMaterialWindowSoftnessSpin.setRange(0.0, 1e6)
+		self.physicsMaterialWindowSoftnessSpin.setDecimals(3)
+		self.physicsMaterialWindowSoftnessSpin.setSingleStep(1.0)
+		physics_layout.addRow("Material center [HU]:", self.physicsMaterialWindowCenterSpin)
+		physics_layout.addRow("Material width [HU]:", self.physicsMaterialWindowWidthSpin)
+		physics_layout.addRow("Window mode:", self.physicsMaterialWindowModeCombo)
+		physics_layout.addRow("Softness [HU]:", self.physicsMaterialWindowSoftnessSpin)
+		self.physicsTabLayout.addWidget(self.physicsGroup)
+		self.physicsTabLayout.addStretch(1)
+		self.tabs.addTab(self.physicsTab, "Physics")
+
+		self.presentationTab = QWidget()
+		self.presentationTabLayout = QVBoxLayout(self.presentationTab)
+
+		self.presentationGroup = QGroupBox("Presentation")
+		presentation_layout = QFormLayout(self.presentationGroup)
+		self.presentationModeCombo = QComboBox()
+		self.presentationModeCombo.addItems(["digital", "film", "raw"])
+		self.presentationInvertCheck = QCheckBox("Invert")
+		self.presentationGammaSpin = QDoubleSpinBox()
+		self.presentationGammaSpin.setRange(0.05, 10.0)
+		self.presentationGammaSpin.setDecimals(3)
+		self.presentationGammaSpin.setSingleStep(0.05)
+		self.presentationContrastSpin = QDoubleSpinBox()
+		self.presentationContrastSpin.setRange(0.05, 10.0)
+		self.presentationContrastSpin.setDecimals(3)
+		self.presentationContrastSpin.setSingleStep(0.05)
+		self.presentationPercentileSpin = QDoubleSpinBox()
+		self.presentationPercentileSpin.setRange(50.0, 100.0)
+		self.presentationPercentileSpin.setDecimals(2)
+		self.presentationPercentileSpin.setSingleStep(0.1)
+		self.presentationWindowCenterSpin = QDoubleSpinBox()
+		self.presentationWindowCenterSpin.setRange(-1e6, 1e6)
+		self.presentationWindowCenterSpin.setDecimals(3)
+		self.presentationWindowCenterSpin.setSingleStep(0.1)
+		self.presentationWindowWidthSpin = QDoubleSpinBox()
+		self.presentationWindowWidthSpin.setRange(0.0, 1e6)
+		self.presentationWindowWidthSpin.setDecimals(3)
+		self.presentationWindowWidthSpin.setSingleStep(0.1)
+		presentation_layout.addRow("Mode:", self.presentationModeCombo)
+		presentation_layout.addRow("", self.presentationInvertCheck)
+		presentation_layout.addRow("Gamma:", self.presentationGammaSpin)
+		presentation_layout.addRow("Contrast:", self.presentationContrastSpin)
+		presentation_layout.addRow("Robust [%]:", self.presentationPercentileSpin)
+		presentation_layout.addRow("Projection center:", self.presentationWindowCenterSpin)
+		presentation_layout.addRow("Projection width:", self.presentationWindowWidthSpin)
+		self.presentationTabLayout.addWidget(self.presentationGroup)
+		self.presentationTabLayout.addStretch(1)
+		self.tabs.addTab(self.presentationTab, "Presentation")
+
+		self.runTab = QWidget()
+		self.runTabLayout = QVBoxLayout(self.runTab)
+
+		self.actionsWidget = QWidget()
+		actions_layout = QHBoxLayout(self.actionsWidget)
+		actions_layout.setContentsMargins(0, 0, 0, 0)
+		self.refreshButton = QPushButton("Refresh")
+		self.runSimulationButton = QPushButton("Run Simulation")
+		self.renderInfoLabel = QLabel("")
+		actions_layout.addWidget(self.refreshButton)
+		actions_layout.addWidget(self.runSimulationButton)
+		self.runTabLayout.addWidget(self.actionsWidget)
+		self.runTabLayout.addWidget(self.renderInfoLabel)
+		self.runTabLayout.addStretch(1)
+		self.tabs.addTab(self.runTab, "Run")
+
+		layout.addStretch(1)
+
+	def _connect_signals(self):
+		"""Connect all editor widgets to their slots."""
+		self.modeCombo.currentTextChanged.connect(self.on_mode_changed)
+		self.detectorCenterSpin.valueChanged.connect(self.on_detector_center_changed)
+		self.detectorNormalSpin.valueChanged.connect(self.on_detector_normal_changed)
+		self.detectorUpSpin.valueChanged.connect(self.on_detector_up_changed)
+		self.detectorPixelSizeSpin.valueChanged.connect(self.on_detector_pixel_size_changed)
+		self.detectorHeightSpin.valueChanged.connect(self.on_detector_shape_changed)
+		self.detectorWidthSpin.valueChanged.connect(self.on_detector_shape_changed)
+		self.sourcePositionSpin.valueChanged.connect(self.on_source_position_changed)
+		self.rayDirectionSpin.valueChanged.connect(self.on_ray_direction_changed)
+		self.stepSpin.valueChanged.connect(self.on_step_changed)
+		self.qualityCombo.currentTextChanged.connect(self.on_quality_changed)
+		self.physicsMaterialWindowCenterSpin.valueChanged.connect(self.on_physics_material_window_changed)
+		self.physicsMaterialWindowWidthSpin.valueChanged.connect(self.on_physics_material_window_changed)
+		self.physicsMaterialWindowModeCombo.currentTextChanged.connect(self.on_physics_material_window_mode_changed)
+		self.physicsMaterialWindowSoftnessSpin.valueChanged.connect(self.on_physics_material_window_softness_changed)
+		self.presentationModeCombo.currentTextChanged.connect(self.on_presentation_mode_changed)
+		self.presentationInvertCheck.toggled.connect(self.on_presentation_invert_changed)
+		self.presentationGammaSpin.valueChanged.connect(self.on_presentation_gamma_changed)
+		self.presentationContrastSpin.valueChanged.connect(self.on_presentation_contrast_changed)
+		self.presentationPercentileSpin.valueChanged.connect(self.on_presentation_percentile_changed)
+		self.presentationWindowCenterSpin.valueChanged.connect(self.on_presentation_window_changed)
+		self.presentationWindowWidthSpin.valueChanged.connect(self.on_presentation_window_changed)
+		self.refreshButton.clicked.connect(self.on_refresh_requested)
+		self.runSimulationButton.clicked.connect(self.on_run_simulation)
+
+	@staticmethod
+	def create(m, parent=0):
+		"""Build the combined base-object and VirtualXRay property panel."""
+		return PropWidget.build([PropVirtualXRay(m), PropBaseObject(m)], parent)
+
+	def blockAll(self, b):
+		"""Block or unblock signals for all editable widgets in this panel."""
+		for widget in (
+			self.modeCombo,
+			self.detectorCenterSpin,
+			self.detectorNormalSpin,
+			self.detectorUpSpin,
+			self.detectorPixelSizeSpin,
+			self.detectorHeightSpin,
+			self.detectorWidthSpin,
+			self.sourcePositionSpin,
+			self.rayDirectionSpin,
+			self.stepSpin,
+			self.qualityCombo,
+			self.physicsMaterialWindowCenterSpin,
+			self.physicsMaterialWindowWidthSpin,
+			self.physicsMaterialWindowModeCombo,
+			self.physicsMaterialWindowSoftnessSpin,
+			self.presentationModeCombo,
+			self.presentationInvertCheck,
+			self.presentationGammaSpin,
+			self.presentationContrastSpin,
+			self.presentationPercentileSpin,
+			self.presentationWindowCenterSpin,
+			self.presentationWindowWidthSpin,
+		):
+			widget.blockSignals(b)
+
+	def _update_mode_visibility(self, obj: VirtualXRay):
+		"""Enable either the point-source editor or the parallel-ray editor based on the current mode."""
+		is_cone = obj.source_position_ref is not None
+		self.sourcePositionSpin.setEnabled(is_cone)
+		self.rayDirectionSpin.setEnabled(not is_cone)
+
+	def _update_presentation_visibility(self, obj: VirtualXRay):
+		"""Enable only presentation controls relevant to the selected display mode."""
+		mode = str(obj.presentation_mode).lower()
+		is_raw = mode == "raw"
+		is_digital = mode == "digital"
+		self.presentationInvertCheck.setEnabled(not is_raw)
+		self.presentationGammaSpin.setEnabled(not is_raw)
+		self.presentationContrastSpin.setEnabled(not is_raw)
+		self.presentationPercentileSpin.setEnabled(not is_raw)
+		self.presentationWindowCenterSpin.setEnabled(is_digital)
+		self.presentationWindowWidthSpin.setEnabled(is_digital)
+
+	def _update_physics_visibility(self, obj: VirtualXRay):
+		"""Enable only physics controls relevant to the selected material window mode."""
+		width_enabled = obj.physics_material_window_width is not None and float(obj.physics_material_window_width) > 0.0
+		mode = str(obj.physics_material_window_mode).lower()
+		self.physicsMaterialWindowModeCombo.setEnabled(width_enabled)
+		self.physicsMaterialWindowSoftnessSpin.setEnabled(width_enabled and mode in {"linear", "sigmoid"})
+
+	def updateProperties(self):
+		"""Synchronize widget values with the current state of the bound VirtualXRay object."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		self.blockAll(True)
+		self.modeCombo.setCurrentText("cone" if obj.source_position_ref is not None else "parallel")
+		self.detectorCenterSpin.setValue(obj.detector_center_ref)
+		self.detectorNormalSpin.setValue(obj.detector_normal_ref)
+		self.detectorUpSpin.setValue(obj.detector_up_ref)
+		self.detectorPixelSizeSpin.setValue(obj.detector_pixel_size_mm)
+		self.detectorHeightSpin.setValue(int(obj.detector_shape_hw[0]))
+		self.detectorWidthSpin.setValue(int(obj.detector_shape_hw[1]))
+		self.sourcePositionSpin.setValue(obj.source_position_ref if obj.source_position_ref is not None else (0.0, 0.0, 0.0))
+		self.rayDirectionSpin.setValue(obj.ray_direction_ref if obj.ray_direction_ref is not None else (0.0, 0.0, 1.0))
+		self.stepSpin.setValue(float(obj.step_mm))
+		self.qualityCombo.setCurrentText(str(obj.quality_profile_name))
+		self.physicsMaterialWindowCenterSpin.setValue(0.0 if obj.physics_material_window_center is None else float(obj.physics_material_window_center))
+		self.physicsMaterialWindowWidthSpin.setValue(0.0 if obj.physics_material_window_width is None else float(obj.physics_material_window_width))
+		self.physicsMaterialWindowModeCombo.setCurrentText(str(obj.physics_material_window_mode))
+		self.physicsMaterialWindowSoftnessSpin.setValue(float(obj.physics_material_window_softness))
+		self.presentationModeCombo.setCurrentText(str(obj.presentation_mode))
+		self.presentationInvertCheck.setChecked(bool(obj.presentation_invert))
+		self.presentationGammaSpin.setValue(float(obj.presentation_gamma))
+		self.presentationContrastSpin.setValue(float(obj.presentation_contrast))
+		self.presentationPercentileSpin.setValue(float(obj.presentation_robust_percentile))
+		self.presentationWindowCenterSpin.setValue(0.0 if obj.presentation_window_center is None else float(obj.presentation_window_center))
+		self.presentationWindowWidthSpin.setValue(0.0 if obj.presentation_window_width is None else float(obj.presentation_window_width))
+		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
+		self.renderInfoLabel.setText(obj.info())
+		self._update_mode_visibility(obj)
+		self._update_physics_visibility(obj)
+		self._update_presentation_visibility(obj)
+		self.blockAll(False)
+
+	def _after_change(self, obj: VirtualXRay):
+		"""Refresh dependent state after changing one property."""
+		obj.invalidate_bb()
+		self.updateProperties()
+		AP.mainWin.dock["workspace"].refreshAll()
+		AP.updateAllViews()
+
+	@pyqtSlot(str)
+	def on_mode_changed(self, mode):
+		"""Switch between cone-beam and parallel-beam geometry editing."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		if str(mode).lower() == "parallel":
+			obj.source_position_ref = None
+			if obj.ray_direction_ref is None:
+				direction = np.asarray(obj.detector_normal_ref, dtype=np.float32)
+				norm = np.linalg.norm(direction)
+				obj.ray_direction_ref = (direction / norm) if norm > 1e-8 else np.array([0.0, 0.0, 1.0], dtype=np.float32)
+		else:
+			obj.ray_direction_ref = None
+			if obj.source_position_ref is None:
+				obj.source_position_ref = np.array([42.2, 42.2, -220.0], dtype=np.float32)
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_detector_center_changed(self, values):
+		"""Store the detector center in the local X-ray reference frame."""
+		obj = self.obj_ref()
+		obj.detector_center_ref = np.asarray(values, dtype=np.float32)
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_detector_normal_changed(self, values):
+		"""Store the detector normal vector in the local X-ray reference frame."""
+		obj = self.obj_ref()
+		obj.detector_normal_ref = np.asarray(values, dtype=np.float32)
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_detector_up_changed(self, values):
+		"""Store the detector up vector in the local X-ray reference frame."""
+		obj = self.obj_ref()
+		obj.detector_up_ref = np.asarray(values, dtype=np.float32)
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_detector_pixel_size_changed(self, values):
+		"""Store detector pixel pitch along the local detector axes."""
+		obj = self.obj_ref()
+		obj.detector_pixel_size_mm = [max(1e-4, float(values[0])), max(1e-4, float(values[1]))]
+		self._after_change(obj)
+
+	@pyqtSlot(int)
+	def on_detector_shape_changed(self, _value):
+		"""Store detector raster size in pixels."""
+		obj = self.obj_ref()
+		obj.detector_shape_hw = [int(self.detectorHeightSpin.value()), int(self.detectorWidthSpin.value())]
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_source_position_changed(self, values):
+		"""Store point-source position in the local X-ray reference frame."""
+		obj = self.obj_ref()
+		if obj.source_position_ref is not None:
+			obj.source_position_ref = np.asarray(values, dtype=np.float32)
+			self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_ray_direction_changed(self, values):
+		"""Store parallel-ray direction in the local X-ray reference frame."""
+		obj = self.obj_ref()
+		if obj.ray_direction_ref is not None:
+			obj.ray_direction_ref = np.asarray(values, dtype=np.float32)
+			self._after_change(obj)
+
+	@pyqtSlot(float)
+	def on_step_changed(self, value):
+		"""Store the ray-marching integration step in millimeters."""
+		obj = self.obj_ref()
+		obj.step_mm = max(0.01, float(value))
+		self._after_change(obj)
+
+	@pyqtSlot(str)
+	def on_quality_changed(self, value):
+		"""Store the currently selected quality preset name."""
+		obj = self.obj_ref()
+		obj.quality_profile_name = str(value)
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_physics_material_window_changed(self):
+		"""Store an optional HU window applied before attenuation integration."""
+		obj = self.obj_ref()
+		center = float(self.physicsMaterialWindowCenterSpin.value())
+		width = float(self.physicsMaterialWindowWidthSpin.value())
+		obj.physics_material_window_center = center if width > 0.0 else None
+		obj.physics_material_window_width = width if width > 0.0 else None
+		self._after_change(obj)
+
+	@pyqtSlot(str)
+	def on_physics_material_window_mode_changed(self, value):
+		"""Store the material-window weighting mode used before attenuation integration."""
+		obj = self.obj_ref()
+		obj.physics_material_window_mode = str(value)
+		self._after_change(obj)
+
+	@pyqtSlot(float)
+	def on_physics_material_window_softness_changed(self, value):
+		"""Store the transition softness used by non-binary material window modes."""
+		obj = self.obj_ref()
+		obj.physics_material_window_softness = max(0.0, float(value))
+		self._after_change(obj)
+
+	@pyqtSlot(str)
+	def on_presentation_mode_changed(self, value):
+		"""Store the currently selected presentation mode."""
+		obj = self.obj_ref()
+		obj.presentation_mode = str(value)
+		self._after_change(obj)
+
+	@pyqtSlot(bool)
+	def on_presentation_invert_changed(self, value):
+		"""Store the inversion state of the presentation model."""
+		obj = self.obj_ref()
+		obj.presentation_invert = bool(value)
+		self._after_change(obj)
+
+	@pyqtSlot(float)
+	def on_presentation_gamma_changed(self, value):
+		"""Store the gamma applied by the presentation model."""
+		obj = self.obj_ref()
+		obj.presentation_gamma = max(0.05, float(value))
+		self._after_change(obj)
+
+	@pyqtSlot(float)
+	def on_presentation_contrast_changed(self, value):
+		"""Store the contrast applied by the presentation model."""
+		obj = self.obj_ref()
+		obj.presentation_contrast = max(0.05, float(value))
+		self._after_change(obj)
+
+	@pyqtSlot(float)
+	def on_presentation_percentile_changed(self, value):
+		"""Store the robust percentile used by film-like and digital presentation."""
+		obj = self.obj_ref()
+		obj.presentation_robust_percentile = min(100.0, max(50.0, float(value)))
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_presentation_window_changed(self):
+		"""Store optional digital-radiography window center and width."""
+		obj = self.obj_ref()
+		center = float(self.presentationWindowCenterSpin.value())
+		width = float(self.presentationWindowWidthSpin.value())
+		obj.presentation_window_center = center if width > 0.0 else None
+		obj.presentation_window_width = width if width > 0.0 else None
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_refresh_requested(self):
+		"""Refresh the volume count and textual scene summary."""
+		obj = self.obj_ref()
+		self.renderInfoLabel.setText(obj.info())
+		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
+
+	@pyqtSlot()
+	def on_run_simulation(self):
+		"""Run one X-ray projection and insert the result into the workspace as an image object."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+
+		QApplication.setOverrideCursor(Qt.WaitCursor)
+		try:
+			display_image, stats = obj.render_projection(return_stats=True)
+			mode = str(obj.presentation_mode).lower()
+			if mode == "raw":
+				image_u8 = normalize_projection_to_uint8(
+					display_image,
+					robust_percentile=float(obj.presentation_robust_percentile),
+					invert=False,
+				)
+			else:
+				image_u8 = normalize_projection_to_uint8(
+					display_image,
+					fixed_range=(0.0, 1.0),
+					invert=False,
+				)
+			height, width = image_u8.shape
+			qimage = QImage(
+				image_u8.data,
+				width,
+				height,
+				image_u8.strides[0],
+				QImage.Format_Grayscale8,
+			).copy()
+			image_obj = Image(image=qimage)
+			image_obj.label = f"{obj.label}_projection"
+			AP.addObject(image_obj)
+			self.renderInfoLabel.setText(
+				f"{stats.elapsed_seconds:.2f}s, traced={stats.traced_pixels}, avgS={stats.average_samples_per_traced_pixel:.1f}"
+			)
+		finally:
+			QApplication.restoreOverrideCursor()

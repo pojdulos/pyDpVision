@@ -1,0 +1,696 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[polish]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{array}
+
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc, backgrounds}
+
+\lstdefinestyle{python}{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{orange!80!black},
+  showstringspaces=false,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  rulecolor=\color{gray!40},
+  backgroundcolor=\color{gray!5},
+  tabsize=4,
+}
+
+\tikzstyle{startstop} = [rectangle, rounded corners=8pt, minimum width=3.3cm,
+                         minimum height=0.9cm, text centered, draw=black,
+                         fill=teal!20, font=\small\bfseries]
+\tikzstyle{process}   = [rectangle, minimum width=3.3cm, minimum height=0.9cm,
+                         text centered, draw=black, fill=blue!10, font=\small]
+\tikzstyle{decision}  = [diamond, aspect=2.2, minimum width=3.3cm,
+                         minimum height=0.9cm, text centered, draw=black,
+                         fill=orange!20, font=\small]
+\tikzstyle{io}        = [trapezium, trapezium left angle=70, trapezium right angle=110,
+                         minimum width=3.3cm, minimum height=0.9cm, text centered,
+                         draw=black, fill=green!10, font=\small]
+\tikzstyle{arrow}     = [thick, ->, >=Stealth]
+\tikzstyle{darrow}    = [thick, ->, >=Stealth, dashed]
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\LARGE\bfseries pyDpVision \par}
+  \vspace{0.5cm}
+  {\large Dokumentacja modułu \par}
+  \vspace{0.3cm}
+  {\huge\ttfamily dpVision/xrayProjection.py \par}
+  \vspace{1cm}
+  \rule{0.7\textwidth}{0.4pt}
+  \vspace{0.5cm}
+  \par
+  {\large Projekcja RTG w przestrzeni świata dla wielu wolumenów\\
+  z rozdzieleniem geometrii, fizyki i prezentacji \par}
+  \vfill
+  {\small \today}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{Cel modułu}
+
+Moduł \texttt{dpVision/xrayProjection.py} został wydzielony po to, aby:
+\begin{itemize}
+  \item oddzielić obliczenia projekcji RTG od klasy \texttt{Volumetric},
+  \item umożliwić pracę na wielu obiektach sceny jednocześnie,
+  \item liczyć projekcję w przestrzeni świata z uwzględnieniem transformacji hierarchicznych,
+  \item pozostawić otwartą drogę do późniejszego rozszerzenia o nowe źródła próbek
+        (np. siatki trójkątów, źródła hybrydowe, modele materiałowe),
+  \item rozdzielić \emph{akwizycję} od \emph{prezentacji}.
+\end{itemize}
+
+Na obecnym etapie moduł wspiera przede wszystkim:
+\begin{itemize}
+  \item źródła wolumetryczne przez adapter \texttt{VolumetricXRaySource},
+  \item prosty model tłumienia oparty o wartości CT,
+  \item projekcję na płaski detektor,
+  \item kilka modeli prezentacji końcowego obrazu,
+  \item eksport wyniku do \texttt{PNG}, \texttt{TIFF} i \texttt{DICOM Secondary Capture}.
+\end{itemize}
+
+\section{Architektura}
+
+\subsection{Warstwy odpowiedzialności}
+
+Rdzeń modułu został rozdzielony na cztery warstwy:
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Geometria projekcji} -- położenie źródła, orientacja detektora,
+        rozdzielczość siatki detektora i krok całkowania.
+  \item \textbf{Źródła próbkowania} -- obiekty sceny zdolne odpowiadać na pytanie:
+        ``jaki współczynnik osłabienia obowiązuje w zadanym punkcie świata?''.
+  \item \textbf{Model fizyczny} -- mapowanie z wartości skalarnej do współczynnika
+        osłabienia oraz przekształcenie całki po promieniu do surowego wyniku detektora.
+  \item \textbf{Model prezentacji} -- budowa obrazu końcowego do oglądania lub eksportu.
+\end{enumerate}
+
+\subsection{Najważniejsze klasy}
+
+\begin{table}[H]
+\centering
+\caption{Główne klasy modułu \texttt{xrayProjection.py}}
+\begin{tabular}{>{\ttfamily}p{4.2cm} p{10cm}}
+\toprule
+\textbf{Klasa / funkcja} & \textbf{Rola} \\
+\midrule
+XRayProjectionGeometry & opis źródła i detektora w wybranej przestrzeni odniesienia \\
+XRayPhysicsModel & mapowanie \textit{scalar $\rightarrow \mu$} oraz \textit{integral $\rightarrow$ detector value} \\
+XRaySampleSource & abstrakcyjne źródło próbek dla projektora \\
+VolumetricXRaySource & adapter klasy \texttt{Volumetric} do świata RTG \\
+XRayProjector & właściwy projektor promieniowania \\
+XRayPresentationModel & abstrakcyjna warstwa prezentacji \\
+RawPresentationModel & brak modyfikacji obrazu surowego \\
+FilmLikePresentationModel & prosty model ``kliszy'' z odwróceniem i nieliniowością \\
+DigitalRadiographyPresentationModel & prosty model cyfrowej prezentacji RTG \\
+XRayProjectionQualityProfile & preset jakosci zmieniajacy krok ray-marchingu i probkowanie detektora \\
+XRayProjectionConfig & pakiet konfiguracji: geometria, fizyka, prezentacja i profil jakosci \\
+XRayScene & kontener zrodel sceny i wygodny punkt wejscia do projekcji \\
+XRayProjectionStats & podstawowe statystyki czasu i liczby probek dla jednej projekcji \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.9cm and 1.7cm]
+  \node (geo)   [io]       {Geometria projekcji};
+  \node (src)   [io, below=of geo] {Źródła próbek};
+  \node (phys)  [process, right=of geo] {Model fizyczny};
+  \node (proj)  [process, right=of src] {XRayProjector};
+  \node (raw)   [process, right=of proj] {Wynik surowy};
+  \node (pres)  [process, right=of raw] {Model prezentacji};
+  \node (out)   [startstop, right=of pres] {Obraz końcowy};
+
+  \draw [arrow] (geo) -- (proj);
+  \draw [arrow] (src) -- (proj);
+  \draw [arrow] (phys) -- (proj);
+  \draw [arrow] (proj) -- (raw);
+  \draw [arrow] (raw) -- (pres);
+  \draw [arrow] (pres) -- (out);
+
+  \begin{scope}[on background layer]
+    \node[draw=black, rounded corners=8pt, fit=(geo)(src), inner sep=0.35cm, fill=green!4] {};
+    \node[draw=black, rounded corners=8pt, fit=(phys)(proj)(raw), inner sep=0.35cm, fill=blue!4] {};
+    \node[draw=black, rounded corners=8pt, fit=(pres)(out), inner sep=0.35cm, fill=orange!4] {};
+  \end{scope}
+\end{tikzpicture}
+\caption{Podział na geometrię, akwizycję i prezentację}
+\end{figure}
+
+\section{Przestrzenie i transformacje}
+
+\subsection{Idea podstawowa}
+
+Każdy wolumen przechowuje dane w swojej lokalnej siatce wokseli. Projektor pracuje
+w przestrzeni świata. Dla każdego punktu promienia wykonywany jest łańcuch odwzorowań:
+\[
+  \mathbf{p}_{\mathrm{ref}}
+  \xrightarrow{T_{\mathrm{world}\leftarrow \mathrm{ref}}}
+  \mathbf{p}_{\mathrm{world}}
+  \xrightarrow{T_{\mathrm{local}\leftarrow \mathrm{world}}}
+  \mathbf{p}_{\mathrm{local}}
+  \xrightarrow{\texttt{world\_to\_voxel}}
+  \mathbf{p}_{\mathrm{voxel}}.
+\]
+
+Interpretacja:
+\begin{itemize}
+  \item \(\mathbf{p}_{\mathrm{ref}}\) -- punkt opisany w przestrzeni odniesienia geometrii,
+  \item \(\mathbf{p}_{\mathrm{world}}\) -- ten sam punkt w globalnym układzie sceny,
+  \item \(\mathbf{p}_{\mathrm{local}}\) -- punkt w lokalnym układzie konkretnego źródła,
+  \item \(\mathbf{p}_{\mathrm{voxel}}\) -- współrzędne ułamkowe w siatce wokseli.
+\end{itemize}
+
+\subsection{Budowa geometrii wysokiego poziomu}
+
+Niskopoziomowe API pozwala nadal definiowac detektor przez:
+\begin{itemize}
+  \item \texttt{detector\_origin\_ref},
+  \item \texttt{detector\_u\_ref},
+  \item \texttt{detector\_v\_ref},
+  \item \texttt{detector\_shape\_hw}.
+\end{itemize}
+
+Jednoczesnie modul udostepnia konstruktor
+\texttt{XRayProjectionGeometry.from\_detector\_pose(...)}, ktory przyjmuje:
+\begin{itemize}
+  \item srodek detektora,
+  \item normalna detektora,
+  \item wektor ``up'',
+  \item rozdzielczosc detektora,
+  \item oraz albo rozmiar fizyczny detektora, albo wielkosc piksela.
+\end{itemize}
+
+To jest preferowany punkt wejscia dla przyszlego GUI, bo pozwala opisywac
+scene parametrami blizszymi rzeczywistej geometrii RTG niz surowe wektory
+\(\mathbf{u}_{\mathrm{det}}\) i \(\mathbf{v}_{\mathrm{det}}\).
+
+\subsection{Macierz świata dla wolumenu}
+
+Wolumen może być potomkiem dowolnej hierarchii transformacji. Globalne położenie
+źródła wolumetrycznego opisuje macierz:
+\[
+  T_{\mathrm{world}\leftarrow \mathrm{local}} \in \mathbb{R}^{4 \times 4}.
+\]
+
+W adapterze \texttt{VolumetricXRaySource} używana jest jej odwrotność:
+\[
+  T_{\mathrm{local}\leftarrow \mathrm{world}}
+  =
+  T_{\mathrm{world}\leftarrow \mathrm{local}}^{-1}.
+\]
+
+Dla punktu w świecie:
+\[
+  \tilde{\mathbf{p}}_{\mathrm{local}}
+  =
+  T_{\mathrm{local}\leftarrow \mathrm{world}}
+  \tilde{\mathbf{p}}_{\mathrm{world}},
+\]
+gdzie \(\tilde{\mathbf{p}}\) oznacza współrzędne jednorodne.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=1.0]
+  \draw[->, thick] (0,0) -- (3.8,0) node[below] {$X_{\mathrm{world}}$};
+  \draw[->, thick] (0,0) -- (0,3.2) node[left] {$Y_{\mathrm{world}}$};
+
+  \draw[->, thick, blue] (1.2,0.8) -- ++(2.0,0.7) node[above] {$x_{\mathrm{local}}$};
+  \draw[->, thick, blue] (1.2,0.8) -- ++(-0.4,1.7) node[left] {$y_{\mathrm{local}}$};
+  \filldraw[blue] (1.2,0.8) circle (1.5pt) node[below left] {$O_{\mathrm{local}}$};
+
+  \draw[dashed, gray] (1.2,0.8) -- (1.2,0);
+  \draw[dashed, gray] (1.2,0.8) -- (0,0.8);
+  \node at (2.5,2.3) {$T_{\mathrm{world}\leftarrow \mathrm{local}}$};
+\end{tikzpicture}
+\caption{Lokalny układ wolumenu osadzony w przestrzeni świata}
+\end{figure}
+
+\section{Geometria projekcji}
+
+\subsection{Detektor}
+
+Detektor opisuje punkt początkowy i dwa wektory bazowe:
+\[
+  \mathbf{o}_D, \qquad \mathbf{u}_D, \qquad \mathbf{v}_D.
+\]
+
+Dla piksela \((r, c)\) środek próbki na detektorze wynosi:
+\[
+  \mathbf{p}_{D}(r,c)
+  =
+  \mathbf{o}_D + c\,\mathbf{u}_D + r\,\mathbf{v}_D.
+\]
+
+W implementacji wartości te są najpierw zadane w przestrzeni referencyjnej,
+a następnie mapowane do świata przez \texttt{reference\_transform}.
+
+\subsection{Źródło promieniowania}
+
+Moduł dopuszcza dwa warianty:
+\begin{enumerate}[label=\alph*)]
+  \item \textbf{projekcja stożkowa} -- z pozycją źródła \(\mathbf{s}\),
+  \item \textbf{projekcja równoległa} -- ze stałym kierunkiem \(\mathbf{d}\).
+\end{enumerate}
+
+W wariancie stożkowym kierunek promienia dla piksela \((r,c)\) jest równy:
+\[
+  \hat{\mathbf{d}}(r,c)
+  =
+  \frac{\mathbf{p}_{D}(r,c) - \mathbf{s}}
+       {\|\mathbf{p}_{D}(r,c) - \mathbf{s}\|}.
+\]
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.95]
+  \coordinate (S) at (-2.5,0);
+  \coordinate (D0) at (3.0,-2.0);
+  \coordinate (D1) at (3.0, 2.0);
+  \coordinate (P) at (3.0, 0.7);
+
+  \draw[thick] (D0) -- (D1);
+  \filldraw (S) circle (1.8pt) node[left] {$\mathbf{s}$};
+  \filldraw (P) circle (1.5pt) node[right] {$\mathbf{p}_{D}(r,c)$};
+
+  \draw[arrow] (S) -- (P);
+  \draw[dashed] (S) -- (D0);
+  \draw[dashed] (S) -- (D1);
+
+  \node at (3.5, 0) {detektor};
+  \node at (0.2, 1.2) {$\hat{\mathbf{d}}(r,c)$};
+\end{tikzpicture}
+\caption{Geometria projekcji stożkowej}
+\end{figure}
+
+\section{Model akwizycji}
+
+\subsection{Mapowanie z intensywności do współczynnika osłabienia}
+
+W bieżącej implementacji stosowane jest bardzo proste przybliżenie CT-like.
+Nie jest to jeszcze model kliniczny, ale daje poprawną strukturę architektoniczną.
+
+Najpierw z wartości skalarnej \(I_{\mathrm{CT}}\) budowana jest względna gęstość:
+\[
+  \rho_{\mathrm{rel}}
+  =
+  \max\!\left(0,\,
+    1 + \frac{I_{\mathrm{CT}}}{|HU_{\mathrm{air}}|}
+  \right).
+\]
+
+Następnie liniowy współczynnik osłabienia:
+\[
+  \mu
+  =
+  \left(
+    \mu_{\mathrm{air}} + \mu_{\mathrm{water}} \rho_{\mathrm{rel}}
+  \right)
+  \cdot s_{\mu},
+\]
+gdzie:
+\begin{itemize}
+  \item \(\mu_{\mathrm{air}}\) -- wkład powietrza,
+  \item \(\mu_{\mathrm{water}}\) -- parametr referencyjny,
+  \item \(s_{\mu}\) -- skala osłabienia.
+\end{itemize}
+
+\subsection{Całkowanie po promieniu}
+
+Dla jednego promienia próbkujemy punkty:
+\[
+  \mathbf{p}(t_k) = \mathbf{o}_R + t_k \hat{\mathbf{d}},
+  \qquad
+  k = 0, \dots, N-1.
+\]
+
+Jeżeli scena zawiera wiele źródeł, ich wkłady są sumowane:
+\[
+  \mu_{\mathrm{tot}}(t_k)
+  =
+  \sum_{m=1}^{M} \mu_m(t_k).
+\]
+
+Całka po promieniu jest aproksymowana numerycznie:
+\[
+  A
+  \approx
+  \sum_{k=0}^{N-1} \mu_{\mathrm{tot}}(t_k)\,\Delta s.
+\]
+
+W bieżącym \texttt{XRayPhysicsModel} wynik surowy można zwrócić jako:
+\begin{enumerate}[label=\alph*)]
+  \item \textbf{integral}:
+  \[
+    I_{\mathrm{raw}} = A,
+  \]
+  \item \textbf{intensity}:
+  \[
+    I_{\mathrm{raw}} = \exp(-A).
+  \]
+\end{enumerate}
+
+\section{Model prezentacji}
+
+\subsection{Po co osobna warstwa prezentacji}
+
+Projektor nie powinien decydować, czy kość ma być jasna, czy ciemna.
+Projektor powinien dostarczyć wynik surowy. Dopiero kolejny model decyduje,
+jak ten wynik pokazać człowiekowi.
+
+Stąd rozdzielenie:
+\[
+  \text{akwizycja}
+  \;\longrightarrow\;
+  I_{\mathrm{raw}}
+  \;\longrightarrow\;
+  \text{prezentacja}
+  \;\longrightarrow\;
+  I_{\mathrm{display}}.
+\]
+
+\subsection{Dostępne modele}
+
+\paragraph{\texttt{RawPresentationModel}}
+Zwraca wynik bez zmian:
+\[
+  I_{\mathrm{display}} = I_{\mathrm{raw}}.
+\]
+
+\paragraph{\texttt{FilmLikePresentationModel}}
+Stosuje:
+\begin{itemize}
+  \item normalizację do zakresu roboczego,
+  \item opcjonalne odwrócenie jasności,
+  \item prostą regulację kontrastu,
+  \item nieliniowość \(\gamma\).
+\end{itemize}
+
+\paragraph{\texttt{DigitalRadiographyPresentationModel}}
+Stosuje podobny pipeline, ale semantycznie odpowiada cyfrowej prezentacji RTG:
+\begin{itemize}
+  \item windowing,
+  \item invert,
+  \item kontrast,
+  \item gamma.
+\end{itemize}
+
+Najprostsza postać takiego modelu jest:
+\[
+  I_N
+  =
+  \mathrm{clip}\!\left(
+    \frac{I_{\mathrm{raw}} - I_{\min}}
+         {I_{\max} - I_{\min}},
+    0, 1
+  \right),
+\]
+\[
+  I_C = \mathrm{clip}\!\left(0.5 + (I_N - 0.5) c,\; 0,1\right),
+\]
+\[
+  I_{\mathrm{display}}
+  =
+  \begin{cases}
+    (1 - I_C)^{1/\gamma}, & \text{gdy aktywne invert},\\
+    I_C^{1/\gamma}, & \text{w przeciwnym razie.}
+  \end{cases}
+\]
+
+\section{Eksport wyników}
+
+Moduł wspiera trzy typy zapisu:
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{PNG} -- szybki podgląd 8-bitowy.
+  \item \textbf{TIFF} -- zapis precyzyjny:
+    \texttt{uint8}, \texttt{uint16} albo \texttt{float32}.
+  \item \textbf{DICOM Secondary Capture} -- prosty eksport do workflow medycznego.
+\end{enumerate}
+
+Ważne rozróżnienie:
+\begin{itemize}
+  \item \texttt{float32 TIFF} jest nośnikiem danych surowych lub półsurowych,
+  \item \texttt{PNG}, \texttt{uint16 TIFF} i \texttt{DICOM} zwykle zapisują obraz już
+        przekształcony przez model prezentacji.
+\end{itemize}
+
+\section{Schemat algorytmu}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.75cm and 1.8cm]
+  \node (start) [startstop] {Start};
+  \node (geo)   [process, below=of start] {Walidacja geometrii};
+  \node (pix)   [process, below=of geo] {Wybór piksela detektora};
+  \node (ray)   [process, below=of pix] {Budowa promienia w świecie};
+  \node (box)   [decision, below=of ray, yshift=-0.1cm] {Przecięcie z AABB sceny?};
+  \node (samp)  [process, below=of box, yshift=-0.2cm] {Próbkowanie wszystkich źródeł};
+  \node (intg)  [process, below=of samp] {Całkowanie osłabienia};
+  \node (raw)   [process, below=of intg] {Wynik surowy piksela};
+  \node (next)  [decision, below=of raw, yshift=-0.1cm] {Kolejny piksel?};
+  \node (pres)  [process, right=4.2cm of raw] {Model prezentacji};
+  \node (save)  [process, below=of pres] {Eksport / wizualizacja};
+  \node (stop)  [startstop, below=of save] {Koniec};
+  \node (skip)  [process, right=4.2cm of box] {Piksel pusty};
+
+  \draw [arrow] (start) -- (geo);
+  \draw [arrow] (geo) -- (pix);
+  \draw [arrow] (pix) -- (ray);
+  \draw [arrow] (ray) -- (box);
+  \draw [arrow] (box) -- node[left] {tak} (samp);
+  \draw [arrow] (box) -- node[above] {nie} (skip);
+  \draw [arrow] (skip) |- (next);
+  \draw [arrow] (samp) -- (intg);
+  \draw [arrow] (intg) -- (raw);
+  \draw [arrow] (raw) -- (next);
+  \draw [arrow] (next) -- node[right] {tak} ++(0,-0.8) -| (pix);
+  \draw [arrow] (next) -- node[above] {nie} (pres);
+  \draw [arrow] (pres) -- (save);
+  \draw [arrow] (save) -- (stop);
+\end{tikzpicture}
+\caption{Schemat ogólny projekcji RTG}
+\end{figure}
+
+\section{Przykład użycia}
+
+W pliku \texttt{dp\_testy.py} zdefiniowano scenariusz:
+\begin{itemize}
+  \item \texttt{create\_synthetic\_xray\_demo\_dicoms()},
+  \item \texttt{build\_synthetic\_xray\_demo\_volumes()},
+  \item \texttt{demo\_synthetic\_xray\_projection()}.
+\end{itemize}
+
+Przykład minimalny:
+
+\begin{lstlisting}[style=python, caption={Minimalny scenariusz projekcji RTG}]
+from dpVision import (
+    XRayProjectionGeometry,
+    XRayProjectionQualityProfile,
+    XRayProjectionConfig,
+    XRayPhysicsModel,
+    DigitalRadiographyPresentationModel,
+    VolumetricXRaySource,
+    XRayScene,
+    save_projection_png,
+)
+
+geometry = XRayProjectionGeometry.from_detector_pose(
+    detector_center_ref=[42.2, 42.2, 180.0],
+    detector_normal_ref=[0.0, 0.0, -1.0],
+    detector_up_ref=[0.0, 1.0, 0.0],
+    detector_shape_hw=[256, 256],
+    detector_pixel_size_mm=0.4,
+    step_mm=1.5,
+    source_position_ref=[42.2, 42.2, -220.0],
+)
+
+physics = XRayPhysicsModel(output_mode="integral")
+scene = XRayScene.from_sample_sources([
+    VolumetricXRaySource(skull, global_transform=skull_transform),
+    VolumetricXRaySource(jaw,   global_transform=jaw_transform),
+])
+config = XRayProjectionConfig(
+    geometry=geometry,
+    physics_model=physics,
+    presentation_model=DigitalRadiographyPresentationModel(
+        invert=False,
+        gamma=0.7,
+        contrast=1.2,
+    ),
+    quality_profile=XRayProjectionQualityProfile.normal(),
+)
+
+raw_image, stats = scene.project(config=config, return_stats=True)
+display_image = config.apply_presentation(raw_image)
+
+save_projection_png(display_image, "synthetic_xray.png",
+                    invert=False, fixed_range=(0.0, 1.0))
+\end{lstlisting}
+
+\section{Zlozonosc obliczeniowa i koszt parametrow}
+
+W biezacej implementacji koszt projekcji jest zdominowany przez ray-marching,
+czyli przez liczbe promieni i liczbe probek pobieranych wzdluz kazdego promienia.
+W pierwszym przyblizeniu mozna zapisac:
+\begin{equation}
+T \sim H \cdot W \cdot N_s \cdot N_v,
+\end{equation}
+gdzie:
+\begin{itemize}
+  \item \(H, W\) -- wysokosc i szerokosc siatki detektora,
+  \item \(N_s\) -- liczba probek na promien,
+  \item \(N_v\) -- liczba aktywnych zrodel danych, na przyklad wolumenow.
+\end{itemize}
+
+Jesli przecietna dlugosc odcinka promienia przebiegajacego przez scene wynosi \(L\),
+a krok probkowania jest rowny \(\Delta s = \texttt{step\_mm}\), to:
+\begin{equation}
+N_s \approx \frac{L}{\Delta s},
+\end{equation}
+co prowadzi do praktycznej zaleznosci:
+\begin{equation}
+T \sim H \cdot W \cdot \frac{L}{\texttt{step\_mm}} \cdot N_v.
+\end{equation}
+
+\subsection{Co zwieksza czas liczenia}
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Wieksza liczba pikseli detektora}
+  
+  Podwojenie rozdzielczosci w obu osiach daje w przyblizeniu czterokrotny wzrost
+  liczby promieni:
+  \begin{equation}
+  (2H) \cdot (2W) = 4HW.
+  \end{equation}
+
+  \item \textbf{Mniejszy krok \texttt{step\_mm}}
+  
+  Zmniejszenie kroku z \(1.5\ \mathrm{mm}\) do \(0.75\ \mathrm{mm}\) daje
+  w przyblizeniu dwukrotnie wiecej probek na promien:
+  \begin{equation}
+  \frac{L}{0.75} \approx 2 \cdot \frac{L}{1.5}.
+  \end{equation}
+
+  \item \textbf{Wieksza liczba wolumenow}
+  
+  W uogolnieniu czaszka + zuchwa sa drozsze od pojedynczej czaszki, poniewaz
+  kazda probka promienia musi byc sprawdzona w wiecej niz jednym zrodle danych.
+\end{enumerate}
+
+\subsection{Co zmienia geometria, a co zmienia koszt}
+
+Trzeba rozroznic dwa parametry o roznych znaczeniach:
+\begin{itemize}
+  \item \textbf{skala detektora}, wynikajaca z wektorow
+        \(\mathbf{u}_{\mathrm{det}}\), \(\mathbf{v}_{\mathrm{det}}\) i z
+        \texttt{detector\_shape\_hw},
+  \item \textbf{krok integracji} \(\texttt{step\_mm}\), ktory nie zmienia
+        pola widzenia, ale zmienia dokladnosc i czas ray-marchingu.
+\end{itemize}
+
+W aktualnym API dlugosci \(\|\mathbf{u}_{\mathrm{det}}\|\) i
+\(\|\mathbf{v}_{\mathrm{det}}\|\) odpowiadaja rozmiarowi pojedynczego piksela
+detektora w milimetrach. Z kolei fizyczny rozmiar detektora wynosi odpowiednio:
+\begin{equation}
+W_{\mathrm{det}} = W \cdot \|\mathbf{u}_{\mathrm{det}}\|,
+\qquad
+H_{\mathrm{det}} = H \cdot \|\mathbf{v}_{\mathrm{det}}\|.
+\end{equation}
+
+Zmiana rozmiaru detektora lub jego odleglosci od zrodla zmienia:
+\begin{itemize}
+  \item pole widzenia,
+  \item powiekszenie perspektywiczne,
+  \item to, jaki fragment sceny zmiesci sie na obrazie.
+\end{itemize}
+
+Nie musi jednak sama z siebie zmieniac czasu obliczen, jesli liczba pikseli
+pozostaje taka sama. Czas rosnie wtedy, gdy zwiekszamy \texttt{shape\_hw},
+a nie tylko fizyczny wymiar kliszy lub detektora.
+
+\subsection{Praktyczne kompromisy}
+
+\begin{itemize}
+  \item \textbf{Do szybkiego debugowania geometrii:}
+        mniejszy detektor, na przyklad \(128 \times 128\), oraz wiekszy
+        \texttt{step\_mm}, na przyklad \(1.5\) -- \(2.0\ \mathrm{mm}\).
+  \item \textbf{Do porownan scen lub animacji:}
+        utrzymanie umiarkowanej rozdzielczosci detektora i stalego
+        \texttt{step\_mm}, aby czasy kolejnych projekcji byly przewidywalne.
+  \item \textbf{Do finalnego renderu:}
+        wiekszy detektor, na przyklad \(256 \times 256\) lub \(512 \times 512\),
+        oraz mniejszy krok, jesli potrzebna jest dokladniejsza integracja
+        przez cienkie struktury kostne.
+  \item \textbf{Do wielu obiektow ruchomych:}
+        lepiej unikac kosztownego resamplingu posredniego i probkowac scene
+        bezposrednio w przestrzeni swiata, bo dodatkowy resampling wprowadza
+        i koszt, i kolejna warstwe interpolacji.
+\end{itemize}
+
+\section{Ograniczenia bieżącej implementacji}
+
+\begin{itemize}
+  \item Projekcja jest liczona na CPU i ma złożoność liniową względem liczby pikseli
+        detektora, liczby próbek po promieniu i liczby źródeł.
+  \item Model \(\mu(I_{\mathrm{CT}})\) jest prosty i nie reprezentuje jeszcze
+        pełnej fizyki klinicznej.
+  \item Detektor nie modeluje jeszcze odpowiedzi energetycznej, szumu, scatter ani MTF.
+  \item Eksport DICOM używa na razie prostego \texttt{Secondary Capture}.
+  \item Interfejs \texttt{XRaySampleSource} jest gotowy na siatki, ale bieżąca implementacja
+        zawiera tylko adapter wolumetryczny.
+\end{itemize}
+
+\section{Kierunki rozbudowy}
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Nowe źródła próbek:} siatki trójkątów, siatki materiałowe,
+        źródła nieciągłe, maski segmentacyjne.
+  \item \textbf{Lepsza fizyka:} osobne modele \(\mu(E)\), widmo lampy,
+        beam hardening, scatter, szum kwantowy.
+  \item \textbf{Akceleracja:} batching promieni, wektoryzacja, GPU.
+  \item \textbf{Geometrie specjalne:} CBCT, panoramiczne, detektor zakrzywiony.
+  \item \textbf{Integracja z GUI:} dialog ustawiania geometrii, podgląd i animacja
+        scen czaszka + żuchwa.
+\end{enumerate}
+
+\section*{Podsumowanie}
+\addcontentsline{toc}{section}{Podsumowanie}
+
+Moduł \texttt{xrayProjection.py} nie jest tylko kolejną funkcją podglądu.
+Stanowi oddzielny backend projekcji RTG, w którym:
+\begin{itemize}
+  \item geometria,
+  \item źródła próbkowania,
+  \item fizyka akwizycji,
+  \item i prezentacja
+\end{itemize}
+są jawnie rozdzielone. Taki podział pozwala rozwijać zgodność z fizyką RTG
+bez naruszania już działającego kodu dla wolumenów i bez przeciążania klasy
+\texttt{Volumetric} odpowiedzialnościami niezwiązanymi z przechowywaniem danych.
+
+\end{document}

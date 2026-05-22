@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from time import perf_counter
 from typing import Iterable, Sequence
 
 import cv2
@@ -13,6 +14,11 @@ import pydicom
 from scipy.ndimage import map_coordinates
 
 from .volumetric import Volumetric
+
+
+def _identity_matrix():
+	"""Return a 4x4 identity matrix used as a default homogeneous transform."""
+	return np.eye(4, dtype=np.float32)
 
 
 def _normalize_vector(vector):
@@ -289,6 +295,115 @@ class XRayProjectionGeometry:
 	source_position_ref: Sequence[float] | None = None
 	ray_direction_ref: Sequence[float] | None = None
 
+	@classmethod
+	def from_detector_pose(
+		cls,
+		detector_center_ref,
+		detector_normal_ref,
+		detector_up_ref,
+		detector_shape_hw,
+		detector_pixel_size_mm=None,
+		detector_size_mm_hw=None,
+		step_mm=1.0,
+		source_position_ref=None,
+		ray_direction_ref=None,
+	):
+		"""Build geometry from a detector center, orientation and either size or pixel spacing."""
+		height = int(detector_shape_hw[0])
+		width = int(detector_shape_hw[1])
+		if height <= 0 or width <= 0:
+			raise ValueError("detector_shape_hw must contain positive height and width.")
+
+		normal = _normalize_vector(detector_normal_ref)
+		up = np.asarray(detector_up_ref, dtype=np.float32)
+		up = up - normal * float(np.dot(up, normal))
+		up = _normalize_vector(up)
+		u_axis = _normalize_vector(np.cross(up, normal))
+		v_axis = up
+
+		if detector_pixel_size_mm is not None and detector_size_mm_hw is not None:
+			raise ValueError("Provide either detector_pixel_size_mm or detector_size_mm_hw, not both.")
+		if detector_pixel_size_mm is None and detector_size_mm_hw is None:
+			raise ValueError("Either detector_pixel_size_mm or detector_size_mm_hw must be provided.")
+
+		if detector_size_mm_hw is not None:
+			size_h = float(detector_size_mm_hw[0])
+			size_w = float(detector_size_mm_hw[1])
+			if size_h <= 0.0 or size_w <= 0.0:
+				raise ValueError("detector_size_mm_hw must contain positive physical dimensions.")
+			pixel_size_v = size_h / float(height)
+			pixel_size_u = size_w / float(width)
+		else:
+			if np.isscalar(detector_pixel_size_mm):
+				pixel_size_u = float(detector_pixel_size_mm)
+				pixel_size_v = float(detector_pixel_size_mm)
+			else:
+				pixel_size_u = float(detector_pixel_size_mm[0])
+				pixel_size_v = float(detector_pixel_size_mm[1])
+			if pixel_size_u <= 0.0 or pixel_size_v <= 0.0:
+				raise ValueError("detector_pixel_size_mm must be positive.")
+
+		detector_u_ref = u_axis * pixel_size_u
+		detector_v_ref = v_axis * pixel_size_v
+		detector_center_ref = np.asarray(detector_center_ref, dtype=np.float32)
+		detector_origin_ref = (
+			detector_center_ref
+			- detector_u_ref * (float(width - 1) / 2.0)
+			- detector_v_ref * (float(height - 1) / 2.0)
+		)
+		return cls(
+			detector_origin_ref=detector_origin_ref.astype(np.float32),
+			detector_u_ref=detector_u_ref.astype(np.float32),
+			detector_v_ref=detector_v_ref.astype(np.float32),
+			detector_shape_hw=[height, width],
+			step_mm=float(step_mm),
+			source_position_ref=source_position_ref,
+			ray_direction_ref=ray_direction_ref,
+		)
+
+	def detector_pixel_size_mm_uv(self):
+		"""Return detector pixel pitch along the `u` and `v` detector axes."""
+		return (
+			float(np.linalg.norm(np.asarray(self.detector_u_ref, dtype=np.float32))),
+			float(np.linalg.norm(np.asarray(self.detector_v_ref, dtype=np.float32))),
+		)
+
+	def detector_size_mm_hw(self):
+		"""Return the physical detector size in millimeters as `(height_mm, width_mm)`."""
+		height, width = int(self.detector_shape_hw[0]), int(self.detector_shape_hw[1])
+		pixel_size_u, pixel_size_v = self.detector_pixel_size_mm_uv()
+		return float(height) * pixel_size_v, float(width) * pixel_size_u
+
+	def detector_center_ref_point(self):
+		"""Return the detector center point expressed in the geometry reference frame."""
+		height, width = int(self.detector_shape_hw[0]), int(self.detector_shape_hw[1])
+		return (
+			np.asarray(self.detector_origin_ref, dtype=np.float32)
+			+ np.asarray(self.detector_u_ref, dtype=np.float32) * (float(width - 1) / 2.0)
+			+ np.asarray(self.detector_v_ref, dtype=np.float32) * (float(height - 1) / 2.0)
+		).astype(np.float32)
+
+	def detector_normal_ref_vector(self):
+		"""Return the detector plane normal vector derived from the `u` and `v` axes."""
+		return _normalize_vector(np.cross(
+			np.asarray(self.detector_u_ref, dtype=np.float32),
+			np.asarray(self.detector_v_ref, dtype=np.float32),
+		))
+
+	def is_cone_beam(self):
+		"""Return `True` when the geometry is driven by a point source."""
+		return self.source_position_ref is not None
+
+	def is_parallel_beam(self):
+		"""Return `True` when the geometry uses one shared ray direction."""
+		return self.ray_direction_ref is not None
+
+	def with_quality_profile(self, quality_profile):
+		"""Return a geometry copy modified by a quality profile."""
+		if quality_profile is None:
+			return replace(self)
+		return quality_profile.apply_to_geometry(self)
+
 	def validate(self):
 		"""Validate geometry fields before projection."""
 		height, width = int(self.detector_shape_hw[0]), int(self.detector_shape_hw[1])
@@ -298,6 +413,12 @@ class XRayProjectionGeometry:
 			raise ValueError("step_mm must be positive.")
 		if self.source_position_ref is None and self.ray_direction_ref is None:
 			raise ValueError("Either source_position_ref or ray_direction_ref must be provided.")
+		if self.source_position_ref is not None and self.ray_direction_ref is not None:
+			raise ValueError("Geometry must define either source_position_ref or ray_direction_ref, not both.")
+		if np.linalg.norm(np.asarray(self.detector_u_ref, dtype=np.float32)) <= 1e-8:
+			raise ValueError("detector_u_ref must have a non-zero length.")
+		if np.linalg.norm(np.asarray(self.detector_v_ref, dtype=np.float32)) <= 1e-8:
+			raise ValueError("detector_v_ref must have a non-zero length.")
 
 
 @dataclass
@@ -310,12 +431,33 @@ class XRayPhysicsModel:
 	attenuation_scale: float = 1.0
 	output_mode: str = "intensity"
 	intensity_floor: float = 0.0
+	material_window_center: float | None = None
+	material_window_width: float | None = None
+	material_window_mode: str = "hard"
+	material_window_softness: float = 150.0
 
 	def scalar_to_mu(self, scalar_values):
 		"""Convert scalar CT-like values into a linear attenuation coefficient."""
 		scalar_values = np.asarray(scalar_values, dtype=np.float32)
 		relative_density = np.maximum(0.0, 1.0 + scalar_values / abs(float(self.hounsfield_air)))
-		return (float(self.mu_air) + float(self.mu_water) * relative_density) * float(self.attenuation_scale)
+		mu = (float(self.mu_air) + float(self.mu_water) * relative_density) * float(self.attenuation_scale)
+		if self.material_window_center is not None and self.material_window_width is not None and float(self.material_window_width) > 0.0:
+			vmin = float(self.material_window_center) - float(self.material_window_width) / 2.0
+			vmax = float(self.material_window_center) + float(self.material_window_width) / 2.0
+			mode = str(self.material_window_mode).lower()
+			softness = max(1e-6, float(self.material_window_softness))
+			if mode == "linear":
+				lower = np.clip((scalar_values - (vmin - softness)) / softness, 0.0, 1.0)
+				upper = np.clip(((vmax + softness) - scalar_values) / softness, 0.0, 1.0)
+				weight = lower * upper
+			elif mode == "sigmoid":
+				lower = 1.0 / (1.0 + np.exp(-(scalar_values - vmin) / softness))
+				upper = 1.0 / (1.0 + np.exp((scalar_values - vmax) / softness))
+				weight = lower * upper
+			else:
+				weight = ((scalar_values >= vmin) & (scalar_values <= vmax)).astype(np.float32)
+			mu = mu * weight.astype(np.float32, copy=False)
+		return mu
 
 	def integral_to_image(self, line_integral):
 		"""Convert integrated attenuation into a detector-space image value."""
@@ -324,6 +466,148 @@ class XRayPhysicsModel:
 		if mode == "integral":
 			return line_integral
 		return np.maximum(float(self.intensity_floor), np.exp(-line_integral))
+
+
+@dataclass
+class XRayProjectionQualityProfile:
+	"""Describe a reusable quality preset that modifies geometry sampling density."""
+
+	name: str
+	step_mm: float | None = None
+	detector_downsample: int = 1
+
+	@classmethod
+	def draft(cls):
+		"""Return a low-cost profile useful for quick geometry debugging."""
+		return cls(name="draft", step_mm=2.0, detector_downsample=2)
+
+	@classmethod
+	def normal(cls):
+		"""Return a balanced profile for standard interactive work."""
+		return cls(name="normal", step_mm=1.0, detector_downsample=1)
+
+	@classmethod
+	def high(cls):
+		"""Return a high-quality profile prioritizing detail over runtime."""
+		return cls(name="high", step_mm=0.5, detector_downsample=1)
+
+	def apply_to_geometry(self, geometry):
+		"""Return a geometry copy with detector sampling and ray step adapted to this profile."""
+		geometry = replace(geometry)
+		downsample = max(1, int(self.detector_downsample))
+		if downsample > 1:
+			height = max(1, int(np.ceil(int(geometry.detector_shape_hw[0]) / float(downsample))))
+			width = max(1, int(np.ceil(int(geometry.detector_shape_hw[1]) / float(downsample))))
+			geometry = replace(
+				geometry,
+				detector_shape_hw=[height, width],
+				detector_u_ref=np.asarray(geometry.detector_u_ref, dtype=np.float32) * float(downsample),
+				detector_v_ref=np.asarray(geometry.detector_v_ref, dtype=np.float32) * float(downsample),
+			)
+		if self.step_mm is not None:
+			geometry = replace(geometry, step_mm=float(self.step_mm))
+		return geometry
+
+
+@dataclass
+class XRayProjectionConfig:
+	"""Bundle projection geometry, physics and optional presentation into one scenario."""
+
+	geometry: XRayProjectionGeometry
+	physics_model: XRayPhysicsModel
+	presentation_model: XRayPresentationModel | None = None
+	reference_transform: np.ndarray = field(default_factory=_identity_matrix)
+	quality_profile: XRayProjectionQualityProfile | None = None
+
+	def effective_geometry(self):
+		"""Return the geometry after applying any quality profile override."""
+		return self.geometry.with_quality_profile(self.quality_profile)
+
+	def apply_presentation(self, image):
+		"""Return either the raw image or a presentation-mapped view of it."""
+		if self.presentation_model is None:
+			return np.asarray(image, dtype=np.float32)
+		return self.presentation_model.apply(image)
+
+
+@dataclass
+class XRayProjectionStats:
+	"""Collect basic runtime and workload statistics for one projection call."""
+
+	elapsed_seconds: float
+	total_pixels: int
+	traced_pixels: int
+	total_sample_count: int
+	source_count: int
+	step_mm: float
+	projection_mode: str
+	detector_shape_hw: tuple[int, int]
+
+	@property
+	def average_samples_per_traced_pixel(self):
+		"""Return the average sample count over rays that crossed the scene bounds."""
+		if self.traced_pixels <= 0:
+			return 0.0
+		return float(self.total_sample_count) / float(self.traced_pixels)
+
+	@property
+	def samples_per_second(self):
+		"""Return the effective throughput in attenuation samples per second."""
+		if self.elapsed_seconds <= 1e-9:
+			return 0.0
+		return float(self.total_sample_count) / float(self.elapsed_seconds)
+
+
+@dataclass
+class XRayScene:
+	"""Own the set of sources taking part in one X-ray acquisition scenario."""
+
+	sample_sources: list[XRaySampleSource]
+
+	@classmethod
+	def from_sample_sources(cls, sample_sources):
+		"""Build a scene from already prepared X-ray sample sources."""
+		return cls(sample_sources=list(sample_sources))
+
+	@classmethod
+	def from_volumetrics(cls, volumetric_entries):
+		"""Build a scene directly from volumetric objects and optional transforms."""
+		sample_sources = []
+		for entry in volumetric_entries:
+			if isinstance(entry, VolumetricXRaySource):
+				sample_sources.append(entry)
+				continue
+			if isinstance(entry, Volumetric):
+				sample_sources.append(VolumetricXRaySource(entry))
+				continue
+			if not isinstance(entry, Sequence) or len(entry) == 0:
+				raise TypeError("Each volumetric entry must be a Volumetric, VolumetricXRaySource or a configuration tuple.")
+			volumetric = entry[0]
+			global_transform = entry[1] if len(entry) > 1 else None
+			interpolation = entry[2] if len(entry) > 2 else "linear"
+			fill_value = entry[3] if len(entry) > 3 else None
+			sample_sources.append(VolumetricXRaySource(
+				volumetric=volumetric,
+				global_transform=global_transform,
+				interpolation=interpolation,
+				fill_value=fill_value,
+			))
+		return cls(sample_sources=sample_sources)
+
+	def build_projector(self):
+		"""Return a projector bound to the sources stored in this scene."""
+		return XRayProjector(self.sample_sources)
+
+	def project(self, config, return_stats=False):
+		"""Project the scene using a single combined configuration object."""
+		return self.build_projector().project_config(config=config, return_stats=return_stats)
+
+	def render(self, config, return_stats=False):
+		"""Project the scene and optionally apply the configured presentation model."""
+		if return_stats:
+			raw_image, stats = self.project(config=config, return_stats=True)
+			return config.apply_presentation(raw_image), stats
+		return config.apply_presentation(self.project(config=config, return_stats=False))
 
 
 class XRaySampleSource(ABC):
@@ -425,7 +709,7 @@ class XRayProjector:
 		ray_direction_world = _normalize_vector(_transform_direction(reference_transform, geometry.ray_direction_ref))
 		return ray_origin_world, ray_direction_world
 
-	def project(self, geometry, physics_model, reference_transform=None):
+	def project(self, geometry, physics_model, reference_transform=None, return_stats=False):
 		"""Project all sample sources through the provided X-ray geometry."""
 		geometry.validate()
 		reference_transform = np.eye(4, dtype=np.float32) if reference_transform is None else np.asarray(reference_transform, dtype=np.float32)
@@ -435,6 +719,9 @@ class XRayProjector:
 		scene_min_world, scene_max_world = self.scene_bounds_world()
 		height, width = int(geometry.detector_shape_hw[0]), int(geometry.detector_shape_hw[1])
 		projection = np.zeros((height, width), dtype=np.float32)
+		total_sample_count = 0
+		traced_pixels = 0
+		start_time = perf_counter()
 
 		for row_idx in range(height):
 			for col_idx in range(width):
@@ -458,6 +745,8 @@ class XRayProjector:
 					continue
 				t_start = max(0.0, t_start)
 				sample_count = max(1, int(np.ceil((t_end - t_start) / float(geometry.step_mm))) + 1)
+				total_sample_count += sample_count
+				traced_pixels += 1
 				t_values = np.linspace(t_start, t_end, sample_count, dtype=np.float32)
 				points_world = ray_origin_world[None, :] + t_values[:, None] * ray_direction_world[None, :]
 				total_mu = np.zeros(sample_count, dtype=np.float32)
@@ -466,4 +755,29 @@ class XRayProjector:
 				line_integral = np.sum(total_mu) * float(geometry.step_mm)
 				projection[row_idx, col_idx] = physics_model.integral_to_image(line_integral)
 
-		return projection
+		if not return_stats:
+			return projection
+
+		elapsed_seconds = perf_counter() - start_time
+		stats = XRayProjectionStats(
+			elapsed_seconds=float(elapsed_seconds),
+			total_pixels=int(height * width),
+			traced_pixels=int(traced_pixels),
+			total_sample_count=int(total_sample_count),
+			source_count=int(len(self.sample_sources)),
+			step_mm=float(geometry.step_mm),
+			projection_mode="cone" if geometry.is_cone_beam() else "parallel",
+			detector_shape_hw=(height, width),
+		)
+		return projection, stats
+
+	def project_config(self, config, return_stats=False):
+		"""Project the scene using a higher-level configuration object."""
+		if not isinstance(config, XRayProjectionConfig):
+			raise TypeError("config must be an instance of XRayProjectionConfig.")
+		return self.project(
+			geometry=config.effective_geometry(),
+			physics_model=config.physics_model,
+			reference_transform=config.reference_transform,
+			return_stats=return_stats,
+		)

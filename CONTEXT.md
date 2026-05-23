@@ -101,6 +101,15 @@ Qt5 MDI. Pliki `.ui` ładowane dynamicznie przez `AP.loadUi()` (obsługuje tryb 
 | `DockWidgetPluginPanel` | lewy dock: panel UI aktywnego pluginu |
 | `propMesh`, `propPointCloud`, ... | panele właściwości per typ obiektu |
 
+Pomocnicze kontrolki:
+- `dpVision/gui/multiSpinBox.py` (`MultiSpinBox`, `MultiSpinBoxWithLock`) narzucaja minimalna wysokosc wynikajaca z zawartosci i ustawiają stala polityke pionowa, zeby layout rodzica nie mogl ich zgniatac do zera.
+- `dpVision/gui/flowLayout.py` udostepnia wielokrotnego uzytku `FlowLayout`, ktory uklada widgety od lewej do prawej i automatycznie zawija je do kolejnego wiersza, gdy dock lub panel zrobi sie zbyt waski.
+- `PropTransform` uzywa `FlowLayout` w parach edytorow i nie powinien juz ograniczac grupy `Transformation` sztywnym maksimum szerokosci; sekcje maja moc rozszerzac sie do szerokosci docka i zawijac dopiero przy braku miejsca.
+- Panele w `DockWidgetProperties` powinny opierac rozmiar na `sizeHint`/`minimumSizeHint` i normalnym relayoutcie Qt; nie nalezy zamrazac ich wysokosci jednorazowym `setMinimumHeight(...)`, bo psuje to rozwijane sekcje i przewijanie `QScrollArea`.
+- W panelach opartych o `QFormLayout` pola edycyjne powinny zwykle zostawac przy `sizeHint()` (`FieldsStayAtSizeHint` + kompaktowy `QSizePolicy`), zamiast rozciagac sie na cala szerokosc docka.
+- Jesli panel ma pozostac kompaktowy, takze zwykle `QGroupBox` w kartach powinny miec uklad wyrównany do lewej i polityke rozmiaru oparta o zawartosc, zamiast wymuszac pelna szerokosc kontenera.
+- W `propVirtualXRay` naglowki sekcji rozwijanych sa kompaktowe, a akcje w zakladce `Run` sa ukladane pionowo; etykiety statusu powinny miec wlaczone zawijanie linii.
+
 ---
 
 ## System pluginów

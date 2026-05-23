@@ -85,6 +85,9 @@ class DockWidgetProperties(QDockWidget):
 	@pyqtSlot(QObject)	
 	def selectionChanged( self, obj ):
 		if obj is None:
+			self.m_widget = PropWidget()
+			self.m_widget.object_updated.connect(self.on_object_updated_by_widget)
+			self.addWidgetToScrollArea(self.m_widget)
 			return
 		name = obj.__class__.__name__
 		#print(name+" selected")
@@ -119,10 +122,11 @@ class DockWidgetProperties(QDockWidget):
 		self.update()
 
 	def addWidgetToScrollArea(self, widget):
+		"""Install one property widget into the scroll area without vertically squashing it."""
 		if not widget is None:
-			widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-			adjustSize = widget.size()
-			widget.setMinimumSize(adjustSize)
+			widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+			widget.setMinimumWidth(0)
+			widget.adjustSize()
 	
 		self.m_scroll.setWidgetResizable(True)
 		self.m_scroll.setWidget(widget)

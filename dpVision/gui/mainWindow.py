@@ -164,12 +164,13 @@ class MainWindow(QMainWindow):
 	@pyqtSlot(QMdiSubWindow)
 	def onSubWindowActivated(self, subWindow):
 		if not subWindow is None:
-			# print("subWindow activated")
 			child = subWindow.widget()
 			if not child is None:
-				self.dock["properties"].selectionChanged(child.m_widget)
-		# else:
-		# 	print("last subWindow deactivated")
+				# Only show viewer properties when no scene object is currently selected.
+				# Without this guard, regaining window focus would overwrite the active
+				# object's property panel with the viewer properties.
+				if self.workspace.m_currentObject is None:
+					self.dock["properties"].selectionChanged(child.m_widget)
 
 	@pyqtSlot()
 	def createGLViewer(self):

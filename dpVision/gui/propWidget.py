@@ -42,9 +42,7 @@ class PropWidget(QWidget):
 			subwidget.object_updated.connect(widget.on_object_updated_by_subwidget)
 			layout.addWidget( subwidget )
 	
-		size_hint = layout.sizeHint()
-		widget.resize(size_hint)
-		widget.setMinimumHeight(size_hint.height())
+		widget.adjustSize()
 		widget.setMinimumWidth(0)
 		widget.setMaximumWidth(16777215)
 		widget.setMaximumHeight(16777215)
@@ -52,4 +50,3 @@ class PropWidget(QWidget):
 		widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 	
 		return widget
-

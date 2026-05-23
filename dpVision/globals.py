@@ -43,6 +43,7 @@ class Globals:
 		else:
 			self.mainWin.workspace.m_data.remove(child)
 		self.mainWin.dock["workspace"].removeItem(child)
+		self.mainWin.dock["properties"].selectionChanged(None)
 
 	def updateProperties(self):
 		self.mainWin.dock["properties"].updateProperties()

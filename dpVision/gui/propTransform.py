@@ -10,6 +10,7 @@ from .propBaseObject import PropBaseObject
 import weakref
 from .multiSpinBox import MultiSpinBox,MultiSpinBoxWithLock
 from .matrixWidget import MatrixWidget
+from .flowLayout import FlowLayout
 import numpy as np
 
 def get_palette(color:QColor, bgcolor:QColor=None):
@@ -185,14 +186,17 @@ class PropTransform(PropWidget):
 			AP.updateAllViews()
 
 	def getTranslationWidget(self):
+		"""Create the translation editor with a width policy suitable for dock layouts."""
 		translation = MultiSpinBox(count=3, labels=['X:', 'Y:', 'Z:'])
 		#translation.setDecimals(3)
 		#translation.setSingleStep(0.1)
 		#translation.setRange(-9999.0, 9999.0)
 		translation.setPalette((QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
+		translation.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		return translation
 	
 	def getScaleWidget(self):
+		"""Create the scale editor with a width policy suitable for dock layouts."""
 		scale = MultiSpinBoxWithLock(count=3, labels=['x:', 'y:', 'z:'])
 		#scale.setDecimals(3)
 		#scale.setSingleStep(0.1)
@@ -200,28 +204,34 @@ class PropTransform(PropWidget):
 		scale.setPalette((QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
 		scale.setLockedToFirst(True)  # domyślnie "lock aspect ratio"
 		scale.setPrefix(("⨯ ", "⨯ ", "⨯ "))
+		scale.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		return scale
 	
 	def getEulerAnglesWidget(self):
+		"""Create the Euler angle editor with a width policy suitable for dock layouts."""
 		euler = MultiSpinBox(count=3)
 		#euler.setDecimals(6)
 		#euler.setSingleStep(0.1)
 		#euler.setRange(-9999.0, 9999.0)
 		euler.setPalette((QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
 		euler.setSuffix(("°", "°", "°"))
+		euler.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		return euler
 	
 	def getQuaternionWidget(self):
+		"""Create the quaternion editor with a width policy suitable for dock layouts."""
 		quaternion = MultiSpinBox(count=4, labels=['w:', 'x:', 'y:', 'z:'])
 		#quaternion.setDecimals(6)
 		#quaternion.setSingleStep(0.1)
 		quaternion.setRange(-1.0, 1.0)
 		quaternion.spinboxes[0].setRange(0.0, 1.0)
 		quaternion.setPalette((QColor(0, 0, 0), QColor(255, 0, 0), QColor(0, 128, 0), QColor(0, 0, 255)))
+		quaternion.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		return quaternion
 
 	def buildTranslScaleSection(self):
-		self.layout_transl_scale_section = QHBoxLayout()##self.widget_transl_scale_section)
+		"""Build one responsive section for scale and translation editors."""
+		self.layout_transl_scale_section = FlowLayout(spacing=5)
 
 		self.groupBox_scale = self.getScaleWidget()
 		self.layout_transl_scale_section.addWidget(self.groupBox_scale)
@@ -232,7 +242,8 @@ class PropTransform(PropWidget):
 		self.layout_transformGroup.addLayout(self.layout_transl_scale_section)
 
 	def buildEulerSection(self):
-		self.layout_angle_section = QHBoxLayout()#self.widget_angle_section)
+		"""Build one responsive section for Euler and quaternion editors."""
+		self.layout_angle_section = FlowLayout(spacing=5)
 		
 		self.groupBox_euler = self.getEulerAnglesWidget()
 		self.layout_angle_section.addWidget(self.groupBox_euler)
@@ -287,11 +298,11 @@ class PropTransform(PropWidget):
 	# 	self.main_layout.addWidget(self.treeView)
 
 	def getTransformGroupWidget(self):
+		"""Create the main transformation group that may grow with the dock width."""
 		self.transformGroup = QGroupBox(self)
 		self.transformGroup.setObjectName("transformGroup")
 		self.transformGroup.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-		self.transformGroup.setMaximumSize(QSize(200, 16777215))
-		#self.transformGroup.setMinimumSize(QSize(200, 0))
+		self.transformGroup.setMinimumWidth(0)
 		
 		self.layout_transformGroup = QVBoxLayout(self.transformGroup)
 		self.layout_transformGroup.setContentsMargins(5, 5, 5, 5)

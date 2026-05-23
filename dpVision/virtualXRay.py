@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import OpenGL.GL as gl
 import numpy as np
 
@@ -25,7 +28,9 @@ from .xrayProjection import (
 class VirtualXRay(Object):
 	"""Represent one virtual X-ray setup integrated with the existing scene tree."""
 
-	GEOMETRY_PRESETS = {
+	GEOMETRY_PRESET_FILE = Path(__file__).resolve().parent / "presets" / "xray_geometry_presets.json"
+
+	DEFAULT_GEOMETRY_PRESETS = {
 		"ceph_lateral": {
 			"projection_mode": "cone",
 			"detector_center_ref": [400.0, 0.0, 0.0],
@@ -283,7 +288,33 @@ class VirtualXRay(Object):
 	@classmethod
 	def geometry_preset_names(cls):
 		"""Return geometry preset names exposed by the scene object."""
-		return list(cls.GEOMETRY_PRESETS.keys())
+		return list(cls.load_geometry_presets().keys())
+
+	@classmethod
+	def load_geometry_presets(cls):
+		"""Load geometry presets from JSON and fall back to built-in defaults when needed."""
+		preset_file = Path(cls.GEOMETRY_PRESET_FILE)
+		if not preset_file.exists():
+			return dict(cls.DEFAULT_GEOMETRY_PRESETS)
+
+		try:
+			with preset_file.open("r", encoding="utf-8") as handle:
+				payload = json.load(handle)
+		except Exception:
+			return dict(cls.DEFAULT_GEOMETRY_PRESETS)
+
+		if not isinstance(payload, dict):
+			return dict(cls.DEFAULT_GEOMETRY_PRESETS)
+
+		presets = {}
+		for preset_name, preset_definition in payload.items():
+			if not isinstance(preset_definition, dict):
+				continue
+			presets[str(preset_name).lower()] = dict(preset_definition)
+
+		if not presets:
+			return dict(cls.DEFAULT_GEOMETRY_PRESETS)
+		return presets
 
 	def apply_presentation_preset(self, preset_name):
 		"""Apply one predefined presentation preset to the current object state."""
@@ -295,7 +326,7 @@ class VirtualXRay(Object):
 
 	def apply_geometry_preset(self, preset_name):
 		"""Apply one predefined geometry preset to the current X-ray setup."""
-		preset = self.GEOMETRY_PRESETS.get(str(preset_name).lower())
+		preset = self.load_geometry_presets().get(str(preset_name).lower())
 		if preset is None:
 			raise KeyError(f"Unknown geometry preset: {preset_name}")
 		for attr_name, attr_value in preset.items():

@@ -252,7 +252,7 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Zakladka `Presentation` ma teraz tez szybkie presety wygladu (`balanced`, `bone_soft`, `bone_contrast`, `film_soft`), ktore jednoczesnie ustawiaja tryb prezentacji, `gamma`, `contrast` i `robust percentile` bez zmiany modelu fizycznego.
 - `VirtualXRay` ma teraz backendowa estymacje progu kosci na podstawie heurystyki z `marchingCubes.py`: metoda `estimate_bone_threshold()` uzywa gradientowego `mc_estimate_threshold(...)`, a `apply_estimated_bone_threshold()` ustawia tryb `bone_threshold`, wpisuje prog HU i czysci pelne okno materialowe. Panel `Physics` ma do tego przycisk `Auto bone threshold`.
 - `VirtualXRay` ma jawne pole `projection_mode = "cone" | "parallel"`. Nie opiera juz logiki trybu na `source_position_ref is None`.
-- `VirtualXRay` ma tez gotowe presety geometrii (`ceph_lateral`, `ceph_pa`, `skull_ap`, `cone_closeup`), ktore ustawiaja jednoczesnie tryb projekcji, pozycje zrodla, ustawienie detektora, jego rozmiar i krok probkowania. Zakladka `Geometry` ma do tego szybki wybor `Preset` + `Apply`, a efekt jest od razu widoczny na gizmo w widoku 3D.
+- Presety geometrii `VirtualXRay` sa teraz ladowane z pliku `dpVision/presets/xray_geometry_presets.json`, a definicje zaszyte w `virtualXRay.py` zostaly tylko jako fallback awaryjny. Zakladka `Geometry` nadal ma szybki wybor `Preset` + `Apply`, ale nowe modele geometrii mozna dodawac bez zmiany kodu.
 - `VirtualXRay` przechowuje `last_raw_projection` i udostepnia:
 - `project_and_cache(...)`: liczy surowa projekcje i zapisuje ja do cache.
 - `apply_presentation()`: stosuje biezacy model prezentacji do cache bez ponownego ray-marchingu.

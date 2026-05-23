@@ -115,10 +115,23 @@ class PropVirtualXRay(PropWidget):
 		scene_layout = QFormLayout(sceneGroup)
 		self._configure_form_layout(scene_layout)
 		self.volumesLabel = QLabel("-")
+		self.geometryPresetWidget = QWidget()
+		self._set_compact_field(self.geometryPresetWidget)
+		geometry_preset_layout = QHBoxLayout(self.geometryPresetWidget)
+		geometry_preset_layout.setContentsMargins(0, 0, 0, 0)
+		geometry_preset_layout.setSpacing(4)
+		self.geometryPresetCombo = QComboBox()
+		self.geometryPresetCombo.addItems(VirtualXRay.geometry_preset_names())
+		self._set_compact_field(self.geometryPresetCombo)
+		self.applyGeometryPresetButton = QPushButton("Apply")
+		self.applyGeometryPresetButton.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+		geometry_preset_layout.addWidget(self.geometryPresetCombo)
+		geometry_preset_layout.addWidget(self.applyGeometryPresetButton)
 		self.modeCombo = QComboBox()
 		self.modeCombo.addItems(["cone", "parallel"])
 		self._set_compact_field(self.modeCombo)
 		scene_layout.addRow("Volumes:", self.volumesLabel)
+		scene_layout.addRow("Preset:", self.geometryPresetWidget)
 		scene_layout.addRow("Mode:", self.modeCombo)
 		geomLayout.addWidget(sceneGroup)
 
@@ -419,6 +432,7 @@ class PropVirtualXRay(PropWidget):
 
 	def _connect_signals(self):
 		"""Connect all editor widgets to their slots."""
+		self.applyGeometryPresetButton.clicked.connect(self.on_apply_geometry_preset)
 		self.modeCombo.currentTextChanged.connect(self.on_mode_changed)
 		self.detectorCenterSpin.valueChanged.connect(self.on_detector_center_changed)
 		self.detectorNormalSpin.valueChanged.connect(self.on_detector_normal_changed)
@@ -470,6 +484,7 @@ class PropVirtualXRay(PropWidget):
 		"""Block or unblock signals for all editable widgets in this panel."""
 		for widget in (
 			self.modeCombo,
+			self.geometryPresetCombo,
 			self.detectorCenterSpin,
 			self.detectorNormalSpin,
 			self.detectorUpSpin,
@@ -604,6 +619,15 @@ class PropVirtualXRay(PropWidget):
 		if obj is None:
 			return
 		obj.projection_mode = str(mode).lower()
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_apply_geometry_preset(self):
+		"""Apply one predefined geometry preset and refresh the 3D gizmo immediately."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		obj.apply_geometry_preset(self.geometryPresetCombo.currentText())
 		self._after_change(obj)
 
 	@pyqtSlot(tuple)

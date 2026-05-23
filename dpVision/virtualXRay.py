@@ -25,6 +25,57 @@ from .xrayProjection import (
 class VirtualXRay(Object):
 	"""Represent one virtual X-ray setup integrated with the existing scene tree."""
 
+	GEOMETRY_PRESETS = {
+		"ceph_lateral": {
+			"projection_mode": "cone",
+			"detector_center_ref": [400.0, 0.0, 0.0],
+			"detector_normal_ref": [-1.0, 0.0, 0.0],
+			"detector_up_ref": [0.0, 0.0, 1.0],
+			"detector_shape_hw": [800, 1000],
+			"detector_pixel_size_mm": [0.30, 0.30],
+			"source_position_ref": [-1500.0, 0.0, 0.0],
+			"ray_direction_ref": [1.0, 0.0, 0.0],
+			"step_mm": 1.0,
+			"quality_profile_name": "normal",
+		},
+		"ceph_pa": {
+			"projection_mode": "cone",
+			"detector_center_ref": [0.0, 400.0, 0.0],
+			"detector_normal_ref": [0.0, -1.0, 0.0],
+			"detector_up_ref": [0.0, 0.0, 1.0],
+			"detector_shape_hw": [800, 1000],
+			"detector_pixel_size_mm": [0.30, 0.30],
+			"source_position_ref": [0.0, -1500.0, 0.0],
+			"ray_direction_ref": [0.0, 1.0, 0.0],
+			"step_mm": 1.0,
+			"quality_profile_name": "normal",
+		},
+		"skull_ap": {
+			"projection_mode": "cone",
+			"detector_center_ref": [0.0, 400.0, 0.0],
+			"detector_normal_ref": [0.0, -1.0, 0.0],
+			"detector_up_ref": [0.0, 0.0, 1.0],
+			"detector_shape_hw": [900, 900],
+			"detector_pixel_size_mm": [0.28, 0.28],
+			"source_position_ref": [0.0, -1100.0, 0.0],
+			"ray_direction_ref": [0.0, 1.0, 0.0],
+			"step_mm": 0.9,
+			"quality_profile_name": "normal",
+		},
+		"cone_closeup": {
+			"projection_mode": "cone",
+			"detector_center_ref": [0.0, 0.0, 180.0],
+			"detector_normal_ref": [0.0, 0.0, -1.0],
+			"detector_up_ref": [0.0, 1.0, 0.0],
+			"detector_shape_hw": [768, 768],
+			"detector_pixel_size_mm": [0.22, 0.22],
+			"source_position_ref": [0.0, 0.0, -260.0],
+			"ray_direction_ref": [0.0, 0.0, 1.0],
+			"step_mm": 0.8,
+			"quality_profile_name": "normal",
+		},
+	}
+
 	PRESENTATION_PRESETS = {
 		"balanced": {
 			"presentation_mode": "digital",
@@ -229,6 +280,11 @@ class VirtualXRay(Object):
 		"""Return presentation preset names exposed by the scene object."""
 		return list(cls.PRESENTATION_PRESETS.keys())
 
+	@classmethod
+	def geometry_preset_names(cls):
+		"""Return geometry preset names exposed by the scene object."""
+		return list(cls.GEOMETRY_PRESETS.keys())
+
 	def apply_presentation_preset(self, preset_name):
 		"""Apply one predefined presentation preset to the current object state."""
 		preset = self.PRESENTATION_PRESETS.get(str(preset_name).lower())
@@ -236,6 +292,23 @@ class VirtualXRay(Object):
 			raise KeyError(f"Unknown presentation preset: {preset_name}")
 		for attr_name, attr_value in preset.items():
 			setattr(self, attr_name, attr_value)
+
+	def apply_geometry_preset(self, preset_name):
+		"""Apply one predefined geometry preset to the current X-ray setup."""
+		preset = self.GEOMETRY_PRESETS.get(str(preset_name).lower())
+		if preset is None:
+			raise KeyError(f"Unknown geometry preset: {preset_name}")
+		for attr_name, attr_value in preset.items():
+			if attr_name.endswith("_ref"):
+				setattr(self, attr_name, np.asarray(attr_value, dtype=np.float32))
+			elif attr_name in {"detector_shape_hw"}:
+				setattr(self, attr_name, [int(attr_value[0]), int(attr_value[1])])
+			elif attr_name in {"detector_pixel_size_mm"}:
+				setattr(self, attr_name, [float(attr_value[0]), float(attr_value[1])])
+			elif attr_name == "step_mm":
+				setattr(self, attr_name, float(attr_value))
+			else:
+				setattr(self, attr_name, attr_value)
 
 	def build_projection_config(self):
 		"""Return a complete projection configuration based on this scene object."""

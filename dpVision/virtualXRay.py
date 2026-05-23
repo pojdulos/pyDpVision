@@ -6,6 +6,7 @@ from __future__ import annotations
 import OpenGL.GL as gl
 import numpy as np
 
+from .marchingCubes import mc_estimate_threshold, mc_gradient
 from .object import Object
 from .volumetric import Volumetric
 from .xrayProjection import (
@@ -23,6 +24,45 @@ from .xrayProjection import (
 
 class VirtualXRay(Object):
 	"""Represent one virtual X-ray setup integrated with the existing scene tree."""
+
+	PRESENTATION_PRESETS = {
+		"balanced": {
+			"presentation_mode": "digital",
+			"presentation_invert": False,
+			"presentation_gamma": 0.85,
+			"presentation_contrast": 1.10,
+			"presentation_robust_percentile": 99.2,
+			"presentation_window_center": None,
+			"presentation_window_width": None,
+		},
+		"bone_soft": {
+			"presentation_mode": "digital",
+			"presentation_invert": False,
+			"presentation_gamma": 1.35,
+			"presentation_contrast": 1.18,
+			"presentation_robust_percentile": 98.8,
+			"presentation_window_center": None,
+			"presentation_window_width": None,
+		},
+		"bone_contrast": {
+			"presentation_mode": "digital",
+			"presentation_invert": False,
+			"presentation_gamma": 1.55,
+			"presentation_contrast": 1.40,
+			"presentation_robust_percentile": 98.4,
+			"presentation_window_center": None,
+			"presentation_window_width": None,
+		},
+		"film_soft": {
+			"presentation_mode": "film",
+			"presentation_invert": False,
+			"presentation_gamma": 1.60,
+			"presentation_contrast": 1.10,
+			"presentation_robust_percentile": 99.0,
+			"presentation_window_center": None,
+			"presentation_window_width": None,
+		},
+	}
 
 	def __init__(self, parent=None):
 		"""Initialize one X-ray scene node with default geometry, physics and presentation settings."""
@@ -51,6 +91,9 @@ class VirtualXRay(Object):
 		self.physics_attenuation_scale = 1.0
 		self.physics_output_mode = "integral"
 		self.physics_intensity_floor = 0.0
+		self.physics_material_response_mode = "linear"
+		self.physics_bone_threshold_hu = None
+		self.physics_bone_threshold_softness = 250.0
 		self.physics_material_window_center = None
 		self.physics_material_window_width = None
 		self.physics_material_window_mode = "hard"
@@ -151,6 +194,9 @@ class VirtualXRay(Object):
 			attenuation_scale=self.physics_attenuation_scale,
 			output_mode=self.physics_output_mode,
 			intensity_floor=self.physics_intensity_floor,
+			material_response_mode=self.physics_material_response_mode,
+			bone_threshold_hu=self.physics_bone_threshold_hu,
+			bone_threshold_softness=self.physics_bone_threshold_softness,
 			material_window_center=self.physics_material_window_center,
 			material_window_width=self.physics_material_window_width,
 			material_window_mode=self.physics_material_window_mode,
@@ -178,6 +224,19 @@ class VirtualXRay(Object):
 			contrast=self.presentation_contrast,
 		)
 
+	@classmethod
+	def presentation_preset_names(cls):
+		"""Return presentation preset names exposed by the scene object."""
+		return list(cls.PRESENTATION_PRESETS.keys())
+
+	def apply_presentation_preset(self, preset_name):
+		"""Apply one predefined presentation preset to the current object state."""
+		preset = self.PRESENTATION_PRESETS.get(str(preset_name).lower())
+		if preset is None:
+			raise KeyError(f"Unknown presentation preset: {preset_name}")
+		for attr_name, attr_value in preset.items():
+			setattr(self, attr_name, attr_value)
+
 	def build_projection_config(self):
 		"""Return a complete projection configuration based on this scene object."""
 		return XRayProjectionConfig(
@@ -187,6 +246,70 @@ class VirtualXRay(Object):
 			reference_transform=np.eye(4, dtype=np.float32),
 			quality_profile=self.quality_profile(),
 		)
+
+	def estimate_bone_threshold(self, threshold_min=300.0, max_sample_voxels=4_000_000):
+		"""Estimate one bone HU threshold from descendant volumetrics.
+
+		This reuses the gradient-driven heuristic from `marchingCubes.py`, but
+		stops at the threshold estimate instead of expanding it into a full
+		projection window.
+		"""
+		estimates = []
+		for volumetric in self.collect_volumetrics():
+			volume = np.asarray(volumetric.m_volume, dtype=np.float32)
+			if volume.ndim != 3 or volume.size == 0:
+				continue
+
+			downsample = 1
+			if volume.size > max_sample_voxels:
+				downsample = int(np.ceil((volume.size / float(max_sample_voxels)) ** (1.0 / 3.0)))
+			volume_sample = volume[::downsample, ::downsample, ::downsample]
+
+			_origin_world, _axes_world, spacing_xyz = volumetric.get_volume_geometry()
+			px = max(1e-6, float(spacing_xyz[0]) * downsample)
+			py = max(1e-6, float(spacing_xyz[1]) * downsample)
+			pz = max(1e-6, float(spacing_xyz[2]) * downsample)
+			gradient, _gx_full, _gy_full, _gz_full = mc_gradient(
+				volume_sample,
+				None,
+				pz,
+				py,
+				px,
+				sharpening=False,
+			)
+			threshold = mc_estimate_threshold(
+				volume_sample,
+				gradient,
+				threshold=None,
+				threshold_min=threshold_min,
+			)
+			estimates.append({
+				"threshold": float(threshold),
+				"voxel_count": int(volume_sample.size),
+			})
+
+		if not estimates:
+			raise ValueError("Could not estimate one bone HU threshold from the current X-ray scene.")
+
+		weights = np.asarray([item["voxel_count"] for item in estimates], dtype=np.float64)
+		weights /= max(weights.sum(), 1.0)
+
+		def _weighted_average(field_name):
+			return float(sum(item[field_name] * weight for item, weight in zip(estimates, weights)))
+
+		return {
+			"threshold": _weighted_average("threshold"),
+			"per_volume": estimates,
+		}
+
+	def apply_estimated_bone_threshold(self, threshold_min=300.0):
+		"""Estimate and apply one bone HU threshold to the current scene."""
+		estimate = self.estimate_bone_threshold(threshold_min=threshold_min)
+		self.physics_material_response_mode = "bone_threshold"
+		self.physics_bone_threshold_hu = float(estimate["threshold"])
+		self.physics_material_window_center = None
+		self.physics_material_window_width = None
+		return estimate
 
 	def project(self, return_stats=False):
 		"""Project all descendant volumetrics using the current setup state."""

@@ -341,8 +341,8 @@ def create_real_xray_demo():
 
 
 		setup = VirtualXRay()
-		setup.detector_center_ref = np.array([0, 0, 400.0], dtype=np.float32)
-		setup.source_position_ref = np.array([0, 0, -1500.0], dtype=np.float32)
+		setup.detector_center_ref = np.array([0, 0, 50.0], dtype=np.float32)
+		setup.source_position_ref = np.array([0, 0, -1600.0], dtype=np.float32)
 		setup.detector_shape_hw = [1024, 1024]
 		setup.detector_pixel_size_mm = [0.2, 0.2]
 		setup.step_mm = 0.5
@@ -360,11 +360,18 @@ def create_real_xray_demo():
 		AP.addObject(setup)
 		AP.updateAllViews()
 
-	AP.load("c:/Users/darek/Desktop/praca/dane/20210312_142843/DCT0000.dcm",
-	# AP.load("d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm",
-		on_success=on_success)
-	
+	path1 = "c:/Users/darek/Desktop/praca/dane/20210312_142843/DCT0000.dcm"
+	path2 = "d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm"
 
+	if os.path.isfile(path1):
+		load_path = path1
+	elif os.path.isfile(path2):
+		load_path = path2
+	else:
+		print("Nie można znaleźć pliku DICOM do testu X-ray demo.")
+		return
+	
+	AP.load(load_path, on_success=on_success)
 
 from dpVision import NDimCloud
 

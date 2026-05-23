@@ -234,3 +234,40 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Dalsze RTG: dla trybu `cone` gizmo rysuje teraz cienkie linie od zrodla do naroznikow detektora, zeby bylo widac pole widzenia ukladu.
 - Dalsze RTG: panel `VirtualXRay` ma teraz tez zakladke `Advanced`, ktora wystawia do szybkich testow nizszy poziom parametrow backendu, m.in. `mu_air`, `mu_water`, `hounsfield_air`, `attenuation_scale`, `output_mode`, `intensity_floor`, `source_interpolation` i opcjonalny `source_fill_value`.
 - GUI: kontener `PropWidget.build(...)` nie blokuje juz szerokosci paneli wlasciwosci do poczatkowego `sizeHint()`. Panele, w tym `VirtualXRay`, powinny teraz rozszerzac sie poziomo wraz z dockiem `Properties`.
+
+## RTG - stan biezacy
+
+- Ten blok opisuje aktualny stan backendu i GUI RTG i ma pierwszenstwo interpretacyjne nad starszymi punktami powyzej, jesli sa z nimi niespojne.
+- `XRayProjector` jest juz wektoryzowany po promieniach i przyjmuje `progress_callback`, a `XRayScene.project(...)` oraz `XRayScene.render(...)` przekazuja ten callback dalej.
+- `XRayPhysicsModel` ma obecnie parametry: `mu_air`, `mu_water`, `hounsfield_air`, `attenuation_scale`, `output_mode`, `intensity_floor`, `material_window_center`, `material_window_width`, `material_window_mode` oraz `material_window_softness`.
+- `XRayPhysicsModel` ma obecnie parametry: `mu_air`, `mu_water`, `hounsfield_air`, `attenuation_scale`, `output_mode`, `intensity_floor`, `material_response_mode`, `bone_threshold_hu`, `bone_threshold_softness`, `material_window_center`, `material_window_width`, `material_window_mode` oraz `material_window_softness`.
+- Okno materialowe dziala na etapie `scalar -> mu`, czyli przed projekcja. Obsluguje tryby `hard`, `linear` i `sigmoid`.
+- Bazowy model `HU -> mu` jest teraz przelaczany przez `material_response_mode`:
+- `linear`
+- `piecewise_bone`
+- `piecewise_soft_tissue`
+- `bone_threshold`
+- `piecewise_bone` i `piecewise_soft_tissue` sa prostymi krzywymi odcinkowymi przygotowanymi do szybkiego porownania jakościowego bez dalszego strojenia kodu.
+- `bone_threshold` miesza model neutralny z modelem kostnym powyzej miekkiego progu HU i lepiej pasuje do projekcji niz heurystyka pelnego okna z segmentacji powierzchni.
+- Zakladka `Presentation` ma teraz tez szybkie presety wygladu (`balanced`, `bone_soft`, `bone_contrast`, `film_soft`), ktore jednoczesnie ustawiaja tryb prezentacji, `gamma`, `contrast` i `robust percentile` bez zmiany modelu fizycznego.
+- `VirtualXRay` ma teraz backendowa estymacje progu kosci na podstawie heurystyki z `marchingCubes.py`: metoda `estimate_bone_threshold()` uzywa gradientowego `mc_estimate_threshold(...)`, a `apply_estimated_bone_threshold()` ustawia tryb `bone_threshold`, wpisuje prog HU i czysci pelne okno materialowe. Panel `Physics` ma do tego przycisk `Auto bone threshold`.
+- `VirtualXRay` ma jawne pole `projection_mode = "cone" | "parallel"`. Nie opiera juz logiki trybu na `source_position_ref is None`.
+- `VirtualXRay` przechowuje `last_raw_projection` i udostepnia:
+- `project_and_cache(...)`: liczy surowa projekcje i zapisuje ja do cache.
+- `apply_presentation()`: stosuje biezacy model prezentacji do cache bez ponownego ray-marchingu.
+- `build_geometry()` przekazuje do `XRayProjectionGeometry` tylko aktywny parametr geometrii: `source_position_ref` dla `cone` albo `ray_direction_ref` dla `parallel`.
+- `VirtualXRay` nadal pracuje w lokalnym ukladzie odniesienia obiektu i zbiera potomne `Volumetric` przez istniejace mechanizmy drzewa sceny, przeliczajac transformacje wzgledem siebie.
+- Panel `PropVirtualXRay` jest aktualnie zorganizowany jako zakladki:
+- `Geometry`
+- `Physics`
+- `Presentation`
+- `Run`
+- W zakladkach `Geometry` i `Physics` sa checkboxy `Show advanced`, ktore odslaniaja nizszy poziom parametrow backendu.
+- Zakladka `Run` ma obecnie przyciski:
+- `Refresh`
+- `Run Simulation`
+- `Update display`
+- `Run Simulation` liczy projekcje i aktualizuje cache.
+- `Update display` przelicza tylko warstwe prezentacji na bazie `last_raw_projection`, bez ponownego ray-marchingu.
+- Przy przejsciu `cone -> parallel` GUI ustawia domyslny kierunek promieni zgodny z `detector_normal_ref`, zeby projekcja rownolegla nie startowala w zla strone.
+- Gizmo `VirtualXRay` ma subtelniejsze kolory, lokalne osie i dla `cone` cienkie linie od zrodla do naroznikow detektora, pokazujace pole widzenia.

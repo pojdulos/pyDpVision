@@ -223,6 +223,19 @@ class PropVirtualXRay(PropWidget):
 		self.physicsMaterialWindowCenterSpin.setDecimals(3)
 		self.physicsMaterialWindowCenterSpin.setSingleStep(1.0)
 		self._set_compact_field(self.physicsMaterialWindowCenterSpin)
+		self.physicsMaterialResponseModeCombo = QComboBox()
+		self.physicsMaterialResponseModeCombo.addItems(["linear", "piecewise_bone", "piecewise_soft_tissue", "bone_threshold"])
+		self._set_compact_field(self.physicsMaterialResponseModeCombo)
+		self.physicsBoneThresholdSpin = QDoubleSpinBox()
+		self.physicsBoneThresholdSpin.setRange(-1e6, 1e6)
+		self.physicsBoneThresholdSpin.setDecimals(3)
+		self.physicsBoneThresholdSpin.setSingleStep(1.0)
+		self._set_compact_field(self.physicsBoneThresholdSpin)
+		self.physicsBoneThresholdSoftnessSpin = QDoubleSpinBox()
+		self.physicsBoneThresholdSoftnessSpin.setRange(0.0, 1e6)
+		self.physicsBoneThresholdSoftnessSpin.setDecimals(3)
+		self.physicsBoneThresholdSoftnessSpin.setSingleStep(1.0)
+		self._set_compact_field(self.physicsBoneThresholdSoftnessSpin)
 		self.physicsMaterialWindowWidthSpin = QDoubleSpinBox()
 		self.physicsMaterialWindowWidthSpin.setRange(0.0, 1e6)
 		self.physicsMaterialWindowWidthSpin.setDecimals(3)
@@ -236,10 +249,16 @@ class PropVirtualXRay(PropWidget):
 		self.physicsMaterialWindowSoftnessSpin.setDecimals(3)
 		self.physicsMaterialWindowSoftnessSpin.setSingleStep(1.0)
 		self._set_compact_field(self.physicsMaterialWindowSoftnessSpin)
+		self.physicsAutoBoneButton = QPushButton("Auto bone threshold")
+		self.physicsAutoBoneButton.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+		physics_layout.addRow("Response:", self.physicsMaterialResponseModeCombo)
+		physics_layout.addRow("Bone threshold [HU]:", self.physicsBoneThresholdSpin)
+		physics_layout.addRow("Bone softness [HU]:", self.physicsBoneThresholdSoftnessSpin)
 		physics_layout.addRow("Center [HU]:", self.physicsMaterialWindowCenterSpin)
 		physics_layout.addRow("Width [HU]:", self.physicsMaterialWindowWidthSpin)
 		physics_layout.addRow("Mode:", self.physicsMaterialWindowModeCombo)
 		physics_layout.addRow("Softness [HU]:", self.physicsMaterialWindowSoftnessSpin)
+		physics_layout.addRow("", self.physicsAutoBoneButton)
 		physLayout.addWidget(physicsGroup)
 
 		self.physicsAdvancedCheck = QCheckBox("Show advanced")
@@ -298,6 +317,18 @@ class PropVirtualXRay(PropWidget):
 		self._set_compact_group(presentationGroup)
 		presentation_layout = QFormLayout(presentationGroup)
 		self._configure_form_layout(presentation_layout)
+		self.presentationPresetWidget = QWidget()
+		self._set_compact_field(self.presentationPresetWidget)
+		presentation_preset_layout = QHBoxLayout(self.presentationPresetWidget)
+		presentation_preset_layout.setContentsMargins(0, 0, 0, 0)
+		presentation_preset_layout.setSpacing(4)
+		self.presentationPresetCombo = QComboBox()
+		self.presentationPresetCombo.addItems(VirtualXRay.presentation_preset_names())
+		self._set_compact_field(self.presentationPresetCombo)
+		self.applyPresentationPresetButton = QPushButton("Apply")
+		self.applyPresentationPresetButton.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+		presentation_preset_layout.addWidget(self.presentationPresetCombo)
+		presentation_preset_layout.addWidget(self.applyPresentationPresetButton)
 		self.presentationModeCombo = QComboBox()
 		self.presentationModeCombo.addItems(["digital", "film", "raw"])
 		self._set_compact_field(self.presentationModeCombo)
@@ -327,6 +358,7 @@ class PropVirtualXRay(PropWidget):
 		self.presentationWindowWidthSpin.setDecimals(3)
 		self.presentationWindowWidthSpin.setSingleStep(0.1)
 		self._set_compact_field(self.presentationWindowWidthSpin)
+		presentation_layout.addRow("Preset:", self.presentationPresetWidget)
 		presentation_layout.addRow("Mode:", self.presentationModeCombo)
 		presentation_layout.addRow("", self.presentationInvertCheck)
 		presentation_layout.addRow("Gamma:", self.presentationGammaSpin)
@@ -398,10 +430,14 @@ class PropVirtualXRay(PropWidget):
 		self.rayDirectionSpin.valueChanged.connect(self.on_ray_direction_changed)
 		self.stepSpin.valueChanged.connect(self.on_step_changed)
 		self.qualityCombo.currentTextChanged.connect(self.on_quality_changed)
+		self.physicsMaterialResponseModeCombo.currentTextChanged.connect(self.on_physics_material_response_changed)
+		self.physicsBoneThresholdSpin.valueChanged.connect(self.on_physics_bone_threshold_changed)
+		self.physicsBoneThresholdSoftnessSpin.valueChanged.connect(self.on_physics_bone_threshold_softness_changed)
 		self.physicsMaterialWindowCenterSpin.valueChanged.connect(self.on_physics_material_window_changed)
 		self.physicsMaterialWindowWidthSpin.valueChanged.connect(self.on_physics_material_window_changed)
 		self.physicsMaterialWindowModeCombo.currentTextChanged.connect(self.on_physics_material_window_mode_changed)
 		self.physicsMaterialWindowSoftnessSpin.valueChanged.connect(self.on_physics_material_window_softness_changed)
+		self.physicsAutoBoneButton.clicked.connect(self.on_auto_bone_from_scene)
 		self.presentationModeCombo.currentTextChanged.connect(self.on_presentation_mode_changed)
 		self.presentationInvertCheck.toggled.connect(self.on_presentation_invert_changed)
 		self.presentationGammaSpin.valueChanged.connect(self.on_presentation_gamma_changed)
@@ -409,6 +445,7 @@ class PropVirtualXRay(PropWidget):
 		self.presentationPercentileSpin.valueChanged.connect(self.on_presentation_percentile_changed)
 		self.presentationWindowCenterSpin.valueChanged.connect(self.on_presentation_window_changed)
 		self.presentationWindowWidthSpin.valueChanged.connect(self.on_presentation_window_changed)
+		self.applyPresentationPresetButton.clicked.connect(self.on_apply_presentation_preset)
 		self.physicsMuAirSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.physicsMuWaterSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.physicsHounsfieldAirSpin.valueChanged.connect(self.on_advanced_physics_changed)
@@ -443,11 +480,15 @@ class PropVirtualXRay(PropWidget):
 			self.rayDirectionSpin,
 			self.stepSpin,
 			self.qualityCombo,
+			self.physicsMaterialResponseModeCombo,
+			self.physicsBoneThresholdSpin,
+			self.physicsBoneThresholdSoftnessSpin,
 			self.physicsMaterialWindowCenterSpin,
 			self.physicsMaterialWindowWidthSpin,
 			self.physicsMaterialWindowModeCombo,
 			self.physicsMaterialWindowSoftnessSpin,
 			self.presentationModeCombo,
+			self.presentationPresetCombo,
 			self.presentationInvertCheck,
 			self.presentationGammaSpin,
 			self.presentationContrastSpin,
@@ -486,8 +527,12 @@ class PropVirtualXRay(PropWidget):
 
 	def _update_physics_visibility(self, obj: VirtualXRay):
 		"""Enable only physics controls relevant to the selected material window mode."""
+		response_mode = str(obj.physics_material_response_mode).lower()
+		uses_bone_threshold = response_mode == "bone_threshold"
 		width_enabled = obj.physics_material_window_width is not None and float(obj.physics_material_window_width) > 0.0
 		mode = str(obj.physics_material_window_mode).lower()
+		self.physicsBoneThresholdSpin.setEnabled(uses_bone_threshold)
+		self.physicsBoneThresholdSoftnessSpin.setEnabled(uses_bone_threshold)
 		self.physicsMaterialWindowModeCombo.setEnabled(width_enabled)
 		self.physicsMaterialWindowSoftnessSpin.setEnabled(width_enabled and mode in {"linear", "sigmoid"})
 		self.physicsIntensityFloorSpin.setEnabled(str(obj.physics_output_mode).lower() == "intensity")
@@ -513,6 +558,9 @@ class PropVirtualXRay(PropWidget):
 		self.rayDirectionSpin.setValue(obj.ray_direction_ref)
 		self.stepSpin.setValue(float(obj.step_mm))
 		self.qualityCombo.setCurrentText(str(obj.quality_profile_name))
+		self.physicsMaterialResponseModeCombo.setCurrentText(str(obj.physics_material_response_mode))
+		self.physicsBoneThresholdSpin.setValue(0.0 if obj.physics_bone_threshold_hu is None else float(obj.physics_bone_threshold_hu))
+		self.physicsBoneThresholdSoftnessSpin.setValue(float(obj.physics_bone_threshold_softness))
 		self.physicsMaterialWindowCenterSpin.setValue(0.0 if obj.physics_material_window_center is None else float(obj.physics_material_window_center))
 		self.physicsMaterialWindowWidthSpin.setValue(0.0 if obj.physics_material_window_width is None else float(obj.physics_material_window_width))
 		self.physicsMaterialWindowModeCombo.setCurrentText(str(obj.physics_material_window_mode))
@@ -621,6 +669,27 @@ class PropVirtualXRay(PropWidget):
 		obj.quality_profile_name = str(value)
 		self._after_change(obj)
 
+	@pyqtSlot(str)
+	def on_physics_material_response_changed(self, value):
+		"""Store the base HU-to-attenuation response model."""
+		obj = self.obj_ref()
+		obj.physics_material_response_mode = str(value)
+		self._after_change(obj)
+
+	@pyqtSlot(float)
+	def on_physics_bone_threshold_changed(self, value):
+		"""Store the HU threshold used by the threshold-driven bone response."""
+		obj = self.obj_ref()
+		obj.physics_bone_threshold_hu = float(value)
+		self._after_change(obj)
+
+	@pyqtSlot(float)
+	def on_physics_bone_threshold_softness_changed(self, value):
+		"""Store the HU softness used by the threshold-driven bone response."""
+		obj = self.obj_ref()
+		obj.physics_bone_threshold_softness = max(0.0, float(value))
+		self._after_change(obj)
+
 	@pyqtSlot()
 	def on_physics_material_window_changed(self):
 		"""Store an optional HU window applied before attenuation integration."""
@@ -644,6 +713,22 @@ class PropVirtualXRay(PropWidget):
 		obj = self.obj_ref()
 		obj.physics_material_window_softness = max(0.0, float(value))
 		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_auto_bone_from_scene(self):
+		"""Estimate a bone HU threshold from the current X-ray scene and apply it."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		try:
+			estimate = obj.apply_estimated_bone_threshold()
+		except Exception as exc:
+			QMessageBox.critical(self, "Auto bone estimation error", str(exc))
+			return
+		self._after_change(obj)
+		self.renderInfoLabel.setText(
+			f"{obj.info()}\nAuto bone threshold: T={estimate['threshold']:.0f} HU"
+		)
 
 	@pyqtSlot(str)
 	def on_presentation_mode_changed(self, value):
@@ -688,6 +773,15 @@ class PropVirtualXRay(PropWidget):
 		width = float(self.presentationWindowWidthSpin.value())
 		obj.presentation_window_center = center if width > 0.0 else None
 		obj.presentation_window_width = width if width > 0.0 else None
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_apply_presentation_preset(self):
+		"""Apply one predefined presentation preset for quick visual comparison."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		obj.apply_presentation_preset(self.presentationPresetCombo.currentText())
 		self._after_change(obj)
 
 	@pyqtSlot()

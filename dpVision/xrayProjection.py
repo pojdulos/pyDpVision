@@ -467,6 +467,9 @@ class XRayPhysicsModel:
 	attenuation_scale: float = 1.0
 	output_mode: str = "integral"
 	intensity_floor: float = 0.0
+	material_response_mode: str = "linear"
+	bone_threshold_hu: float | None = None
+	bone_threshold_softness: float = 250.0
 	material_window_center: float | None = None
 	material_window_width: float | None = None
 	material_window_mode: str = "hard"
@@ -475,8 +478,16 @@ class XRayPhysicsModel:
 	def scalar_to_mu(self, scalar_values):
 		"""Convert scalar CT-like values into a linear attenuation coefficient."""
 		scalar_values = np.asarray(scalar_values, dtype=np.float32)
-		relative_density = np.maximum(0.0, 1.0 + scalar_values / abs(float(self.hounsfield_air)))
-		mu = (float(self.mu_air) + float(self.mu_water) * relative_density) * float(self.attenuation_scale)
+		mode = str(self.material_response_mode).lower()
+		if mode == "piecewise_bone":
+			mu = self._scalar_to_mu_piecewise_bone(scalar_values)
+		elif mode == "piecewise_soft_tissue":
+			mu = self._scalar_to_mu_piecewise_soft_tissue(scalar_values)
+		elif mode == "bone_threshold":
+			mu = self._scalar_to_mu_bone_threshold(scalar_values)
+		else:
+			relative_density = np.maximum(0.0, 1.0 + scalar_values / abs(float(self.hounsfield_air)))
+			mu = (float(self.mu_air) + float(self.mu_water) * relative_density) * float(self.attenuation_scale)
 		if self.material_window_center is not None and self.material_window_width is not None and float(self.material_window_width) > 0.0:
 			vmin = float(self.material_window_center) - float(self.material_window_width) / 2.0
 			vmax = float(self.material_window_center) + float(self.material_window_width) / 2.0
@@ -494,6 +505,59 @@ class XRayPhysicsModel:
 				weight = ((scalar_values >= vmin) & (scalar_values <= vmax)).astype(np.float32)
 			mu = mu * weight.astype(np.float32, copy=False)
 		return mu
+
+	def _piecewise_linear_map(self, scalar_values, control_points):
+		"""Map scalar values with a piecewise-linear attenuation curve."""
+		xp = np.asarray([point[0] for point in control_points], dtype=np.float32)
+		fp = np.asarray([point[1] for point in control_points], dtype=np.float32)
+		return np.interp(scalar_values, xp, fp, left=fp[0], right=fp[-1]).astype(np.float32, copy=False)
+
+	def _scalar_to_mu_piecewise_bone(self, scalar_values):
+		"""Return one bone-emphasis attenuation curve tuned for craniofacial structures."""
+		base = float(self.mu_water) * float(self.attenuation_scale)
+		control_points = [
+			(-1000.0, float(self.mu_air)),
+			(-300.0, 0.03 * base),
+			(0.0, 0.10 * base),
+			(150.0, 0.18 * base),
+			(400.0, 0.35 * base),
+			(800.0, 0.75 * base),
+			(1200.0, 1.20 * base),
+			(2000.0, 1.85 * base),
+			(3000.0, 2.30 * base),
+			(4000.0, 2.60 * base),
+		]
+		return self._piecewise_linear_map(scalar_values, control_points)
+
+	def _scalar_to_mu_piecewise_soft_tissue(self, scalar_values):
+		"""Return one soft-tissue-oriented attenuation curve with reduced bone dominance."""
+		base = float(self.mu_water) * float(self.attenuation_scale)
+		control_points = [
+			(-1000.0, float(self.mu_air)),
+			(-300.0, 0.05 * base),
+			(0.0, 0.45 * base),
+			(80.0, 0.70 * base),
+			(200.0, 0.85 * base),
+			(500.0, 1.05 * base),
+			(1000.0, 1.20 * base),
+			(2000.0, 1.35 * base),
+			(4000.0, 1.55 * base),
+		]
+		return self._piecewise_linear_map(scalar_values, control_points)
+
+	def _scalar_to_mu_bone_threshold(self, scalar_values):
+		"""Blend one neutral attenuation model with a bone-emphasis model above an HU threshold."""
+		relative_density = np.maximum(0.0, 1.0 + scalar_values / abs(float(self.hounsfield_air)))
+		linear_mu = (float(self.mu_air) + float(self.mu_water) * relative_density) * float(self.attenuation_scale)
+		bone_mu = self._scalar_to_mu_piecewise_bone(scalar_values)
+		threshold = 350.0 if self.bone_threshold_hu is None else float(self.bone_threshold_hu)
+		softness = max(1e-6, float(self.bone_threshold_softness))
+		weight = 1.0 / (1.0 + np.exp(-(scalar_values - threshold) / softness))
+		soft_tissue_mix = 0.85
+		return (
+			linear_mu * (1.0 - soft_tissue_mix * weight)
+			+ bone_mu * weight
+		).astype(np.float32, copy=False)
 
 	def integral_to_image(self, line_integral):
 		"""Convert integrated attenuation into a detector-space image value."""

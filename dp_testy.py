@@ -352,7 +352,7 @@ def create_real_xray_demo():
 		AP.removeObject(child=skull.parent)
 
 		skull_transform = Transform()
-		# skull_transform.translate(-100, 45, 0)
+		#skull_transform.translate(-100, 45, 0)
 		skull_transform.rotate(90, [1,0,0])
 		skull_transform.rotate(90, [0,1,0])
 		skull_transform.addChild(skull)
@@ -360,9 +360,10 @@ def create_real_xray_demo():
 
 		AP.updateAllViews()
 		AP.mainWin.dock["workspace"].rebuildTree()
+
+
 	# path1 = "c:/Users/darek/Desktop/praca/dane/20210312_142843/DCT0000.dcm"
 	# path2 = "d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm"
-
 	# if os.path.isfile(path1):
 	# 	load_path = path1
 	# elif os.path.isfile(path2):
@@ -373,15 +374,25 @@ def create_real_xray_demo():
 	
 	# AP.load(load_path, on_success=on_success)
 
-	pathG = "d:/praca/dane/vols/gora/filtered_194.dcm"
+	# pathG = "d:/praca/dane/masks/gora/slice_000.dcm"
+	# pathD = "d:/praca/dane/masks/dol/slice_000.dcm"
+
+	pathG = "d:/praca/dane/vols/gora1/filtered_194.dcm"
 	pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
+	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
+	pathA = "d:/praca/dane/vols/20140521/0000.dcm"
 
 	if os.path.isfile(pathG):
 		AP.load(pathG, on_success=on_success)
+	# 	# AP.load(pathG, on_success=on_success)
 	
 	if os.path.isfile(pathD):
 		AP.load(pathD, on_success=on_success)
-	
+	# 	# AP.load(pathD, on_success=on_success)
+
+	# if os.path.isfile(pathA):
+	# 	AP.load(pathA, on_success=on_success)
+
 	
 
 from dpVision import NDimCloud

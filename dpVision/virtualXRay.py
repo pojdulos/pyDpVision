@@ -137,6 +137,7 @@ class VirtualXRay(Object):
 		self.projection_mode = "cone"
 		self.step_mm = 1.0
 		self.last_raw_projection = None
+		self.last_projection_image = None
 
 		self.quality_profile_name = "normal"
 		self.source_interpolation = "linear"

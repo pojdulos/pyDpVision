@@ -271,5 +271,8 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - `Update display`
 - `Run Simulation` liczy projekcje i aktualizuje cache.
 - `Update display` przelicza tylko warstwe prezentacji na bazie `last_raw_projection`, bez ponownego ray-marchingu.
+- `Update display` zamraza teraz viewery GL na czas wstawiania odswiezonego obrazu do workspace, tak samo jak `Run Simulation`, zeby unikac cichego crasha przy przeplataniu uploadu tekstur z repaintem OpenGL.
+- Obraz projekcji `VirtualXRay` nie jest juz za kazdym razem dodawany jako nowy `Image`. Panel aktualizuje teraz istniejacy obiekt projekcji w miejscu (`last_projection_image`), a `Image` alokuje teksture OpenGL leniwie dopiero w `renderSelf()`, zeby unikac `glGenTextures` poza kontrolowanym cyklem renderu.
+- Aktualizacja obrazu projekcji odswieza tez jawnie otwarte okna `ImageViewer` i panel wlasciwosci `Image`, bo te komponenty trzymaja wlasne kopie `QPixmap` i bez tego mogly sprawiac wrazenie, ze `Update display` nic nie robi.
 - Przy przejsciu `cone -> parallel` GUI ustawia domyslny kierunek promieni zgodny z `detector_normal_ref`, zeby projekcja rownolegla nie startowala w zla strone.
 - Gizmo `VirtualXRay` ma subtelniejsze kolory, lokalne osie i dla `cone` cienkie linie od zrodla do naroznikow detektora, pokazujace pole widzenia.

@@ -890,7 +890,7 @@ class PropVirtualXRay(PropWidget):
 
 	@pyqtSlot()
 	def _display_image_array(self, obj, display_image):
-		"""Convert a float display image to uint8, wrap in QImage and add to workspace."""
+		"""Convert a float display image to uint8 and either create or update one workspace image object."""
 		mode = str(obj.presentation_mode).lower()
 		if mode == "raw":
 			image_u8 = normalize_projection_to_uint8(
@@ -912,9 +912,37 @@ class PropVirtualXRay(PropWidget):
 			image_u8.strides[0],
 			QImage.Format_Grayscale8,
 		).copy()
+		image_obj = getattr(obj, "last_projection_image", None)
+		if isinstance(image_obj, Image):
+			image_obj.setImage(qimage)
+			image_obj.label = f"{obj.label}_projection"
+			AP.mainWin.dock["workspace"].refreshAll()
+			self._refresh_image_viewers(image_obj)
+			return
+
 		image_obj = Image(image=qimage)
 		image_obj.label = f"{obj.label}_projection"
+		obj.last_projection_image = image_obj
 		AP.addObject(image_obj)
+		self._refresh_image_viewers(image_obj)
+
+	def _freeze_gl_viewers(self):
+		"""Temporarily disable GL viewer updates while image objects are inserted into the workspace."""
+		gl_viewers = AP.mainWin.allGLViewers()
+		for viewer in gl_viewers:
+			viewer.setUpdatesEnabled(False)
+		return gl_viewers
+
+	def _refresh_image_viewers(self, image_obj):
+		"""Refresh auxiliary 2D viewers and property panels that may cache their own pixmaps."""
+		mdi_area = getattr(AP.mainWin, "mdiArea", None)
+		if mdi_area is not None:
+			for sub_window in mdi_area.subWindowList():
+				widget = sub_window.widget()
+				if getattr(widget, "m_widget", None) is image_obj and hasattr(widget, "_viewer"):
+					widget._viewer.setImage(image_obj)
+
+		AP.updateProperties()
 
 	def on_run_simulation(self):
 		"""Run one X-ray projection, cache the raw result and insert the display image into the workspace."""
@@ -928,9 +956,7 @@ class PropVirtualXRay(PropWidget):
 
 		# Zamroź viewery GL przed processEvents — renderowanie Image przez glTexImage2D
 		# poza normalnym cyklem paintGL powoduje crash przy drugiej symulacji.
-		gl_viewers = AP.mainWin.allGLViewers()
-		for v in gl_viewers:
-			v.setUpdatesEnabled(False)
+		gl_viewers = self._freeze_gl_viewers()
 
 		QApplication.processEvents()  # odmaluj pasek przed startem blokującego obliczenia
 
@@ -964,7 +990,21 @@ class PropVirtualXRay(PropWidget):
 		obj = self.obj_ref()
 		if obj is None:
 			return
-		display_image = obj.apply_presentation()
-		if display_image is None:
-			return
-		self._display_image_array(obj, display_image)
+		self.updateDisplayButton.setEnabled(False)
+		gl_viewers = self._freeze_gl_viewers()
+		QApplication.setOverrideCursor(Qt.WaitCursor)
+		try:
+			try:
+				display_image = obj.apply_presentation()
+			except Exception as exc:
+				QMessageBox.critical(self, "Update display error", str(exc))
+				return
+			if display_image is None:
+				return
+			self._display_image_array(obj, display_image)
+		finally:
+			QApplication.restoreOverrideCursor()
+			for viewer in gl_viewers:
+				viewer.setUpdatesEnabled(True)
+			self.updateDisplayButton.setEnabled(obj.last_raw_projection is not None)
+			AP.updateAllViews()

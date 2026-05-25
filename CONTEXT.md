@@ -249,6 +249,7 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - `bone_threshold`
 - `piecewise_bone` i `piecewise_soft_tissue` sa prostymi krzywymi odcinkowymi przygotowanymi do szybkiego porownania jakościowego bez dalszego strojenia kodu.
 - `bone_threshold` miesza model neutralny z modelem kostnym powyzej miekkiego progu HU i lepiej pasuje do projekcji niz heurystyka pelnego okna z segmentacji powierzchni.
+- Backend RTG ma teraz tez opcjonalny krok przed `scalar -> mu`: `XRayScalarPreprocessor`. Na start obsluguje tryb `percentile_rescale`, ktory liczy statystyki percentylowe osobno dla kazdego wolumenu i przemapowuje jego wartosci na wspolny pseudo-HU zakres przed projekcja. `VirtualXRay` wystawia to w `Geometry -> Show advanced` jako ustawienia preprocessingu zrodla.
 - Zakladka `Presentation` ma teraz tez szybkie presety wygladu (`balanced`, `bone_soft`, `bone_contrast`, `film_soft`), ktore jednoczesnie ustawiaja tryb prezentacji, `gamma`, `contrast` i `robust percentile` bez zmiany modelu fizycznego.
 - `VirtualXRay` ma teraz backendowa estymacje progu kosci na podstawie heurystyki z `marchingCubes.py`: metoda `estimate_bone_threshold()` uzywa gradientowego `mc_estimate_threshold(...)`, a `apply_estimated_bone_threshold()` ustawia tryb `bone_threshold`, wpisuje prog HU i czysci pelne okno materialowe. Panel `Physics` ma do tego przycisk `Auto bone threshold`.
 - `VirtualXRay` ma jawne pole `projection_mode = "cone" | "parallel"`. Nie opiera juz logiki trybu na `source_position_ref is None`.

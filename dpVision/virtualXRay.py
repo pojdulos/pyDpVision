@@ -21,6 +21,7 @@ from .xrayProjection import (
 	XRayProjectionConfig,
 	XRayProjectionGeometry,
 	XRayProjectionQualityProfile,
+	XRayScalarPreprocessor,
 	XRayScene,
 )
 
@@ -140,6 +141,11 @@ class VirtualXRay(Object):
 		self.quality_profile_name = "normal"
 		self.source_interpolation = "linear"
 		self.source_fill_value = None
+		self.source_preprocess_mode = "none"
+		self.source_preprocess_low_percentile = 0.5
+		self.source_preprocess_high_percentile = 99.5
+		self.source_preprocess_output_low = -1000.0
+		self.source_preprocess_output_high = 2500.0
 
 		self.physics_mu_air = 0.0
 		self.physics_mu_water = 0.02
@@ -204,12 +210,14 @@ class VirtualXRay(Object):
 
 	def scene_sources(self):
 		"""Build X-ray sample sources from descendant volumetrics in the local frame of this object."""
+		scalar_preprocessor = self.build_scalar_preprocessor()
 		return [
 			VolumetricXRaySource(
 				volumetric=vol,
 				global_transform=self.child_transform_relative_to_self(vol),
 				interpolation=self.source_interpolation,
 				fill_value=self.source_fill_value,
+				scalar_preprocessor=scalar_preprocessor,
 			)
 			for vol in self.collect_volumetrics()
 		]
@@ -239,6 +247,16 @@ class VirtualXRay(Object):
 			step_mm=self.step_mm,
 			source_position_ref=self.source_position_ref if is_cone else None,
 			ray_direction_ref=self.ray_direction_ref if not is_cone else None,
+		)
+
+	def build_scalar_preprocessor(self):
+		"""Build the optional source scalar preprocessor used before attenuation mapping."""
+		return XRayScalarPreprocessor(
+			mode=self.source_preprocess_mode,
+			input_low_percentile=self.source_preprocess_low_percentile,
+			input_high_percentile=self.source_preprocess_high_percentile,
+			output_low_value=self.source_preprocess_output_low,
+			output_high_value=self.source_preprocess_output_high,
 		)
 
 	def build_physics_model(self):

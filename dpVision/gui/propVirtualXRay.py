@@ -207,6 +207,29 @@ class PropVirtualXRay(PropWidget):
 		self.sourceInterpolationCombo = QComboBox()
 		self.sourceInterpolationCombo.addItems(["nearest", "linear", "cubic"])
 		self._set_compact_field(self.sourceInterpolationCombo)
+		self.sourcePreprocessModeCombo = QComboBox()
+		self.sourcePreprocessModeCombo.addItems(["none", "percentile_rescale"])
+		self._set_compact_field(self.sourcePreprocessModeCombo)
+		self.sourcePreprocessLowPercentileSpin = QDoubleSpinBox()
+		self.sourcePreprocessLowPercentileSpin.setRange(0.0, 100.0)
+		self.sourcePreprocessLowPercentileSpin.setDecimals(2)
+		self.sourcePreprocessLowPercentileSpin.setSingleStep(0.1)
+		self._set_compact_field(self.sourcePreprocessLowPercentileSpin)
+		self.sourcePreprocessHighPercentileSpin = QDoubleSpinBox()
+		self.sourcePreprocessHighPercentileSpin.setRange(0.0, 100.0)
+		self.sourcePreprocessHighPercentileSpin.setDecimals(2)
+		self.sourcePreprocessHighPercentileSpin.setSingleStep(0.1)
+		self._set_compact_field(self.sourcePreprocessHighPercentileSpin)
+		self.sourcePreprocessOutputLowSpin = QDoubleSpinBox()
+		self.sourcePreprocessOutputLowSpin.setRange(-1e6, 1e6)
+		self.sourcePreprocessOutputLowSpin.setDecimals(3)
+		self.sourcePreprocessOutputLowSpin.setSingleStep(1.0)
+		self._set_compact_field(self.sourcePreprocessOutputLowSpin)
+		self.sourcePreprocessOutputHighSpin = QDoubleSpinBox()
+		self.sourcePreprocessOutputHighSpin.setRange(-1e6, 1e6)
+		self.sourcePreprocessOutputHighSpin.setDecimals(3)
+		self.sourcePreprocessOutputHighSpin.setSingleStep(1.0)
+		self._set_compact_field(self.sourcePreprocessOutputHighSpin)
 		self.sourceUseFillValueCheck = QCheckBox("Use explicit fill value")
 		self.sourceFillValueSpin = QDoubleSpinBox()
 		self.sourceFillValueSpin.setRange(-1e9, 1e9)
@@ -214,6 +237,11 @@ class PropVirtualXRay(PropWidget):
 		self.sourceFillValueSpin.setSingleStep(1.0)
 		self._set_compact_field(self.sourceFillValueSpin)
 		advanced_source_layout.addRow("Interpolation:", self.sourceInterpolationCombo)
+		advanced_source_layout.addRow("Preprocess:", self.sourcePreprocessModeCombo)
+		advanced_source_layout.addRow("Input low [%]:", self.sourcePreprocessLowPercentileSpin)
+		advanced_source_layout.addRow("Input high [%]:", self.sourcePreprocessHighPercentileSpin)
+		advanced_source_layout.addRow("Output low:", self.sourcePreprocessOutputLowSpin)
+		advanced_source_layout.addRow("Output high:", self.sourcePreprocessOutputHighSpin)
 		advanced_source_layout.addRow("", self.sourceUseFillValueCheck)
 		advanced_source_layout.addRow("Fill value:", self.sourceFillValueSpin)
 		self.advancedSourceGroup.setVisible(False)
@@ -467,6 +495,11 @@ class PropVirtualXRay(PropWidget):
 		self.physicsOutputModeCombo.currentTextChanged.connect(self.on_advanced_physics_changed)
 		self.physicsIntensityFloorSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.sourceInterpolationCombo.currentTextChanged.connect(self.on_advanced_source_changed)
+		self.sourcePreprocessModeCombo.currentTextChanged.connect(self.on_advanced_source_changed)
+		self.sourcePreprocessLowPercentileSpin.valueChanged.connect(self.on_advanced_source_changed)
+		self.sourcePreprocessHighPercentileSpin.valueChanged.connect(self.on_advanced_source_changed)
+		self.sourcePreprocessOutputLowSpin.valueChanged.connect(self.on_advanced_source_changed)
+		self.sourcePreprocessOutputHighSpin.valueChanged.connect(self.on_advanced_source_changed)
 		self.sourceUseFillValueCheck.toggled.connect(self.on_advanced_source_changed)
 		self.sourceFillValueSpin.valueChanged.connect(self.on_advanced_source_changed)
 		self.geometryAdvancedCheck.toggled.connect(lambda checked: self.advancedSourceGroup.setVisible(checked))
@@ -517,6 +550,11 @@ class PropVirtualXRay(PropWidget):
 			self.physicsOutputModeCombo,
 			self.physicsIntensityFloorSpin,
 			self.sourceInterpolationCombo,
+			self.sourcePreprocessModeCombo,
+			self.sourcePreprocessLowPercentileSpin,
+			self.sourcePreprocessHighPercentileSpin,
+			self.sourcePreprocessOutputLowSpin,
+			self.sourcePreprocessOutputHighSpin,
 			self.sourceUseFillValueCheck,
 			self.sourceFillValueSpin,
 		):
@@ -554,6 +592,11 @@ class PropVirtualXRay(PropWidget):
 
 	def _update_advanced_source_visibility(self, obj: VirtualXRay):
 		"""Enable explicit source fill value only when that override is active."""
+		preprocess_enabled = str(obj.source_preprocess_mode).lower() != "none"
+		self.sourcePreprocessLowPercentileSpin.setEnabled(preprocess_enabled)
+		self.sourcePreprocessHighPercentileSpin.setEnabled(preprocess_enabled)
+		self.sourcePreprocessOutputLowSpin.setEnabled(preprocess_enabled)
+		self.sourcePreprocessOutputHighSpin.setEnabled(preprocess_enabled)
 		self.sourceFillValueSpin.setEnabled(obj.source_fill_value is not None)
 
 	def updateProperties(self):
@@ -594,6 +637,11 @@ class PropVirtualXRay(PropWidget):
 		self.physicsOutputModeCombo.setCurrentText(str(obj.physics_output_mode))
 		self.physicsIntensityFloorSpin.setValue(float(obj.physics_intensity_floor))
 		self.sourceInterpolationCombo.setCurrentText(str(obj.source_interpolation))
+		self.sourcePreprocessModeCombo.setCurrentText(str(obj.source_preprocess_mode))
+		self.sourcePreprocessLowPercentileSpin.setValue(float(obj.source_preprocess_low_percentile))
+		self.sourcePreprocessHighPercentileSpin.setValue(float(obj.source_preprocess_high_percentile))
+		self.sourcePreprocessOutputLowSpin.setValue(float(obj.source_preprocess_output_low))
+		self.sourcePreprocessOutputHighSpin.setValue(float(obj.source_preprocess_output_high))
 		self.sourceUseFillValueCheck.setChecked(obj.source_fill_value is not None)
 		self.sourceFillValueSpin.setValue(0.0 if obj.source_fill_value is None else float(obj.source_fill_value))
 		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
@@ -832,6 +880,11 @@ class PropVirtualXRay(PropWidget):
 		"""Store lower-level source sampling parameters exposed for quick backend testing."""
 		obj = self.obj_ref()
 		obj.source_interpolation = str(self.sourceInterpolationCombo.currentText())
+		obj.source_preprocess_mode = str(self.sourcePreprocessModeCombo.currentText())
+		obj.source_preprocess_low_percentile = float(self.sourcePreprocessLowPercentileSpin.value())
+		obj.source_preprocess_high_percentile = float(self.sourcePreprocessHighPercentileSpin.value())
+		obj.source_preprocess_output_low = float(self.sourcePreprocessOutputLowSpin.value())
+		obj.source_preprocess_output_high = float(self.sourcePreprocessOutputHighSpin.value())
 		obj.source_fill_value = float(self.sourceFillValueSpin.value()) if self.sourceUseFillValueCheck.isChecked() else None
 		self._after_change(obj)
 

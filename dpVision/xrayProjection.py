@@ -320,6 +320,54 @@ class DigitalRadiographyPresentationModel(XRayPresentationModel):
 
 
 @dataclass
+class XRayScalarPreprocessor:
+	"""Optionally normalize source scalar values before the physics model consumes them."""
+
+	mode: str = "none"
+	input_low_percentile: float = 0.5
+	input_high_percentile: float = 99.5
+	output_low_value: float = -1000.0
+	output_high_value: float = 2500.0
+
+	def is_active(self):
+		"""Return `True` when this preprocessor should modify source scalar values."""
+		return str(self.mode).lower() != "none"
+
+	def estimate_volume_stats(self, volume):
+		"""Estimate robust scalar range statistics from one source volume."""
+		volume = np.asarray(volume, dtype=np.float32)
+		finite_values = volume[np.isfinite(volume)]
+		if finite_values.size == 0:
+			return None
+
+		low_q = float(np.percentile(finite_values, np.clip(float(self.input_low_percentile), 0.0, 100.0)))
+		high_q = float(np.percentile(finite_values, np.clip(float(self.input_high_percentile), 0.0, 100.0)))
+		if high_q <= low_q:
+			high_q = low_q + 1.0
+		return {
+			"input_low": low_q,
+			"input_high": high_q,
+		}
+
+	def apply(self, scalar_values, stats):
+		"""Return optionally normalized scalar values using previously estimated source statistics."""
+		scalar_values = np.asarray(scalar_values, dtype=np.float32)
+		if not self.is_active() or stats is None:
+			return scalar_values
+
+		mode = str(self.mode).lower()
+		if mode == "percentile_rescale":
+			input_low = float(stats["input_low"])
+			input_high = float(stats["input_high"])
+			output_low = float(self.output_low_value)
+			output_high = float(self.output_high_value)
+			normalized = np.clip((scalar_values - input_low) / max(input_high - input_low, 1e-6), 0.0, 1.0)
+			return (output_low + normalized * (output_high - output_low)).astype(np.float32, copy=False)
+
+		return scalar_values
+
+
+@dataclass
 class XRayProjectionGeometry:
 	"""Describe the source-detector setup in a configurable reference frame."""
 
@@ -725,7 +773,7 @@ class XRaySampleSource(ABC):
 class VolumetricXRaySource(XRaySampleSource):
 	"""Adapt a `Volumetric` object into a world-space X-ray attenuation source."""
 
-	def __init__(self, volumetric, global_transform=None, interpolation="linear", fill_value=None):
+	def __init__(self, volumetric, global_transform=None, interpolation="linear", fill_value=None, scalar_preprocessor=None):
 		"""Store volumetric data and transformation used for world-space sampling."""
 		if not isinstance(volumetric, Volumetric):
 			raise TypeError("volumetric must be an instance of Volumetric.")
@@ -740,6 +788,8 @@ class VolumetricXRaySource(XRaySampleSource):
 		self.fill_value = float(default_fill if fill_value is None else fill_value)
 		self._inverse_global_transform = np.linalg.inv(self.global_transform)
 		self._volume = np.asarray(self.volumetric.m_volume, dtype=np.float32)
+		self.scalar_preprocessor = scalar_preprocessor
+		self._scalar_stats = None if scalar_preprocessor is None else scalar_preprocessor.estimate_volume_stats(self._volume)
 
 	def bounds_world(self):
 		"""Return the world-space axis-aligned bounding box of the transformed volume."""
@@ -752,7 +802,7 @@ class VolumetricXRaySource(XRaySampleSource):
 		local_world = self.volumetric._transform_world_points(points_world.T, self._inverse_global_transform).T
 		points_voxel = self.volumetric.world_to_voxel(local_world.T).T
 		order = {"nearest": 0, "linear": 1, "cubic": 3}.get(self.interpolation, 1)
-		return map_coordinates(
+		sampled = map_coordinates(
 			self._volume,
 			[
 				points_voxel[:, 2],
@@ -763,6 +813,9 @@ class VolumetricXRaySource(XRaySampleSource):
 			mode='constant',
 			cval=self.fill_value,
 		).astype(np.float32, copy=False)
+		if self.scalar_preprocessor is None:
+			return sampled
+		return self.scalar_preprocessor.apply(sampled, self._scalar_stats)
 
 	def sample_attenuation_world(self, points_world, physics_model):
 		"""Sample attenuation coefficients in world coordinates using the supplied physics model."""

@@ -7,3 +7,4 @@ plugins/*/quantum
 .aider*
 generated/
 .output_local/
+nasze/

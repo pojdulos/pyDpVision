@@ -1,0 +1,413 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}
+
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{siunitx}
+
+\usepackage{csquotes}
+\usepackage[backend=biber, style=numeric]{biblatex}
+%style = numeric, authoryear, apa, itp.
+\addbibresource{refs.bib}
+
+\geometry{margin=2.5cm}
+
+% \title{
+% Wirtualne dynamiczne obrazowanie RTG oparte na danych wolumetrycznych i symulowanym ruchu żuchwy
+% }
+
+\title{Uniwersalne środowisko symulacji projekcyjnego obrazowania medycznego oparte na danych wolumetrycznych i transformacjach anatomicznych}
+
+% \author{
+% Darek Pojda\\
+% Instytut Informatyki Teoretycznej i Stosowanej PAN\\
+% Gliwice
+% }
+
+% \date{\today}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+
+Niniejszy dokument przedstawia wstępną koncepcję systemu wirtualnego dynamicznego obrazowania RTG opartego na danych wolumetrycznych głowy oraz symulowanym ruchu żuchwy. Proponowane podejście łączy obrazowanie wolumetryczne, segmentację struktur anatomicznych, transformacje przestrzenne, modelowanie ruchu oraz generowanie syntetycznych projekcji radiologicznych w celu uzyskania sekwencji obrazów przypominających dynamiczną fluoroskopię lub cine-RTG bez konieczności dodatkowej ekspozycji pacjenta na promieniowanie.
+
+Koncepcja może stanowić podstawę przyszłych badań metodologicznych związanych z analizą stawów skroniowo-żuchwowych (TMJ), walidacją metod rejestracji obrazów, generowaniem syntetycznych danych dla systemów sztucznej inteligencji oraz analizą ruchu w środowisku multimodalnym. System może również znaleźć zastosowanie edukacyjne, symulacyjne oraz wspomagające planowanie leczenia.
+
+\end{abstract}
+
+\section{Wprowadzenie}
+
+Dynamiczna analiza ruchu żuchwy stanowi istotny element diagnostyki stawów skroniowo-żuchwowych (TMJ), ortodoncji, protetyki oraz biomechaniki twarzoczaszki. Bezpośrednia akwizycja dynamicznych danych radiologicznych wiąże się jednak z wieloma ograniczeniami praktycznymi i klinicznymi, takimi jak:
+\begin{itemize}
+\item dodatkowa ekspozycja pacjenta na promieniowanie,
+\item ograniczona dostępność odpowiednich urządzeń,
+\item trudność uzyskania dokładnych danych referencyjnych ruchu,
+\item ograniczona rozdzielczość czasowa lub przestrzenna.
+\end{itemize}
+
+Jednocześnie współczesne techniki obrazowania wolumetrycznego, takie jak CBCT lub CT, umożliwiają uzyskanie szczegółowych modeli anatomicznych struktur czaszkowo-twarzowych. Dane te pozwalają na segmentację i rekonstrukcję poszczególnych elementów anatomicznych, takich jak:
+\begin{itemize}
+\item żuchwa,
+\item szczęka,
+\item czaszka,
+\item uzębienie,
+\item wybrane tkanki miękkie.
+\end{itemize}
+
+Proponowana koncepcja zakłada połączenie takich modeli z symulacją ruchu oraz generowaniem syntetycznych projekcji RTG. W proponowanym systemie wysegmentowane struktury anatomiczne reprezentowane są jako modele wolumetryczne lub powierzchniowe, które mogą być przemieszczane zgodnie z zadanymi trajektoriami ruchu żuchwy. Następnie całość może zostać „prześwietlona” metodami numerycznymi w celu wygenerowania syntetycznych obrazów przypominających fluoroskopię lub dynamiczne RTG.
+
+
+\section{Related Work}
+
+\subsection{Digitally Reconstructed Radiographs (DRR) and 2D--3D Registration}
+
+Virtual X-ray imaging is a virtual radiographic projection of a real object model containing volumetric data representing X-ray attenuation coefficients. The fundamental physical model is based on the exponential attenuation of radiation intensity along the ray path:
+
+\begin{equation}
+I=I_0 e^{-\int \mu(s)ds}
+\end{equation}
+where $\mu(s)$ denotes the linear attenuation coefficient of the material.
+
+Typically, this process is reduced either to modeling complex geometrical shapes with uniform attenuation coefficients, in which case the path of the X-ray beam through the object is determined, or to voxel-based modeling with spatially varying attenuation coefficients, where the beam path length is accumulated for each voxel traversed by the ray.
+The first approach corresponds to modeling the object geometry using triangular meshes, where the number of ray intersections with the mesh is calculated. In the second approach, the model consists of a set of voxels, each assigned its own attenuation coefficient. Models may be created during the design process, for example as various types of phantoms; however, computed tomography has become a particularly convenient source of such data, since the intensity values assigned to voxels correspond to X-ray attenuation coefficients. Synthetic X-ray images generated from volumetric CT or CBCT data by simulating X-ray attenuation through a three-dimensional object are called DDR (Digitally Reconstructed Radiographs).  Since the X-ray attenuation coefficient strongly depends on the energy of the incident radiation, for models defined by material composition and chemical properties, this relationship can be determined for different energy levels. However, when the model contains attenuation values corresponding to only a single energy level, as is the case for DDR data, the virtual X-ray image can be generated only for that specific energy value.
+The required accuracy of a virtual X-ray image depends on the intended application. One of the primary applications is 2D–3D registration.
+
+Early DRR research focused primarily on 2D--3D image registration between preoperative CT volumes and intraoperative fluoroscopic X-ray images. A key approach involved mutual information optimization and histogram-based similarity estimation for multimodal image alignment. Zöllei et al. proposed one of the foundational methods for rigid 2D--3D registration using sparsely sampled histograms and stochastic optimization techniques~\cite{Zollei2001MICCAI}.
+
+Hurvitz and Joskowicz further extended these methods by introducing intensity correspondence-based registration between CT-like atlases and fluoroscopic X-ray images, enabling applications in surgical navigation and intraoperative imaging~\cite{Hurvitz2008}.
+
+\subsection{Efficient DRR Generation and Real-Time Rendering}
+
+As clinical applications of DRR increased, computational efficiency became a critical challenge. Early acceleration techniques focused on optimized ray casting and precomputed attenuation models.
+
+Galigekere et al. introduced the concept of \textit{scaled attenuation fields}, enabling real-time DRR generation for interactive medical visualization and registration tasks~\cite{Galigekere2003}. Their method significantly reduced computational complexity while preserving clinically relevant anatomical information.
+
+These advances enabled the integration of DRR into interactive navigation systems and intraoperative visualization workflows.
+
+\subsection{DRR in Dentistry and CBCT Panoramic Reconstruction}
+
+With the widespread adoption of cone-beam computed tomography (CBCT) in dentistry, DRR techniques were adapted for panoramic and cephalometric image reconstruction. CBCT enables reconstruction of three-dimensional dental datasets into two-dimensional projections using techniques such as \textit{curved planar reconstruction} (CPR) and ray-sum projection.
+
+Numerous studies have focused on improving the quality and automation of panoramic reconstruction.
+
+Papakosta et al. proposed a fully automatic panoramic reconstruction method based on dental arch detection and transformation of CBCT data~\cite{Papakosta2017}.
+
+Yun et al. addressed the problem of low contrast in CBCT-derived panoramic images and proposed a method based on dental arch thickness estimation, image synthesis, and adaptive enhancement~\cite{YUN2019205}.
+
+Zhang et al. developed a fast automatic panoramic reconstruction framework using axial maximum intensity projection (MIP) images and adaptive intensity correction, particularly for datasets containing metallic implants~\cite{electronics11152404}.
+
+Lee et al. proposed a fully automatic panoramic synthesis method using the internal mandibular curve extracted from volumetric CT data, emphasizing the importance of accurate anatomical curve modeling~\cite{DBLP:conf/cimaging/LeeWLLS19}.
+
+\subsection{Evaluation of CBCT-Derived Images}
+
+An important research area concerns the evaluation of CBCT-derived 2D projections compared to conventional radiographic images.
+
+Cattaneo et al. demonstrated that CBCT-generated cephalograms provide diagnostically comparable results to conventional cephalometric radiographs~\cite{Cattaneo2008}.
+
+Kim et al. evaluated the reliability of CBCT-generated frontal cephalograms and reported high reproducibility of cephalometric measurements~\cite{Kim2012}.
+
+Additional studies showed that eliminating geometric magnification artifacts improves cephalometric measurement accuracy and reproducibility~\cite{diagnostics11122292}.
+
+\subsection{Advanced Physical Models of X-ray Formation}
+
+In addition to classical absorption-based DRR models, more advanced simulation methods incorporate wave-based physics.
+
+Peterzol et al. proposed X-ray phase-contrast imaging simulations accounting for diffraction and interference effects~\cite{Peterzol2007}. Their work enabled more realistic modeling of X-ray propagation, particularly for soft-tissue visualization.
+
+\subsection{Dynamic Imaging and 4D CT}
+
+Recent studies have extended DRR concepts toward dynamic imaging and 4D CT.
+
+Seah et al. demonstrated the clinical utility of 4D CT in the analysis of dynamic musculoskeletal disorders, allowing visualization of anatomical motion over time~\cite{Seah2022}.
+
+These developments motivate the concept of dynamic DRR generation for time-dependent imaging applications.
+
+\subsection{Differentiable DRR and Deep Learning-Based Approaches}
+
+One of the most recent research directions involves integrating DRR generation into differentiable frameworks, enabling gradient-based optimization of the entire imaging pipeline.
+
+\begin{equation}
+\frac{\partial I}{\partial \theta}
+\end{equation}
+
+Gopalakrishnan and Golland proposed an auto-differentiable DRR framework for solving inverse problems in intraoperative imaging~\cite{Gopalakrishnan2022}.
+
+These limitations indicate the need for further development of hybrid approaches combining physical X-ray modeling with modern machine learning techniques in next-generation virtual radiography systems.
+
+
+
+\section{Ogólna koncepcja systemu}
+
+Proponowany pipeline składa się z kilku głównych etapów:
+
+\begin{enumerate}[label=\arabic*.]
+
+\item Akwizycja danych wolumetrycznych głowy (CBCT lub CT).
+
+\item Segmentacja struktur anatomicznych:
+\begin{itemize}
+\item żuchwy,
+\item czaszki,
+\item uzębienia,
+\item opcjonalnie tkanek miękkich.
+\end{itemize}
+
+\item Rozdzielenie struktur statycznych i ruchomych.
+
+\item Definicja trajektorii ruchu żuchwy w obrębie stawów skroniowo-żuchwowych.
+
+\item Symulacja ruchu z wykorzystaniem transformacji przestrzennych w grupie $SE(3)$.
+
+\item Generowanie syntetycznych projekcji RTG.
+
+\item Tworzenie dynamicznych sekwencji obrazów przypominających fluoroskopię.
+
+\end{enumerate}
+
+Schematycznie proces można przedstawić następująco:
+
+\begin{center}
+CBCT/CT $\rightarrow$
+Segmentacja $\rightarrow$
+Symulacja ruchu $\rightarrow$
+Wirtualne RTG $\rightarrow$
+Dynamiczna sekwencja obrazów
+\end{center}
+
+\section{Wirtualna projekcja RTG}
+
+Etap generowania obrazów RTG może zostać zrealizowany z wykorzystaniem metod DRR (Digitally Reconstructed Radiographs), polegających na całkowaniu osłabienia promieniowania wzdłuż promieni przechodzących przez dane wolumetryczne.
+
+W uproszczonym modelu osłabienie promieniowania może zostać opisane prawem Beer'a–Lamberta:
+
+\begin{equation}
+I = I_0 e^{-\mu x}
+\end{equation}
+
+gdzie:
+\begin{itemize}
+\item $I_0$ oznacza początkową intensywność promieniowania,
+\item $I$ oznacza intensywność zarejestrowaną przez detektor,
+\item $\mu$ oznacza współczynnik osłabienia,
+\item $x$ oznacza efektywną długość drogi promieniowania w materiale.
+\end{itemize}
+
+W praktyce osłabienie może być wyznaczane bezpośrednio na podstawie wartości voxelowych pochodzących z danych CT/CBCT.
+
+Pierwsza wersja systemu może wykorzystywać uproszczony model projekcji, natomiast w dalszych etapach możliwe jest rozszerzenie systemu o:
+\begin{itemize}
+\item modele szumu,
+\item symulację odpowiedzi detektora,
+\item przybliżenia rozpraszania,
+\item zależność od energii promieniowania,
+\item bardziej zaawansowane modele fizyczne.
+\end{itemize}
+
+\section{Symulacja ruchu żuchwy}
+
+Jednym z kluczowych elementów projektu jest model ruchu żuchwy.
+
+W najprostszym wariancie żuchwa może być traktowana jako bryła sztywna poruszająca się względem czaszki przy użyciu transformacji z grupy $SE(3)$:
+
+\begin{equation}
+T =
+\begin{bmatrix}
+R & t \\
+0 & 1
+\end{bmatrix}
+\end{equation}
+
+gdzie:
+\begin{itemize}
+\item $R \in SO(3)$ opisuje rotację,
+\item $t \in \mathbb{R}^3$ opisuje translację.
+\end{itemize}
+
+Rozważane scenariusze ruchu mogą obejmować:
+\begin{itemize}
+\item otwieranie ust,
+\item protruzję,
+\item ruchy boczne,
+\item ruchy złożone,
+\item trajektorie pochodzące z systemów śledzenia ruchu.
+\end{itemize}
+
+W dalszej perspektywie możliwe jest uwzględnienie:
+\begin{itemize}
+\item ograniczeń biomechanicznych,
+\item modeli toru kłykcia,
+\item detekcji kolizji,
+\item modeli mięśniowych,
+\item indywidualnych modeli pacjenta.
+\end{itemize}
+
+\section{Możliwe kierunki badań}
+
+\subsection{Walidacja metod estymacji ruchu}
+
+Syntetyczne sekwencje RTG generowane z dokładnie znanych transformacji umożliwiają uzyskanie pełnych danych referencyjnych ruchu. Pozwala to na walidację:
+\begin{itemize}
+\item metod rejestracji,
+\item algorytmów śledzenia,
+\item metod estymacji pozycji,
+\item systemów AI rekonstruujących ruch na podstawie obrazów 2D.
+\end{itemize}
+
+\subsection{Generowanie danych syntetycznych dla AI}
+
+System może zostać wykorzystany do generowania dużych zbiorów syntetycznych danych zawierających:
+\begin{itemize}
+\item różne anatomie,
+\item różne trajektorie ruchu,
+\item różne geometrie projekcji,
+\item dokładnie znane transformacje.
+\end{itemize}
+
+Może to znaleźć zastosowanie w:
+\begin{itemize}
+\item uczeniu nadzorowanym,
+\item benchmarkach,
+\item adaptacji domen,
+\item testowaniu odporności algorytmów.
+\end{itemize}
+
+\subsection{Analiza ruchu TMJ}
+
+Proponowany system może umożliwić ilościową analizę:
+\begin{itemize}
+\item trajektorii kłykci,
+\item asymetrii ruchu,
+\item relacji okluzyjnych,
+\item powtarzalności ruchu,
+\item wykrywanie anomalii w ruchu,
+\item wpływu różnych terapii lub aparatów.
+\end{itemize}
+
+\subsection{Zastosowania edukacyjne i symulacyjne}
+
+Możliwe są również zastosowania:
+\begin{itemize}
+\item edukacyjne,
+\item demonstracyjne,
+\item treningowe,
+\item wspomagające planowanie leczenia.
+\end{itemize}
+
+\section{Aktualna wykonalność techniczna}
+
+Istotna część wymaganych komponentów jest zgodna z już istniejącymi doświadczeniami i rozwiązaniami związanymi z:
+\begin{itemize}
+\item przetwarzaniem danych wolumetrycznych,
+\item rejestracją multimodalną,
+\item analizą transformacji,
+\item wizualizacją 3D,
+\item integracją danych CBCT i skanów powierzchniowych,
+\item renderingiem OpenGL.
+\end{itemize}
+
+Oznacza to, że projekt nie wymaga budowy całego środowiska od podstaw, lecz stanowi rozwinięcie istniejących kompetencji i technologii.
+
+\section{Dalsze kierunki rozwoju}
+
+Potencjalne dalsze etapy projektu obejmują:
+\begin{itemize}
+\item implementację wydajnego renderingu DRR,
+\item integrację z systemami śledzenia ruchu,
+\item walidację względem rzeczywistych danych fluoroskopowych,
+\item rozwój modeli biomechanicznych,
+\item rekonstrukcję ruchu z obrazów RTG,
+\item integrację z metodami sztucznej inteligencji.
+\end{itemize}
+
+\section{Podsumowanie}
+
+Proponowana koncepcja przedstawia system wirtualnego dynamicznego obrazowania RTG oparty na danych wolumetrycznych oraz symulowanym ruchu żuchwy. Połączenie segmentacji, symulacji ruchu, analizy transformacji oraz generowania syntetycznych projekcji radiologicznych może stworzyć elastyczne środowisko badawcze do analizy ruchu, walidacji metod, generowania danych syntetycznych oraz zastosowań edukacyjnych.
+
+Projekt ma obecnie charakter metodologiczny i koncepcyjny, jednak może stanowić podstawę dalszych badań z zakresu obrazowania medycznego, biomechaniki twarzoczaszki, rejestracji multimodalnej oraz analizy ruchu wspomaganej metodami AI.
+
+\vspace{1cm}
+
+\noindent
+\textbf{Słowa kluczowe:}
+wirtualne RTG,
+fluoroskopia,
+DRR,
+TMJ,
+ruch żuchwy,
+CBCT,
+obrazowanie medyczne,
+syntetyczne dane,
+rejestracja multimodalna
+
+
+
+\section{ }
+
+
+
+
+\section{Pojęcia}
+
+
+
+
+
+\subsection{MPR (Multiplaner Reconstruction)}
+Metoda generowania różnych widoków z pojedynczego cbct - polega na pokazywaniu różnych przekrojów, także pd dowolnym kątem.
+
+Próbkowanie płaszczyzny:
+
+$I(u,v)=V(x,y,z)$
+
+To już potrafi zrobić \textbf{dpVision}
+
+\subsection{CPR (Curved Planar Reformation)}
+
+Próbkowanie wzdłuż zakrzywionej powierzchni:
+
+$I(s,t)=V(C(s,t))$
+
+gdzie $C(s,t)$ opisuje zakrzywioną powierzchnię.
+
+\subsection{Wirtualny pantonogram}
+Jest gdzies pomiędzy CPR i DRR. Intuicyjnie --- łączy krzywą powierzchnię z całkowaniem 
+
+\subsection{DRR (Digitally Reconstructed Radiograph) / wirtualne RTG}
+
+Całkowanie po promieniu:
+$I(u,v)=\int_{ray}\mu(x,y,z)ds$
+
+\subsection{Tomosynteza}
+Tomosynthesis to technika obrazowania będąca czymś pomiędzy klasycznym RTG, a pełną tomografią CT/CBCT.
+
+Wykonuje się wiele projekcji RTG pod różnymi kątami i rekonstruuje z nich ,,pseudo-warstwy'' 3D. Ale zakres kątów jest ograniczony, więc nie dostaje się pełnego wolumenu jak w CT.
+
+\section{inne uwagi}
+\subsection{Deformacja tkanek miekkich}
+Zmiana połozenia żuchwy moze wpłynąć na tkanki miękkie, miejscami powodowac ich ściśniecie lub rozciągnięcie, co bedzie skutkowało zmianami  gęstosci. Nalezałoby to uwzglednić.
+
+
+\section{ pomysły z literatury lub co już było opisane}
+\subsection{ rzutowanie projekcyjne a rzut ortogonalny w pomiarach cefalometrycznych}
+Projekcja perspektywiczna sprawia, że w zależnaości od odległości od środka projekcji struktury obrazowane są z różnym powiększeniem.
+Wirtualne projekcje pozwalają na sprawdzenie jak bardzo wyniki pomiarów na projekcjach perspektywicznych różnią się od rzeczywistych i jak to wpływa na dokładość analizy przeprowadzanej przez grupę lekarzy.
+Najmniejszy rozrzut pomiarów \cite {diagnostics11122292}  dla analiz przeprowadzonych na podstawie rzutu ortogonalnego - z tego co rozumiem to nawet dokładność lepsza niż na 3D. Może dlatego, że cefalogramy 2D analizują już prawie 100 lat.
+
+
+%\bibliographystyle{plain}
+%\bibliography{refs}
+\printbibliography[title={Literatura}] % Zmienia domyślny nagłówek "Bibliografia"
+
+\end{document}

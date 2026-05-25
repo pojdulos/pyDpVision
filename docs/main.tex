@@ -1,0 +1,844 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}
+
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{siunitx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,calc}
+
+\usepackage{csquotes}
+\usepackage[backend=biber,style=numeric]{biblatex}
+\addbibresource{refs.bib}
+
+\geometry{margin=2.5cm}
+
+\lstdefinestyle{python}{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{gray!80!black},
+  stringstyle=\color{orange!80!black},
+  showstringspaces=false,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  rulecolor=\color{gray!40},
+  backgroundcolor=\color{gray!5},
+  tabsize=4,
+}
+
+\title{Uniwersalne środowisko symulacji projekcyjnego obrazowania medycznego oparte na danych wolumetrycznych i transformacjach anatomicznych}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+
+Przedstawiono koncepcję oraz aktualny stan implementacji środowiska symulacji
+projekcyjnego obrazowania medycznego rozwijanego w projekcie \texttt{pyDpVision}.
+Głównym celem systemu jest generowanie syntetycznych obrazów RTG na podstawie
+danych wolumetrycznych oraz zadanych transformacji anatomicznych, ze szczególnym
+uwzględnieniem scenariuszy związanych z ruchem żuchwy i analizą struktur
+czaszkowo-twarzowych. Opracowany moduł traktuje układ RTG jako osobny element sceny,
+zdolny do pracy na wielu wolumenach jednocześnie, z rozdzieleniem geometrii projekcji,
+modelu akwizycji, przetwarzania wstępnego danych oraz warstwy prezentacji obrazu.
+
+W pracy akcent położono na architekturę metody, jej parametryzację oraz potencjał
+badawczy. Szczególną uwagę poświęcono modelom odpowiedzi materiałowej,
+interpretacji danych CBCT jako przybliżonego modelu osłabienia promieniowania,
+oraz możliwości generowania dynamicznych sekwencji projekcyjnych dla obiektów
+poruszających się w czasie. Tekst należy traktować jako szkic artykułu opisującego
+zarówno koncepcję, jak i roboczy backend obliczeniowy.
+
+\end{abstract}
+
+\section{Wprowadzenie}
+
+Dynamiczna analiza ruchu żuchwy stanowi istotny element diagnostyki stawów
+skroniowo-żuchwowych (TMJ), ortodoncji, protetyki oraz biomechaniki twarzoczaszki.
+Bezpośrednia akwizycja dynamicznych danych radiologicznych wiąże się jednak
+z ograniczeniami praktycznymi i klinicznymi, do których należą:
+\begin{itemize}
+\item dodatkowa ekspozycja pacjenta na promieniowanie,
+\item ograniczona dostępność odpowiednich urządzeń,
+\item trudność uzyskania dokładnych danych referencyjnych ruchu,
+\item kompromis pomiędzy rozdzielczością czasową i przestrzenną.
+\end{itemize}
+
+Z drugiej strony współczesne techniki obrazowania wolumetrycznego, przede wszystkim
+CBCT i CT, pozwalają na budowę szczegółowych modeli anatomicznych struktur
+czaszkowo-twarzowych. Dane te umożliwiają segmentację, rekonstrukcję oraz niezależne
+modelowanie takich elementów jak:
+\begin{itemize}
+\item żuchwa,
+\item szczęka,
+\item czaszka,
+\item uzębienie,
+\item wybrane tkanki miękkie.
+\end{itemize}
+
+Naturalnym krokiem staje się więc połączenie danych wolumetrycznych z modelem ruchu
+oraz z wirtualną projekcją RTG. Takie podejście tworzy środowisko pozwalające
+na generowanie syntetycznych obrazów przypominających klasyczne RTG, cefalogramy,
+lokalne projekcje cone-beam lub sekwencje zbliżone do fluoroskopii. Środowisko to
+może być wykorzystane zarówno do analiz metodologicznych, jak i do walidacji
+algorytmów, testowania geometrii projekcji czy generowania danych syntetycznych
+dla systemów sztucznej inteligencji.
+
+Istotne jest również to, że prezentowane rozwiązanie nie powstało w próżni.
+Stanowi ono kontynuację wcześniejszych prac autora i współautorów związanych z:
+\begin{itemize}
+\item przetwarzaniem danych wolumetrycznych,
+\item rekonstrukcją powierzchni i segmentacją struktur anatomicznych,
+\item reprezentacją transformacji w drzewie sceny,
+\item integracją danych multimodalnych,
+\item narzędziami programowymi rozwijanymi w ramach \texttt{dpVision}.
+\end{itemize}
+
+W niniejszej wersji tekstu odwołania do wcześniejszych prac własnych mają jeszcze
+charakter opisowy. W kolejnej redakcji mogą zostać doprecyzowane bibliograficznie
+na podstawie materiałów źródłowych zgromadzonych w folderze \texttt{docs/nasze}.
+
+\section{Related Work}
+
+\subsection{Digitally Reconstructed Radiographs (DRR) and 2D--3D Registration}
+
+Virtual X-ray imaging is a virtual radiographic projection of a real object model containing volumetric data representing X-ray attenuation coefficients. The fundamental physical model is based on the exponential attenuation of radiation intensity along the ray path:
+
+\begin{equation}
+I=I_0 e^{-\int \mu(s)ds}
+\end{equation}
+where $\mu(s)$ denotes the linear attenuation coefficient of the material.
+
+Typically, this process is reduced either to modeling complex geometrical shapes with uniform attenuation coefficients, in which case the path of the X-ray beam through the object is determined, or to voxel-based modeling with spatially varying attenuation coefficients, where the beam path length is accumulated for each voxel traversed by the ray.
+The first approach corresponds to modeling the object geometry using triangular meshes, where the number of ray intersections with the mesh is calculated. In the second approach, the model consists of a set of voxels, each assigned its own attenuation coefficient. Models may be created during the design process, for example as various types of phantoms; however, computed tomography has become a particularly convenient source of such data, since the intensity values assigned to voxels correspond to X-ray attenuation coefficients. Synthetic X-ray images generated from volumetric CT or CBCT data by simulating X-ray attenuation through a three-dimensional object are called DDR (Digitally Reconstructed Radiographs). Since the X-ray attenuation coefficient strongly depends on the energy of the incident radiation, for models defined by material composition and chemical properties, this relationship can be determined for different energy levels. However, when the model contains attenuation values corresponding to only a single energy level, as is the case for DDR data, the virtual X-ray image can be generated only for that specific energy value.
+The required accuracy of a virtual X-ray image depends on the intended application. One of the primary applications is 2D--3D registration.
+
+Early DRR research focused primarily on 2D--3D image registration between preoperative CT volumes and intraoperative fluoroscopic X-ray images. A key approach involved mutual information optimization and histogram-based similarity estimation for multimodal image alignment. Zöllei et al. proposed one of the foundational methods for rigid 2D--3D registration using sparsely sampled histograms and stochastic optimization techniques~\cite{Zollei2001MICCAI}.
+
+Hurvitz and Joskowicz further extended these methods by introducing intensity correspondence-based registration between CT-like atlases and fluoroscopic X-ray images, enabling applications in surgical navigation and intraoperative imaging~\cite{Hurvitz2008}.
+
+\subsection{Efficient DRR Generation and Real-Time Rendering}
+
+As clinical applications of DRR increased, computational efficiency became a critical challenge. Early acceleration techniques focused on optimized ray casting and precomputed attenuation models.
+
+Galigekere et al. introduced the concept of \textit{scaled attenuation fields}, enabling real-time DRR generation for interactive medical visualization and registration tasks~\cite{Galigekere2003}. Their method significantly reduced computational complexity while preserving clinically relevant anatomical information.
+
+These advances enabled the integration of DRR into interactive navigation systems and intraoperative visualization workflows.
+
+\subsection{DRR in Dentistry and CBCT Panoramic Reconstruction}
+
+With the widespread adoption of cone-beam computed tomography (CBCT) in dentistry, DRR techniques were adapted for panoramic and cephalometric image reconstruction. CBCT enables reconstruction of three-dimensional dental datasets into two-dimensional projections using techniques such as \textit{curved planar reconstruction} (CPR) and ray-sum projection.
+
+Numerous studies have focused on improving the quality and automation of panoramic reconstruction.
+
+Papakosta et al. proposed a fully automatic panoramic reconstruction method based on dental arch detection and transformation of CBCT data~\cite{Papakosta2017}.
+
+Yun et al. addressed the problem of low contrast in CBCT-derived panoramic images and proposed a method based on dental arch thickness estimation, image synthesis, and adaptive enhancement~\cite{YUN2019205}.
+
+Zhang et al. developed a fast automatic panoramic reconstruction framework using axial maximum intensity projection (MIP) images and adaptive intensity correction, particularly for datasets containing metallic implants~\cite{electronics11152404}.
+
+Lee et al. proposed a fully automatic panoramic synthesis method using the internal mandibular curve extracted from volumetric CT data, emphasizing the importance of accurate anatomical curve modeling~\cite{DBLP:conf/cimaging/LeeWLLS19}.
+
+\subsection{Evaluation of CBCT-Derived Images}
+
+An important research area concerns the evaluation of CBCT-derived 2D projections compared to conventional radiographic images.
+
+Cattaneo et al. demonstrated that CBCT-generated cephalograms provide diagnostically comparable results to conventional cephalometric radiographs~\cite{Cattaneo2008}.
+
+Kim et al. evaluated the reliability of CBCT-generated frontal cephalograms and reported high reproducibility of cephalometric measurements~\cite{Kim2012}.
+
+Additional studies showed that eliminating geometric magnification artifacts improves cephalometric measurement accuracy and reproducibility~\cite{diagnostics11122292}.
+
+\subsection{Advanced Physical Models of X-ray Formation}
+
+In addition to classical absorption-based DRR models, more advanced simulation methods incorporate wave-based physics.
+
+Peterzol et al. proposed X-ray phase-contrast imaging simulations accounting for diffraction and interference effects~\cite{Peterzol2007}. Their work enabled more realistic modeling of X-ray propagation, particularly for soft-tissue visualization.
+
+\subsection{Dynamic Imaging and 4D CT}
+
+Recent studies have extended DRR concepts toward dynamic imaging and 4D CT.
+
+Seah et al. demonstrated the clinical utility of 4D CT in the analysis of dynamic musculoskeletal disorders, allowing visualization of anatomical motion over time~\cite{Seah2022}.
+
+These developments motivate the concept of dynamic DRR generation for time-dependent imaging applications.
+
+\subsection{Differentiable DRR and Deep Learning-Based Approaches}
+
+One of the most recent research directions involves integrating DRR generation into differentiable frameworks, enabling gradient-based optimization of the entire imaging pipeline.
+
+\begin{equation}
+\frac{\partial I}{\partial \theta}
+\end{equation}
+
+Gopalakrishnan and Golland proposed an auto-differentiable DRR framework for solving inverse problems in intraoperative imaging~\cite{Gopalakrishnan2022}.
+
+These limitations indicate the need for further development of hybrid approaches combining physical X-ray modeling with modern machine learning techniques in next-generation virtual radiography systems.
+
+\section{Method}
+
+\subsection{Założenie ogólne}
+
+Rozważany system modeluje projekcyjne obrazowanie medyczne jako funkcję zdefiniowaną
+na scenie anatomicznej, geometrii układu RTG oraz zestawie parametrów akwizycji
+i prezentacji. W najbardziej ogólnej postaci można to zapisać jako:
+\[
+\mathcal{I}_{\mathrm{display}} =
+\mathcal{P}\!\left(
+  \mathcal{A}\!\left(
+    \mathcal{S}, \mathcal{G}, \Theta_A
+  \right),
+  \Theta_P
+\right),
+\]
+gdzie:
+\begin{itemize}
+\item \(\mathcal{S}\) oznacza scenę złożoną z wolumenów i transformacji,
+\item \(\mathcal{G}\) oznacza geometrię źródła i detektora,
+\item \(\Theta_A\) oznacza parametry modelu akwizycji,
+\item \(\Theta_P\) oznacza parametry modelu prezentacji.
+\end{itemize}
+
+W praktyce oznacza to rozdzielenie procesu budowy obrazu na cztery logiczne warstwy:
+\begin{enumerate}[label=\arabic*.]
+\item reprezentację sceny i przestrzeni odniesienia,
+\item model geometrii projekcji,
+\item model próbkowania i osłabienia,
+\item model prezentacji wyniku.
+\end{enumerate}
+
+\subsection{Reprezentacja sceny i transformacji}
+
+W systemie \texttt{pyDpVision} każdy wolumen jest obiektem drzewa sceny i może być
+potomkiem dowolnej liczby transformacji. Dzięki temu obiekty anatomiczne nie muszą
+być wcześniej resamplowane do jednej wspólnej siatki tylko po to, aby wziąć udział
+w projekcji. Zamiast tego dla każdego punktu na promieniu wykonywany jest łańcuch
+odwzorowań:
+\[
+  \mathbf{p}_{\mathrm{ref}}
+  \xrightarrow{T_{\mathrm{world}\leftarrow\mathrm{ref}}}
+  \mathbf{p}_{\mathrm{world}}
+  \xrightarrow{T_{\mathrm{local}\leftarrow\mathrm{world}}}
+  \mathbf{p}_{\mathrm{local}}
+  \xrightarrow{\Phi_{\mathrm{voxel}}}
+  \mathbf{p}_{\mathrm{voxel}}.
+\]
+
+W aktualnym rozwiązaniu rolę obiektu spinającego scenę projekcyjną pełni
+\texttt{VirtualXRay}. Jest to zwykły węzeł drzewa sceny, którego lokalny układ
+odniesienia definiuje przestrzeń roboczą geometrii RTG. Obiekt ten:
+\begin{itemize}
+\item przechowuje położenie źródła i detektora,
+\item zbiera potomne wolumeny z drzewa sceny,
+\item oblicza ich transformacje względne względem siebie,
+\item buduje z tych danych kompletną konfigurację projekcji.
+\end{itemize}
+
+Taki model ma dwie zalety. Po pierwsze, jest zgodny z istniejącą architekturą
+\texttt{dpVision}. Po drugie, pozwala traktować całe stanowisko projekcyjne jako
+przemieszczalny i obracalny element sceny, co jest wygodne zarówno metodologicznie,
+jak i użytkowo.
+
+\subsection{Model geometrii projekcji}
+
+Geometria projekcji jest opisana przez położenie i orientację detektora oraz przez
+parametry źródła promieniowania. Na poziomie niskim detektor opisują:
+\[
+  \mathbf{o}_D,\qquad \mathbf{u}_D,\qquad \mathbf{v}_D,\qquad (H,W),
+\]
+gdzie \(\mathbf{o}_D\) jest początkiem siatki detektora, \(\mathbf{u}_D\) i
+\(\mathbf{v}_D\) są wektorami kroku piksela, a \(H\times W\) jest rozmiarem siatki.
+
+Środek piksela \((r,c)\) ma położenie:
+\[
+  \mathbf{p}_D(r,c)=\mathbf{o}_D + c\,\mathbf{u}_D + r\,\mathbf{v}_D.
+\]
+
+Fizyczny rozmiar detektora wynosi:
+\[
+  W_{\mathrm{det}} = W \cdot \|\mathbf{u}_D\|,
+  \qquad
+  H_{\mathrm{det}} = H \cdot \|\mathbf{v}_D\|.
+\]
+
+W implementacji udostępniono również bardziej intuicyjny sposób parametryzacji,
+wykorzystujący:
+\begin{itemize}
+\item środek detektora,
+\item normalną detektora,
+\item wektor \emph{up},
+\item rozdzielczość siatki,
+\item wielkość piksela albo całkowity rozmiar detektora.
+\end{itemize}
+
+W takim wariancie parametry wejściowe są najpierw przekształcane do postaci
+\((\mathbf{o}_D,\mathbf{u}_D,\mathbf{v}_D)\). Wektor normalny określa orientację
+płaszczyzny detektora, wektor \emph{up} definiuje kierunek ``góry'' na obrazie,
+a trzeci kierunek jest rekonstruowany przez iloczyn wektorowy. Po normalizacji
+i ortogonalizacji otrzymywana jest lokalna baza detektora, która następnie jest
+skalowana zgodnie z rozmiarem piksela albo zadanym fizycznym rozmiarem całego
+detektora.
+
+Rozróżniane są dwa podstawowe tryby wiązki:
+\begin{enumerate}[label=\alph*)]
+\item \textbf{projekcja stożkowa}, w której definiowane jest punktowe źródło
+      \(\mathbf{s}\),
+\item \textbf{projekcja równoległa}, w której wszystkie promienie mają ten sam
+      kierunek \(\hat{\mathbf{d}}\).
+\end{enumerate}
+
+W przypadku projekcji stożkowej kierunek promienia wyznacza wzór:
+\[
+  \hat{\mathbf{d}}(r,c)=
+  \frac{\mathbf{p}_D(r,c)-\mathbf{s}}
+       {\|\mathbf{p}_D(r,c)-\mathbf{s}\|}.
+\]
+
+Tak zdefiniowana geometria jest wystarczająca do reprezentacji klasycznych
+projekcji bocznych, AP/PA, lokalnych geometrii cone-beam oraz eksperymentów
+z układami parametryzowanymi w przestrzeni sceny.
+
+\subsection{Model próbkowania wolumenu}
+
+Po zdefiniowaniu promienia kolejne punkty na nim wyznaczane są według równania:
+\[
+  \mathbf{p}(t_k)=\mathbf{o}_R+t_k\hat{\mathbf{d}},
+  \qquad
+  t_k = k\Delta s,
+\]
+gdzie \(\Delta s = \texttt{step\_mm}\) jest krokiem ray-marchingu.
+
+Wartość skalarna w punkcie nie jest pobierana wyłącznie z jednego wokselu.
+W adapterze \texttt{VolumetricXRaySource} wykorzystywana jest funkcja
+\texttt{map\_coordinates}, dzięki czemu możliwe jest traktowanie wolumenu
+jako pola zadanego na siatce i odtwarzanie wartości w punktach pośrednich.
+Na obecnym etapie dostępne są trzy tryby interpolacji:
+\begin{itemize}
+\item \texttt{nearest} --- punktowi \(\mathbf{p}\) przypisywana jest wartość
+      najbliższego środka wokselowego. Formalnie można to zapisać jako
+      \[
+        I(\mathbf{p}) = I(\mathrm{round}(\mathbf{p})),
+      \]
+      gdzie operator \(\mathrm{round}\) oznacza zaokrąglenie współrzędnych
+      do najbliższego indeksu siatki. Taki model odpowiada założeniu, że każdy
+      woksel jest komórką o stałej wartości w całej swojej objętości.
+\item \texttt{linear} --- wartość w punkcie \(\mathbf{p}\) wyznaczana jest jako
+      kombinacja liniowa wartości z lokalnego otoczenia. W przestrzeni 3D jest to
+      w praktyce interpolacja trójliniowa, wykorzystująca osiem wokseli sąsiadujących
+      z punktem próbkowania. Dla punktu o lokalnych współrzędnych
+      \((u,v,w)\in[0,1]^3\) wewnątrz elementarnego sześcianu siatki można ją zapisać jako
+      \[
+        I(\mathbf{p}) =
+        \sum_{i=0}^{1}\sum_{j=0}^{1}\sum_{k=0}^{1}
+        \omega_{ijk}(u,v,w)\, I_{ijk},
+      \]
+      gdzie \(I_{ijk}\) są wartościami w narożach lokalnej kostki, a
+      \(\omega_{ijk}\) są wagami zależnymi od położenia punktu wewnątrz kostki:
+      \[
+        \omega_{000}=(1-u)(1-v)(1-w), \qquad
+        \omega_{100}=u(1-v)(1-w),
+      \]
+      \[
+        \omega_{010}=(1-u)v(1-w), \qquad
+        \omega_{110}=uv(1-w),
+      \]
+      \[
+        \omega_{001}=(1-u)(1-v)w, \qquad
+        \omega_{101}=u(1-v)w,
+      \]
+      \[
+        \omega_{011}=(1-u)vw, \qquad
+        \omega_{111}=uvw.
+      \]
+      Wagi te są nieujemne i sumują się do \(1\), dzięki czemu interpolacja zachowuje
+      charakter średniej ważonej lokalnego otoczenia.
+\item \texttt{cubic} --- wartość w punkcie wyznaczana jest na podstawie szerszego
+      otoczenia i wielomianowej aproksymacji wyższego rzędu. W praktyce prowadzi to
+      do gładszego pola skalarnego i łagodniejszych przejść tonalnych, ale kosztem
+      większego kosztu obliczeniowego i ryzyka lokalnych przeregulowań
+      (\emph{overshoot}), szczególnie w pobliżu ostrych granic struktur.
+\end{itemize}
+
+Każdy z tych trybów odpowiada innej interpretacji danych wejściowych.
+Interpolacja \texttt{nearest} jest najbliższa klasycznemu modelowi
+``woksel jako elementarna cegiełka materiału'', natomiast \texttt{linear}
+i \texttt{cubic} traktują wolumen raczej jako dyskretną reprezentację pola ciągłego,
+które dopiero jest rekonstruowane w punktach pośrednich.
+
+Domyślny tryb \texttt{linear} jest w niniejszym projekcie szczególnie uzasadniony.
+Oznacza bowiem traktowanie wolumenu jako dyskretnej reprezentacji ciągłego pola
+skalarnego, a nie jako zbioru rozłącznych komórek o stałej wartości. Dla danych
+CBCT i CT takie założenie wydaje się metodologicznie poprawne i jednocześnie
+praktyczne obliczeniowo: pozwala ograniczyć schodkowanie obrazu, a jednocześnie
+nie wprowadza jeszcze tak dużej gładkości i niejednoznaczności numerycznej jak
+interpolacja sześcienna.
+
+\subsection{Wstępne przetwarzanie skalarów}
+
+Jednym z kluczowych problemów przy wykorzystaniu danych CBCT jest niestabilność
+ich skali intensywności. Z tego powodu przed właściwym modelem akwizycji
+wprowadzono opcjonalny krok wstępnego przetwarzania danych realizowany przez
+\texttt{XRayScalarPreprocessor}.
+
+Na obecnym etapie zaimplementowany jest tryb \texttt{percentile\_rescale}.
+Jego parametry to:
+\begin{itemize}
+\item dolny percentyl wejściowy \(q_{\mathrm{low}}\),
+\item górny percentyl wejściowy \(q_{\mathrm{high}}\),
+\item dolna wartość zakresu wyjściowego \(I_{\mathrm{out,low}}\),
+\item górna wartość zakresu wyjściowego \(I_{\mathrm{out,high}}\).
+\end{itemize}
+
+Przekształcenie ma postać:
+\[
+  I_{\mathrm{norm}}=
+  I_{\mathrm{out,low}}+
+  \mathrm{clip}\!\left(
+    \frac{I-q_{\mathrm{low}}}{q_{\mathrm{high}}-q_{\mathrm{low}}},
+    0,1
+  \right)
+  \left(I_{\mathrm{out,high}}-I_{\mathrm{out,low}}\right).
+\]
+
+Choć model ten nie stanowi jeszcze fizycznej kalibracji danych, pełni ważną rolę
+jako krok ujednolicający serie o odmiennych zakresach liczbowych przed dalszym
+mapowaniem na osłabienie.
+
+\subsection{Model odpowiedzi materiałowej}
+
+W aktualnej implementacji \texttt{XRayPhysicsModel} udostępnia kilka wariantów
+mapowania \(\mathrm{scalar}\to\mu\). Oznacza to, że przed całkowaniem po promieniu
+wartość skalarna \(I\) jest interpretowana jako wejście do jednego z modeli
+odpowiedzi materiałowej.
+
+\paragraph{Model liniowy}
+Najprostszy wariant zakłada:
+\[
+  \rho_{\mathrm{rel}} = \max\!\left(0,1+\frac{I}{|HU_{\mathrm{air}}|}\right),
+\]
+\[
+  \mu =
+  \left(\mu_{\mathrm{air}}+\mu_{\mathrm{water}}\rho_{\mathrm{rel}}\right)s_{\mu}.
+\]
+
+Model ten jest neutralny i stanowi punkt odniesienia dla pozostałych wariantów.
+
+\paragraph{Modele odcinkowe}
+Warianty \texttt{piecewise\_bone} i \texttt{piecewise\_soft\_tissue} wykorzystują
+krzywe odcinkowo-liniowe:
+\[
+  \mu(I)=\mathrm{interp}(I;\{(x_k,y_k)\}_{k=1}^{K}),
+\]
+gdzie \(x_k\) oznaczają kolejne poziomy intensywności wejściowej, zaś \(y_k\)
+odpowiadają im wartości współczynnika osłabienia. Symbol \(\mathrm{interp}\)
+oznacza interpolację liniową pomiędzy sąsiednimi punktami kontrolnymi, a poza
+ich zakresem przyjmowanie wartości skrajnych. Punkty kontrolne dobierane są odpowiednio pod:
+\begin{itemize}
+\item silniejsze uwydatnienie struktur kostnych,
+\item bardziej zrównoważoną odpowiedź obejmującą tkanki miękkie.
+\end{itemize}
+
+\paragraph{Model \texttt{bone\_threshold}}
+Wariant ten wykorzystuje miękki próg kostny:
+\[
+  w(I)=\frac{1}{1+\exp\!\left(-\frac{I-T_b}{\sigma_b}\right)},
+\]
+gdzie \(T_b\) oznacza próg kostny, a \(\sigma_b\) określa miękkość przejścia.
+Odpowiedź końcowa jest mieszanką modelu neutralnego i modelu kostnego:
+\[
+  \mu(I)=
+  \mu_{\mathrm{lin}}(I)\left(1-\alpha w(I)\right)
+  +
+  \mu_{\mathrm{bone}}(I)w(I).
+\]
+
+Model ten został wprowadzony, aby uniknąć zbyt brutalnego wycinania struktur cienkich
+przez ostre progowanie, a jednocześnie zachować możliwość wzmacniania odpowiedzi
+charakterystycznej dla kości.
+
+\subsection{Okno materiałowe}
+
+Po zdefiniowaniu bazowej odpowiedzi materiałowej można nałożyć dodatkowe okno
+materiałowe określone przez środek \(C\) i szerokość \(W\):
+\[
+  v_{\min}=C-\frac{W}{2},
+  \qquad
+  v_{\max}=C+\frac{W}{2}.
+\]
+
+W zależności od trybu stosowane jest:
+\begin{itemize}
+\item okno binarne (\texttt{hard}), dla którego
+      \[
+        w_{\mathrm{window}}(I)=
+        \begin{cases}
+          1, & \text{gdy } v_{\min}\le I \le v_{\max},\\
+          0, & \text{w przeciwnym razie,}
+        \end{cases}
+      \]
+\item okno z liniowym przejściem na progach (\texttt{linear}), w którym
+      przejście od \(0\) do \(1\) i od \(1\) do \(0\) odbywa się w skończonym
+      przedziale wokół progów, kontrolowanym parametrem miękkości,
+\item okno z przejściem sigmoidalnym (\texttt{sigmoid}), w którym brzegi zakresu
+      są wygładzane funkcją logistyczną, dzięki czemu przejście jest ciągłe
+      i różniczkowalne.
+\end{itemize}
+
+Końcowy współczynnik osłabienia można wtedy zapisać jako:
+\[
+  \mu_{\mathrm{final}}(I)=\mu(I)\,w_{\mathrm{window}}(I).
+\]
+
+Takie rozwiązanie nie jest jeszcze odpowiednikiem pełnego modelu materiałowego,
+ale daje elastyczny mechanizm ograniczania wpływu wybranych zakresów intensywności
+przed całkowaniem po promieniu.
+
+\subsection{Całkowanie po promieniu}
+
+Jeżeli scena zawiera \(M\) aktywnych źródeł danych, chwilowy współczynnik osłabienia
+na promieniu wynosi:
+\[
+  \mu_{\mathrm{tot}}(t_k)=\sum_{m=1}^{M}\mu_m(t_k).
+\]
+
+Numeryczna aproksymacja całki ma postać:
+\[
+  A \approx \sum_{k=0}^{N-1}\mu_{\mathrm{tot}}(t_k)\Delta s.
+\]
+
+Wynik surowy może być następnie interpretowany na dwa sposoby:
+\begin{itemize}
+\item jako całka osłabienia \(I_{\mathrm{raw}}=A\),
+\item jako intensywność detektora
+      \(I_{\mathrm{raw}}=\max(I_{\mathrm{floor}},e^{-A})\).
+\end{itemize}
+
+\subsection{Model prezentacji}
+
+Istotną cechą środowiska jest jawne rozdzielenie wyniku akwizycji od sposobu jego
+wizualizacji. Wprowadzone modele prezentacji to:
+\begin{itemize}
+\item \texttt{RawPresentationModel},
+\item \texttt{FilmLikePresentationModel},
+\item \texttt{DigitalRadiographyPresentationModel}.
+\end{itemize}
+
+Modele te parametryzowane są m.in. przez:
+\begin{itemize}
+\item odwrócenie jasności (\texttt{invert}),
+\item współczynnik \(\gamma\),
+\item kontrast \(c\),
+\item percentyle używane do normalizacji,
+\item opcjonalne \texttt{window center / width}.
+\end{itemize}
+
+Dla modelu cyfrowego można zapisać:
+\[
+  I_N=
+  \mathrm{clip}\!\left(
+    \frac{I_{\mathrm{raw}}-(C-W/2)}{W},
+    0,1
+  \right),
+\]
+\[
+  I_C=\mathrm{clip}\!\left(0.5+(I_N-0.5)c,0,1\right),
+\]
+\[
+  I_{\mathrm{display}}=
+  \begin{cases}
+    (1-I_C)^{1/\gamma}, & \text{gdy aktywne invert},\\
+    I_C^{1/\gamma}, & \text{w przeciwnym razie.}
+  \end{cases}
+\]
+
+W obiekcie \texttt{VirtualXRay} pełna projekcja aktualizuje
+\texttt{last\_raw\_projection}, a późniejszy \texttt{Update display} przelicza już
+wyłącznie warstwę prezentacji. Dzięki temu strojenie parametrów wizualnych nie wymaga
+powtarzania pełnego ray-marchingu.
+
+\subsection{Profile jakości i koszt obliczeń}
+
+Koszt projekcji można w przybliżeniu opisać zależnością:
+\[
+  T \sim H\cdot W \cdot \frac{L}{\texttt{step\_mm}} \cdot N_v,
+\]
+gdzie:
+\begin{itemize}
+\item \(H\cdot W\) jest liczbą pikseli detektora,
+\item \(L\) oznacza przeciętną długość odcinka promienia przechodzącego przez scenę,
+\item \(N_v\) oznacza liczbę aktywnych źródeł danych.
+\end{itemize}
+
+W systemie zdefiniowano profile jakości \texttt{draft}, \texttt{normal} i
+\texttt{high}, które wpływają na:
+\begin{itemize}
+\item krok całkowania,
+\item efektywną rozdzielczość detektora,
+\item łączny koszt generowania obrazu.
+\end{itemize}
+
+Nie są to odrębne modele fizyczne, lecz predefiniowane zestawy parametrów
+numerycznych. W aktualnej implementacji:
+\begin{itemize}
+\item \texttt{draft} odpowiada ustawieniu \(\texttt{step\_mm}=2.0\) oraz
+      \texttt{detector\_downsample}=2,
+\item \texttt{normal} odpowiada ustawieniu \(\texttt{step\_mm}=1.0\) oraz
+      \texttt{detector\_downsample}=1,
+\item \texttt{high} odpowiada ustawieniu \(\texttt{step\_mm}=0.5\) oraz
+      \texttt{detector\_downsample}=1.
+\end{itemize}
+W praktyce oznacza to, że nazwy profili nie niosą samodzielnego znaczenia
+fizycznego, lecz stanowią wygodny skrót dla określonych kompromisów pomiędzy
+dokładnością numeryczną i czasem obliczeń.
+
+\section{Dynamiczny RTG}
+
+\subsection{Motywacja}
+
+Przejście od obrazu statycznego do dynamicznego jest jednym z najbardziej obiecujących
+kierunków rozwoju systemu. Szczególnie naturalnym przypadkiem jest ruch żuchwy względem
+czaszki, ponieważ:
+\begin{itemize}
+\item ma istotne znaczenie kliniczne,
+\item może być modelowany transformacjami bryły sztywnej,
+\item dobrze wpisuje się w hierarchiczną strukturę sceny,
+\item tworzy atrakcyjny poligon testowy dla metod rejestracji i analizy ruchu.
+\end{itemize}
+
+\subsection{Model ruchu bryły sztywnej}
+
+W najprostszym przybliżeniu żuchwa może być traktowana jako bryła sztywna
+opisana transformacją z grupy \(SE(3)\):
+\[
+T(t)=
+\begin{bmatrix}
+R(t) & \mathbf{t}(t)\\
+0 & 1
+\end{bmatrix},
+\]
+gdzie \(R(t)\in SO(3)\) opisuje rotację, a \(\mathbf{t}(t)\in\mathbb{R}^3\)
+opisuje translację.
+
+Wówczas dynamiczny obraz projekcyjny jest funkcją czasu:
+\[
+  \mathcal{I}_{\mathrm{display}}(t)=
+  \mathcal{P}\!\left(
+    \mathcal{A}\!\left(
+      \mathcal{S}(t),\mathcal{G},\Theta_A
+    \right),
+    \Theta_P
+  \right),
+\]
+przy czym sama scena \(\mathcal{S}(t)\) zmienia się wskutek transformacji obiektów,
+podczas gdy geometria układu RTG może pozostać stała albo również być funkcją czasu.
+
+\subsection{Scenariusze dynamiczne}
+
+Rozważane lub planowane scenariusze obejmują:
+\begin{itemize}
+\item otwieranie ust,
+\item protruzję,
+\item ruchy boczne,
+\item ruchy złożone,
+\item trajektorie pochodzące z zewnętrznych systemów pomiarowych.
+\end{itemize}
+
+Aktualna architektura projekcyjna dobrze wspiera ten kierunek, ponieważ źródła danych
+mogą pozostawać pod własnymi transformacjami, a projektor odpytuje je bezpośrednio
+w aktualnym położeniu. Nie ma więc potrzeby przeliczania całej sceny do jednego
+wspólnego wolumenu po każdej zmianie pozycji.
+
+\subsection{Znaczenie metodologiczne dynamicznego RTG}
+
+Tak zdefiniowane środowisko dynamiczne otwiera kilka istotnych zastosowań:
+\begin{itemize}
+\item generowanie sekwencji obrazów o znanych transformacjach referencyjnych,
+\item walidację metod śledzenia ruchu na obrazach 2D,
+\item analizę wpływu geometrii projekcji na obserwowalność ruchu,
+\item testowanie wrażliwości metod na zakłócenia i parametry prezentacji,
+\item generowanie danych syntetycznych dla systemów AI.
+\end{itemize}
+
+W dalszym etapie system może zostać rozszerzony o:
+\begin{itemize}
+\item ograniczenia biomechaniczne,
+\item deformacje tkanek miękkich,
+\item modele toru kłykciowego,
+\item integrację z danymi pomiarowymi pochodzącymi z urządzeń śledzących ruch.
+\end{itemize}
+
+\section{Potencjalne zastosowania badawcze}
+
+Rozwijane środowisko może pełnić kilka ról badawczych jednocześnie. Po pierwsze,
+może być traktowane jako generator danych syntetycznych, pozwalający tworzyć
+zarówno obrazy pojedyncze, jak i sekwencje obrazów dla scen o kontrolowanej
+geometrii. Po drugie, może służyć jako platforma integrująca dane multimodalne,
+w której klasyczne transformacje anatomiczne, wypracowane wcześniej dla modeli
+powierzchniowych i wolumetrycznych, prowadzą bezpośrednio do obserwowalnego obrazu
+projekcyjnego. Po trzecie, środowisko to może być traktowane jako narzędzie
+do analizy wrażliwości metod obrazowych na dobór geometrii, parametrów akwizycji
+oraz modeli prezentacji.
+
+W praktyce szczególnie interesujące wydają się następujące kierunki:
+\begin{itemize}
+\item generowanie syntetycznych cefalogramów i obrazów zbliżonych do klasycznych
+      projekcji stomatologicznych dla ustalonych konfiguracji anatomicznych,
+\item analiza wpływu ruchu żuchwy na obraz 2D przy stałej geometrii układu RTG,
+\item porównywanie widoczności wybranych struktur kostnych dla różnych
+      konfiguracji źródła, detektora i modeli materiałowych,
+\item budowa zbiorów testowych dla metod rejestracji 2D--3D, śledzenia ruchu
+      i algorytmów uczenia maszynowego,
+\item badanie wpływu jakości danych wejściowych, w szczególności różnic pomiędzy
+      seriami CBCT, na końcowy obraz projekcyjny.
+\end{itemize}
+
+Warto podkreślić, że taki kierunek badań dobrze wpisuje się w ciągłość
+wcześniejszych prac zespołu. Poprzednie artykuły koncentrowały się na:
+\begin{itemize}
+\item reprezentacji transformacji i ich hierarchicznej dokumentacji,
+\item integracji danych multimodalnych w ramach wirtualnego pacjenta,
+\item wykorzystaniu transformacji anatomicznych w zagadnieniach projektowania
+      szyn pozycjonujących oraz analizie ruchu żuchwy.
+\end{itemize}
+Obecny moduł RTG może być traktowany jako kolejna warstwa obserwacyjna nad tym
+samym aparatem pojęciowym: transformacja anatomiczna nie kończy się już wyłącznie
+na nowej konfiguracji obiektów 3D, ale może prowadzić do syntetycznego obrazu,
+na którym ta konfiguracja staje się pośrednio widoczna.
+
+\section{Implementacja i integracja z oprogramowaniem}
+
+Opisany model został zaimplementowany jako rozszerzenie środowiska
+\texttt{pyDpVision}. Z punktu widzenia architektury systemu szczególnie istotne
+jest to, że moduł RTG nie zastępuje istniejących mechanizmów sceny, lecz wykorzystuje
+je jako warstwę bazową. Obiekt \texttt{VirtualXRay} funkcjonuje w drzewie sceny
+jak każdy inny obiekt, posiada własny lokalny układ odniesienia i może przyjmować
+jako potomków wolumeny lub ich poddrzewa transformacji.
+
+Takie rozwiązanie ma kilka zalet:
+\begin{itemize}
+\item zachowuje spójność z wcześniejszym modelem reprezentacji danych,
+\item umożliwia stosowanie tych samych mechanizmów transformacji do geometrii RTG
+      i do obiektów anatomicznych,
+\item upraszcza budowę interfejsu użytkownika,
+\item pozwala na przyszłe rozszerzenia, na przykład o nowe typy źródeł danych
+      albo bardziej złożone scenariusze akwizycji.
+\end{itemize}
+
+Warstwa implementacyjna została świadomie rozdzielona od warstwy modeli.
+W praktyce oznacza to rozbicie funkcjonalności na:
+\begin{itemize}
+\item opis geometrii projekcji,
+\item model sceny projekcyjnej,
+\item model akwizycji,
+\item model prezentacji,
+\item obiekt scenowy odpowiedzialny za integrację z GUI.
+\end{itemize}
+
+Taki podział ma znaczenie metodologiczne. Pozwala bowiem rozwijać fizykę akwizycji,
+preprocessing danych lub warstwę wizualizacji w dużej mierze niezależnie od siebie,
+co ogranicza ryzyko częstych przebudów całego systemu. Jest to istotne zwłaszcza
+w projekcie, który ma służyć zarówno eksperymentom koncepcyjnym, jak i późniejszym
+testom porównawczym.
+
+\section{Ograniczenia aktualnego rozwiązania}
+
+Mimo znacznego stopnia parametryzacji, obecna wersja środowiska nadal stanowi model
+uproszczony. Najważniejsze ograniczenia można podzielić na trzy grupy.
+
+\subsection{Ograniczenia fizyczne}
+
+Po pierwsze, model akwizycji nie odwzorowuje jeszcze pełnej fizyki rzeczywistego RTG.
+W szczególności nie uwzględniono dotychczas:
+\begin{itemize}
+\item widma energetycznego lampy,
+\item prawa odwrotności kwadratu odległości,
+\item rozpraszania promieniowania,
+\item rozmycia związanego z rozmiarem ogniska,
+\item modelu odpowiedzi detektora i szumu kwantowego.
+\end{itemize}
+
+Z tego względu generowany obraz należy interpretować przede wszystkim jako projekcję
+syntetyczną, zachowującą wybrane cechy geometrii i osłabienia, a nie jako pełny
+odpowiednik klinicznego obrazu RTG.
+
+\subsection{Ograniczenia danych wejściowych}
+
+Po drugie, znaczące ograniczenie wynika z samego charakteru danych CBCT.
+Wartości skalarne w wolumenach CBCT nie są idealnym odpowiednikiem fizycznych
+współczynników osłabienia. Różnią się pomiędzy aparatami, protokołami i sposobami
+rekonstrukcji, a dodatkowo są obciążone artefaktami. Oznacza to, że nawet dobrze
+zaprojektowany model projekcyjny nie usuwa niejednoznaczności zawartych w danych
+wejściowych. Z tego powodu w pracy duży nacisk położono na jawne rozdzielenie
+etapu preprocessingu, odpowiedzi materiałowej oraz prezentacji.
+
+\subsection{Ograniczenia geometryczne i obliczeniowe}
+
+Po trzecie, obecny silnik opiera się na ray-marchingu z krokiem dyskretnym, a nie
+na dokładnym przejściu przez voxele w stylu Siddona. Takie rozwiązanie jest elastyczne
+i naturalnie wspiera transformacje sceny, ale oznacza zależność jakości wyniku
+od doboru kroku \texttt{step\_mm}. Dodatkowo koszt obliczeń szybko rośnie wraz
+ze wzrostem rozdzielczości detektora i liczby próbek na promieniu.
+
+Ograniczeniem jest także to, że bardziej złożone geometrie, takie jak pantomogram,
+nie mogą być obecnie traktowane jako zwykły preset geometrii. Wymagają one ruchomego
+układu akwizycji i osobnej logiki składania obrazu.
+
+\section{Wnioski i dalsze kierunki rozwoju}
+
+Przedstawione środowisko należy traktować jako spójny szkielet metodyczny i
+implementacyjny dla wirtualnego obrazowania projekcyjnego opartego na danych
+wielomodalnych i transformacjach anatomicznych. Jego podstawową zaletą jest
+nie tyle pełna zgodność fizyczna z rzeczywistym RTG, ile możliwość kontrolowanego
+eksperymentowania na styku:
+\begin{itemize}
+\item geometrii projekcji,
+\item przetwarzania danych wejściowych,
+\item modeli materiałowych,
+\item warstwy prezentacji,
+\item scenariuszy ruchu obiektów anatomicznych.
+\end{itemize}
+
+Architektura oparta na obiekcie \texttt{VirtualXRay}, osobnych modelach akwizycji
+i prezentacji oraz wykorzystaniu istniejącego drzewa sceny czyni rozwiązanie
+rozszerzalnym. Już obecnie umożliwia ono formułowanie i weryfikowanie hipotez
+badawczych dotyczących zarówno geometrii obrazowania, jak i ruchu żuchwy czy
+wpływu parametrów projekcji na widoczność struktur kostnych.
+
+W dalszym rozwoju najbardziej obiecujące wydają się cztery kierunki:
+\begin{enumerate}[label=\arabic*.]
+\item rozbudowa modelu fizycznego o bardziej wiarygodne przejście od danych CBCT
+      do modeli osłabienia promieniowania,
+\item dopracowanie geometrii specyficznych dla wybranych urządzeń, w tym geometrii
+      cefalometrycznych i uproszczonych geometrii panoramicznych,
+\item rozwój warstwy dynamicznej, obejmujący dłuższe sekwencje ruchu żuchwy
+      oraz integrację z zewnętrznymi danymi pomiarowymi,
+\item przeprowadzenie systematycznych testów wydajnościowych i jakościowych,
+      obejmujących zarówno porównania między seriami danych, jak i między modelami
+      akwizycji oraz prezentacji.
+\end{enumerate}
+
+W tym sensie prezentowana praca nie zamyka tematu, lecz buduje platformę do dalszych
+badań. Szczególnie ważne wydaje się połączenie dwóch perspektyw: z jednej strony
+rozwijania coraz wierniejszych modeli projekcji, z drugiej zaś zachowania elastyczności
+niezbędnej w badaniach nad danymi anatomicznymi, które są niejednorodne, ruchome
+i obciążone wieloma źródłami niepewności.
+
+\printbibliography[title={Literatura}]
+
+\end{document}

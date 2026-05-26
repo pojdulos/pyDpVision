@@ -295,6 +295,7 @@ class VirtualXRay(Object):
 				mesh=mesh,
 				global_transform=self.child_transform_relative_to_self(mesh),
 				scalar_value=float(getattr(mesh, "xray_mesh_scalar_value", self.mesh_source_scalar_value)),
+				backend=str(getattr(mesh, "xray_mesh_backend", "analytic_bvh")).lower(),
 				mode=str(getattr(mesh, "xray_mesh_mode", self.mesh_source_mode)).lower(),
 				shell_thickness_mm=float(getattr(mesh, "xray_mesh_shell_thickness_mm", self.mesh_surface_thickness_mm)),
 				scalar_scale=float(getattr(mesh, "xray_scalar_scale", 1.0)),

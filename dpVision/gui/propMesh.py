@@ -69,6 +69,8 @@ class PropMesh(PropWidget):
 		self.xrayLayout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 		self.xrayLayout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
 		self.xrayEnabledCheck = QCheckBox("Enabled in VirtualXRay")
+		self.xrayBackendCombo = QComboBox()
+		self.xrayBackendCombo.addItems(["analytic_bvh", "projected_intersection_list"])
 		self.xrayModeCombo = QComboBox()
 		self.xrayModeCombo.addItems(["solid", "shell"])
 		self.xrayScalarValueSpin = QDoubleSpinBox()
@@ -93,6 +95,7 @@ class PropMesh(PropWidget):
 		self.xrayAttenuationSpin.setSingleStep(0.05)
 
 		self.xrayLayout.addRow("", self.xrayEnabledCheck)
+		self.xrayLayout.addRow("Backend:", self.xrayBackendCombo)
 		self.xrayLayout.addRow("Mode:", self.xrayModeCombo)
 		self.xrayLayout.addRow("Scalar value:", self.xrayScalarValueSpin)
 		self.xrayLayout.addRow("Shell [mm]:", self.xrayShellThicknessSpin)
@@ -107,6 +110,7 @@ class PropMesh(PropWidget):
 	def _connect_xray_signals(self):
 		"""Connect X-ray tuning widgets to the underlying mesh object."""
 		self.xrayEnabledCheck.toggled.connect(self.on_xray_changed)
+		self.xrayBackendCombo.currentTextChanged.connect(self.on_xray_changed)
 		self.xrayModeCombo.currentTextChanged.connect(self.on_xray_changed)
 		self.xrayScalarValueSpin.valueChanged.connect(self.on_xray_changed)
 		self.xrayShellThicknessSpin.valueChanged.connect(self.on_xray_changed)
@@ -118,6 +122,7 @@ class PropMesh(PropWidget):
 		"""Block or unblock signals from the X-ray widgets during refresh."""
 		for widget in (
 			self.xrayEnabledCheck,
+			self.xrayBackendCombo,
 			self.xrayModeCombo,
 			self.xrayScalarValueSpin,
 			self.xrayShellThicknessSpin,
@@ -131,6 +136,7 @@ class PropMesh(PropWidget):
 		"""Enable only controls relevant to the current X-ray mesh mode."""
 		enabled = bool(obj.xray_source_enabled)
 		is_shell = str(obj.xray_mesh_mode).lower() == "shell"
+		self.xrayBackendCombo.setEnabled(enabled)
 		self.xrayModeCombo.setEnabled(enabled)
 		self.xrayScalarValueSpin.setEnabled(enabled)
 		self.xrayShellThicknessSpin.setEnabled(enabled and is_shell)
@@ -149,6 +155,7 @@ class PropMesh(PropWidget):
 
 		self._block_xray_signals(True)
 		self.xrayEnabledCheck.setChecked(bool(obj.xray_source_enabled))
+		self.xrayBackendCombo.setCurrentText(str(getattr(obj, "xray_mesh_backend", "analytic_bvh")))
 		self.xrayModeCombo.setCurrentText(str(obj.xray_mesh_mode))
 		self.xrayScalarValueSpin.setValue(float(obj.xray_mesh_scalar_value))
 		self.xrayShellThicknessSpin.setValue(float(obj.xray_mesh_shell_thickness_mm))
@@ -183,6 +190,7 @@ class PropMesh(PropWidget):
 		obj = self.obj_ref()
 		ensure_xray_source_config(obj)
 		obj.xray_source_enabled = bool(self.xrayEnabledCheck.isChecked())
+		obj.xray_mesh_backend = str(self.xrayBackendCombo.currentText()).lower()
 		obj.xray_mesh_mode = str(self.xrayModeCombo.currentText()).lower()
 		obj.xray_mesh_scalar_value = float(self.xrayScalarValueSpin.value())
 		obj.xray_mesh_shell_thickness_mm = max(1e-4, float(self.xrayShellThicknessSpin.value()))

@@ -8,6 +8,7 @@ from PyQt5.QtCore import QTimer
 from dpVision.annotationElipsoide import AnnotationElipsoide
 from dpVision.annotationPlane import AnnotationPlane
 from dpVision.mesh import Mesh
+from dpVision.meshQualityAnalyzer import MeshQualityAnalyzer
 from dpVision.meshUncertaintyModel import MeshUncertaintyModel, colorize_mesh_by_confidence, confidence_to_rgba, uncertainty_colormap
 from dpVision.volumetric import Volumetric
 from dpVision.xrayProjection import (
@@ -247,6 +248,220 @@ def build_synthetic_xray_demo_mesh():
 	return mesh
 
 
+def report_mesh_xray_topology(mesh: Mesh, area_epsilon=1e-12):
+	"""Print one compact RTG-oriented topology report for a mesh."""
+	analyzer = MeshQualityAnalyzer(mesh)
+	report = analyzer.compute_xray_topology_report(area_epsilon=area_epsilon)
+	print(analyzer.summarize_xray_topology_report(area_epsilon=area_epsilon))
+	return report
+
+
+def report_selected_mesh_xray_topology(area_epsilon=1e-12):
+	"""Print one topology report for the currently selected mesh in the workspace."""
+	selected = getattr(AP, "selected", None)
+	if not isinstance(selected, Mesh):
+		raise TypeError("AP.selected must be a Mesh to run report_selected_mesh_xray_topology().")
+	return report_mesh_xray_topology(selected, area_epsilon=area_epsilon)
+
+
+def clean_mesh_for_xray(mesh: Mesh, vertex_merge_tolerance=1e-6, drop_degenerate_faces=True,
+	                    drop_nonmanifold_faces=False, drop_boundary_faces=False):
+	"""Return one cleaned mesh copy plus a compact cleanup summary for RTG tests.
+
+	The cleanup is intentionally conservative:
+	- merge duplicated vertices by quantized position,
+	- drop degenerate faces created by merged vertex ids,
+	- remove duplicate triangle faces independent of winding order,
+	- optionally drop faces incident to non-manifold or boundary edges.
+	"""
+	if not isinstance(mesh, Mesh):
+		raise TypeError("mesh must be an instance of Mesh.")
+
+	vertices = np.asarray(mesh.m_vertices, dtype=np.float32)
+	faces = np.asarray(mesh.m_faces, dtype=np.int64)
+	if vertices.ndim != 2 or vertices.shape[1] != 3:
+		raise ValueError("mesh.m_vertices must have shape (N, 3).")
+	if faces.ndim != 2 or faces.shape[1] != 3:
+		raise ValueError("mesh.m_faces must have shape (M, 3).")
+	if vertex_merge_tolerance <= 0.0:
+		raise ValueError("vertex_merge_tolerance must be positive.")
+
+	quantized_vertices = np.round(vertices / float(vertex_merge_tolerance)).astype(np.int64)
+	_unique_keys, unique_vertex_indices, inverse_vertex_indices = np.unique(
+		quantized_vertices,
+		axis=0,
+		return_index=True,
+		return_inverse=True,
+	)
+	merged_vertices = vertices[unique_vertex_indices].astype(np.float32, copy=False)
+	remapped_faces = inverse_vertex_indices[faces].astype(np.int64, copy=False)
+
+	degenerate_mask = (
+		(remapped_faces[:, 0] == remapped_faces[:, 1])
+		| (remapped_faces[:, 1] == remapped_faces[:, 2])
+		| (remapped_faces[:, 2] == remapped_faces[:, 0])
+	)
+	degenerate_removed_count = int(np.count_nonzero(degenerate_mask))
+	if drop_degenerate_faces and degenerate_removed_count > 0:
+		remapped_faces = remapped_faces[~degenerate_mask]
+
+	normalized_faces = np.sort(remapped_faces, axis=1)
+	_unique_faces, unique_face_indices = np.unique(normalized_faces, axis=0, return_index=True)
+	del _unique_faces
+	unique_face_indices = np.sort(unique_face_indices)
+	duplicate_face_removed_count = int(remapped_faces.shape[0] - unique_face_indices.shape[0])
+	remapped_faces = remapped_faces[unique_face_indices]
+
+	removed_nonmanifold_face_count = 0
+	removed_boundary_face_count = 0
+	if drop_nonmanifold_faces or drop_boundary_faces:
+		edge_to_face_indices = {}
+		for face_idx, (a, b, c) in enumerate(remapped_faces):
+			for edge in ((a, b), (b, c), (c, a)):
+				edge_key = tuple(sorted((int(edge[0]), int(edge[1]))))
+				edge_to_face_indices.setdefault(edge_key, []).append(int(face_idx))
+
+		faces_to_drop = set()
+		for edge_faces in edge_to_face_indices.values():
+			if drop_boundary_faces and len(edge_faces) == 1:
+				faces_to_drop.update(edge_faces)
+			if drop_nonmanifold_faces and len(edge_faces) > 2:
+				faces_to_drop.update(edge_faces)
+
+		if faces_to_drop:
+			faces_to_drop_array = np.array(sorted(faces_to_drop), dtype=np.int64)
+			if drop_nonmanifold_faces:
+				nonmanifold_faces = set()
+				for edge_faces in edge_to_face_indices.values():
+					if len(edge_faces) > 2:
+						nonmanifold_faces.update(edge_faces)
+				removed_nonmanifold_face_count = int(np.intersect1d(
+					faces_to_drop_array,
+					np.array(sorted(nonmanifold_faces), dtype=np.int64),
+					assume_unique=True,
+				).shape[0])
+			if drop_boundary_faces:
+				boundary_faces = set()
+				for edge_faces in edge_to_face_indices.values():
+					if len(edge_faces) == 1:
+						boundary_faces.update(edge_faces)
+				removed_boundary_face_count = int(np.intersect1d(
+					faces_to_drop_array,
+					np.array(sorted(boundary_faces), dtype=np.int64),
+					assume_unique=True,
+				).shape[0])
+			keep_mask = np.ones(remapped_faces.shape[0], dtype=bool)
+			keep_mask[faces_to_drop_array] = False
+			remapped_faces = remapped_faces[keep_mask]
+
+	cleaned_mesh = Mesh.create(
+		vertices=merged_vertices,
+		faces=remapped_faces.astype(np.uint32, copy=False),
+	)
+	cleaned_mesh.label = f"{getattr(mesh, 'label', 'mesh')}_xray_clean"
+
+	cleanup_report = {
+		"input_vertex_count": int(vertices.shape[0]),
+		"input_face_count": int(faces.shape[0]),
+		"output_vertex_count": int(cleaned_mesh.m_vertices.shape[0]),
+		"output_face_count": int(cleaned_mesh.m_faces.shape[0]),
+		"merged_vertex_count": int(vertices.shape[0] - cleaned_mesh.m_vertices.shape[0]),
+		"removed_degenerate_face_count": int(degenerate_removed_count if drop_degenerate_faces else 0),
+		"removed_duplicate_face_count": int(duplicate_face_removed_count),
+		"removed_nonmanifold_face_count": int(removed_nonmanifold_face_count),
+		"removed_boundary_face_count": int(removed_boundary_face_count),
+		"vertex_merge_tolerance": float(vertex_merge_tolerance),
+		"drop_nonmanifold_faces": bool(drop_nonmanifold_faces),
+		"drop_boundary_faces": bool(drop_boundary_faces),
+	}
+	return cleaned_mesh, cleanup_report
+
+
+def clean_selected_mesh_for_xray(vertex_merge_tolerance=1e-6, add_to_workspace=True,
+	                             drop_nonmanifold_faces=False, drop_boundary_faces=False):
+	"""Clean the currently selected mesh, print reports before/after and optionally add the copy."""
+	selected = getattr(AP, "selected", None)
+	if not isinstance(selected, Mesh):
+		raise TypeError("AP.selected must be a Mesh to run clean_selected_mesh_for_xray().")
+
+	before_report = report_mesh_xray_topology(selected)
+	cleaned_mesh, cleanup_report = clean_mesh_for_xray(
+		selected,
+		vertex_merge_tolerance=vertex_merge_tolerance,
+		drop_nonmanifold_faces=drop_nonmanifold_faces,
+		drop_boundary_faces=drop_boundary_faces,
+	)
+	after_report = report_mesh_xray_topology(cleaned_mesh)
+
+	print("Mesh XRay cleanup summary:", cleanup_report)
+	if add_to_workspace:
+		AP.addObject(cleaned_mesh)
+
+	return {
+		"original_report": before_report,
+		"cleaned_report": after_report,
+		"cleanup_report": cleanup_report,
+		"cleaned_mesh": cleaned_mesh,
+	}
+
+
+def run_virtual_xray_headless(virtual_xray, save_png_path=None):
+	"""Run one VirtualXRay without inserting or refreshing GUI image objects.
+
+	This helper isolates the projection backend from the `Run Simulation` GUI path.
+	If it succeeds while the GUI button still crashes, the issue is likely in image
+	creation, workspace insertion or GL refresh rather than in the projection math.
+	"""
+	if not isinstance(virtual_xray, VirtualXRay):
+		raise TypeError("virtual_xray must be a VirtualXRay instance.")
+
+	config = virtual_xray.build_projection_config()
+	raw_image, stats = virtual_xray.build_scene().project(
+		config=config,
+		return_stats=True,
+		progress_callback=None,
+	)
+	raw_image = np.asarray(raw_image, dtype=np.float32)
+	display_image = config.apply_presentation(raw_image)
+
+	print(
+		"VirtualXRay headless projection:",
+		{
+			"label": str(getattr(virtual_xray, "label", "VirtualXRay")),
+			"shape": tuple(int(v) for v in raw_image.shape),
+			"elapsed_seconds": float(stats.elapsed_seconds),
+			"traced_pixels": int(stats.traced_pixels),
+			"total_sample_count": int(stats.total_sample_count),
+		},
+	)
+
+	if save_png_path is not None:
+		save_projection_png(
+			display_image,
+			save_png_path,
+			invert=False,
+			fixed_range=(0.0, 1.0),
+		)
+		print(f"Saved headless XRay preview to: {save_png_path}")
+
+	return {
+		"raw_image": raw_image,
+		"display_image": display_image,
+		"stats": stats,
+	}
+
+
+def run_selected_virtual_xray_headless(save_png_path=None):
+	"""Run the currently selected VirtualXRay without touching the GUI image path."""
+	selected = getattr(AP, "selected", None)
+	if not isinstance(selected, VirtualXRay):
+		selected_type = "None" if selected is None else type(selected).__name__
+		raise TypeError(
+			f"AP.selected must be a VirtualXRay to run run_selected_virtual_xray_headless(); got {selected_type}."
+		)
+	return run_virtual_xray_headless(selected, save_png_path=save_png_path)
+
+
 def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8.0, 0.0), jaw_rotation_deg_z=8.0):
 	"""Generate one example hybrid volume + mesh X-ray projection."""
 	create_synthetic_xray_demo_dicoms()
@@ -388,6 +603,16 @@ def create_real_xray_demo():
 
 		AP.removeObject(child=skull.parent)
 
+		if isinstance(skull, Mesh):
+			report_mesh_xray_topology(skull)
+
+			skull, result = clean_mesh_for_xray(skull, 
+						drop_nonmanifold_faces=True,
+    					drop_boundary_faces=False,)
+			print(result)
+			# print(result["cleaned_report"])
+
+
 		skull_transform = Transform()
 		#skull_transform.translate(-100, 45, 0)
 		skull_transform.rotate(90, [1,0,0])
@@ -398,6 +623,10 @@ def create_real_xray_demo():
 		AP.updateAllViews()
 		AP.mainWin.dock["workspace"].rebuildTree()
 
+		skull.xray_mesh_backend = "projected_intersection_list"
+		#setup.debug_run_simulation_stop_after = "display"
+		#setup.debug_run_simulation_stop_after = "update_views"
+		#result = run_virtual_xray_headless(setup, r"d:/temp/vxray_test.png")
 
 	# path1 = "c:/Users/darek/Desktop/praca/dane/20210312_142843/DCT0000.dcm"
 	# path2 = "d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm"
@@ -420,8 +649,8 @@ def create_real_xray_demo():
 	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
 	# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
 
-	if os.path.isfile(pathG):
-		AP.load(pathG, on_success=on_success)
+	# if os.path.isfile(pathG):
+	# 	AP.load(pathG, on_success=on_success)
 	# 	# AP.load(pathG, on_success=on_success)
 	
 	if os.path.isfile(pathD):

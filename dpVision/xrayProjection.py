@@ -40,6 +40,7 @@ def ensure_xray_source_config(source_object):
 			"xray_scalar_scale": 1.0,
 			"xray_scalar_bias": 0.0,
 			"xray_attenuation_multiplier": 1.0,
+			"xray_mesh_backend": "analytic_bvh",
 			"xray_mesh_mode": "solid",
 			"xray_mesh_scalar_value": 1800.0,
 			"xray_mesh_shell_thickness_mm": 1.0,
@@ -234,6 +235,62 @@ def _ray_triangle_intersections(ray_origin, ray_direction, triangles_world, epsi
 		triangles_world=triangles_world,
 		epsilon=epsilon,
 	))
+
+
+def _rays_single_triangle_hit_distances(ray_origins, ray_directions, triangle_world, epsilon=1e-6):
+	"""Return one hit distance per ray for one triangle, or `nan` when there is no hit."""
+	ray_origins = np.asarray(ray_origins, dtype=np.float32)
+	ray_directions = np.asarray(ray_directions, dtype=np.float32)
+	triangle_world = np.asarray(triangle_world, dtype=np.float32)
+	if ray_origins.ndim != 2 or ray_origins.shape[1] != 3:
+		raise ValueError("ray_origins must have shape (N, 3).")
+	if ray_directions.shape != ray_origins.shape:
+		raise ValueError("ray_directions must have the same shape as ray_origins.")
+	if triangle_world.shape != (3, 3):
+		raise ValueError("triangle_world must have shape (3, 3).")
+
+	n_rays = ray_origins.shape[0]
+	t_out = np.full(n_rays, np.nan, dtype=np.float32)
+	if n_rays == 0:
+		return t_out
+
+	v0 = triangle_world[0]
+	v1 = triangle_world[1]
+	v2 = triangle_world[2]
+	edge1 = v1 - v0
+	edge2 = v2 - v0
+
+	pvec = np.cross(ray_directions, edge2[np.newaxis, :])
+	det = np.sum(edge1[np.newaxis, :] * pvec, axis=1)
+	hit_mask = np.abs(det) > float(epsilon)
+	if not np.any(hit_mask):
+		return t_out
+
+	inv_det = np.zeros_like(det, dtype=np.float32)
+	inv_det[hit_mask] = 1.0 / det[hit_mask]
+	tvec = ray_origins - v0[np.newaxis, :]
+	u = np.sum(tvec * pvec, axis=1) * inv_det
+	hit_mask &= (u >= -epsilon) & (u <= 1.0 + epsilon)
+	if not np.any(hit_mask):
+		return t_out
+
+	qvec = np.cross(tvec, edge1[np.newaxis, :])
+	v = np.sum(ray_directions * qvec, axis=1) * inv_det
+	hit_mask &= (v >= -epsilon) & ((u + v) <= 1.0 + epsilon)
+	if not np.any(hit_mask):
+		return t_out
+
+	t_values = np.sum(edge2[np.newaxis, :] * qvec, axis=1) * inv_det
+	hit_mask &= t_values >= -epsilon
+	t_out[hit_mask] = t_values[hit_mask].astype(np.float32, copy=False)
+	return t_out
+
+
+def _is_top_left_edge_2d(point_a, point_b):
+	"""Return `True` when one directed 2D edge should be inclusive in top-left rasterization."""
+	dy = float(point_b[1] - point_a[1])
+	dx = float(point_b[0] - point_a[0])
+	return (dy > 0.0) or (abs(dy) <= 1e-8 and dx < 0.0)
 
 
 def _build_triangle_bvh(triangles_world, max_leaf_size=8):
@@ -1044,6 +1101,28 @@ class XRayProjectionStats:
 
 
 @dataclass
+class ProjectedTrianglePixelStack:
+	"""Store one memory-compact per-pixel stack of mesh-triangle intersection samples."""
+
+	detector_shape_hw: tuple[int, int]
+	pixel_offsets: np.ndarray
+	sample_t: np.ndarray
+	sample_triangle_index: np.ndarray
+	sample_shell_gain: np.ndarray
+
+	@property
+	def sample_count(self):
+		"""Return the total number of stored per-pixel intersection samples."""
+		return int(self.sample_t.shape[0])
+
+	def pixel_sample_slice(self, pixel_index):
+		"""Return the half-open slice bounds inside the flat sample arrays for one pixel."""
+		start = int(self.pixel_offsets[int(pixel_index)])
+		end = int(self.pixel_offsets[int(pixel_index) + 1])
+		return start, end
+
+
+@dataclass
 class XRayScene:
 	"""Own the set of sources taking part in one X-ray acquisition scenario."""
 
@@ -1107,7 +1186,8 @@ class XRaySampleSource(ABC):
 		"""Return attenuation coefficients sampled at `points_world`."""
 
 	def ray_integral_world(self, ray_origins, ray_directions, t_starts, t_ends, physics_model, step_mm,
-	                      progress_callback=None, progress_fraction=(0.0, 1.0)):
+	                      progress_callback=None, progress_fraction=(0.0, 1.0),
+	                      geometry=None, reference_transform=None, hit_ray_indices=None, detector_shape_hw=None):
 		"""Optionally return direct line-integral contributions for full rays.
 
 		Sources with analytic or surface-based behaviour can override this hook and
@@ -1179,7 +1259,7 @@ class MeshXRaySource(XRaySampleSource):
 	"""Adapt one closed triangle mesh into a simplified solid or shell X-ray source."""
 
 	def __init__(self, mesh, global_transform=None, scalar_value=2000.0, mode="solid", shell_thickness_mm=1.0,
-	             scalar_scale=1.0, scalar_bias=0.0, attenuation_multiplier=1.0):
+	             scalar_scale=1.0, scalar_bias=0.0, attenuation_multiplier=1.0, backend="analytic_bvh"):
 		"""Store mesh geometry and one simplified material model for X-ray projection.
 
 		The current implementation assumes triangle faces define either:
@@ -1200,15 +1280,45 @@ class MeshXRaySource(XRaySampleSource):
 		self.scalar_scale = float(scalar_scale)
 		self.scalar_bias = float(scalar_bias)
 		self.attenuation_multiplier = float(attenuation_multiplier)
+		self.backend = str(backend).strip().lower()
 		if self.mode not in {"solid", "shell"}:
 			raise ValueError("mode must be either 'solid' or 'shell'.")
+		if self.backend not in {"analytic_bvh", "projected_intersection_list"}:
+			raise ValueError("backend must be either 'analytic_bvh' or 'projected_intersection_list'.")
 
 		vertices_world = _transform_points(self.global_transform, np.asarray(self.mesh.m_vertices, dtype=np.float32))
 		faces = np.asarray(self.mesh.m_faces, dtype=np.int32)
 		self._vertices_world = vertices_world
 		self._faces = faces
 		self._triangles_world = vertices_world[faces] if faces.size else np.empty((0, 3, 3), dtype=np.float32)
+		if getattr(self.mesh, "m_vnormals", None) is not None and np.asarray(self.mesh.m_vnormals).shape == self._vertices_world.shape:
+			vertex_normals_world = _transform_points(
+				np.block([
+					[self.global_transform[:3, :3], np.zeros((3, 1), dtype=np.float32)],
+					[np.zeros((1, 3), dtype=np.float32), np.ones((1, 1), dtype=np.float32)],
+				]),
+				np.asarray(self.mesh.m_vnormals, dtype=np.float32),
+			)
+			vertex_normals_world /= np.maximum(np.linalg.norm(vertex_normals_world, axis=1, keepdims=True), 1e-8)
+			self._vertex_normals_world = vertex_normals_world.astype(np.float32, copy=False)
+		else:
+			self._vertex_normals_world = np.empty((0, 3), dtype=np.float32)
+		self._triangle_vertex_normals_world = (
+			self._vertex_normals_world[faces]
+			if self._vertex_normals_world.shape[0] == self._vertices_world.shape[0] and faces.size
+			else np.empty((0, 3, 3), dtype=np.float32)
+		)
+		if self._triangles_world.shape[0] > 0:
+			face_normals = np.cross(
+				self._triangles_world[:, 1, :] - self._triangles_world[:, 0, :],
+				self._triangles_world[:, 2, :] - self._triangles_world[:, 0, :],
+			)
+			face_normals /= np.maximum(np.linalg.norm(face_normals, axis=1, keepdims=True), 1e-8)
+			self._face_normals_world = face_normals.astype(np.float32, copy=False)
+		else:
+			self._face_normals_world = np.empty((0, 3), dtype=np.float32)
 		self._bvh_nodes = _build_triangle_bvh(self._triangles_world, max_leaf_size=8)
+		self._projected_stack_cache = {}
 
 	def bounds_world(self):
 		"""Return the world-space AABB of the transformed mesh vertices."""
@@ -1225,8 +1335,316 @@ class MeshXRaySource(XRaySampleSource):
 		points_world = np.asarray(points_world, dtype=np.float32)
 		return np.zeros(points_world.shape[0], dtype=np.float32)
 
+	def _projected_stack_cache_key(self, geometry, reference_transform):
+		"""Build one hashable cache key for the projected mesh stack."""
+		reference_transform = np.eye(4, dtype=np.float32) if reference_transform is None else np.asarray(reference_transform, dtype=np.float32)
+		return (
+			tuple(int(v) for v in geometry.detector_shape_hw),
+			np.asarray(geometry.detector_origin_ref, dtype=np.float32).tobytes(),
+			np.asarray(geometry.detector_u_ref, dtype=np.float32).tobytes(),
+			np.asarray(geometry.detector_v_ref, dtype=np.float32).tobytes(),
+			np.asarray(reference_transform, dtype=np.float32).tobytes(),
+			None if geometry.source_position_ref is None else np.asarray(geometry.source_position_ref, dtype=np.float32).tobytes(),
+			None if geometry.ray_direction_ref is None else np.asarray(geometry.ray_direction_ref, dtype=np.float32).tobytes(),
+		)
+
+	def _detector_projection_context(self, geometry, reference_transform):
+		"""Return world-space detector data reused by the projected intersection backend."""
+		reference_transform = np.eye(4, dtype=np.float32) if reference_transform is None else np.asarray(reference_transform, dtype=np.float32)
+		detector_origin_world = _transform_point(reference_transform, geometry.detector_origin_ref).astype(np.float32)
+		detector_u_world = _transform_direction(reference_transform, geometry.detector_u_ref).astype(np.float32)
+		detector_v_world = _transform_direction(reference_transform, geometry.detector_v_ref).astype(np.float32)
+		detector_normal_world = _normalize_vector(np.cross(detector_u_world, detector_v_world)).astype(np.float32)
+		u_scale_sq = max(float(np.dot(detector_u_world, detector_u_world)), 1e-12)
+		v_scale_sq = max(float(np.dot(detector_v_world, detector_v_world)), 1e-12)
+		context = {
+			"detector_origin_world": detector_origin_world,
+			"detector_u_world": detector_u_world,
+			"detector_v_world": detector_v_world,
+			"detector_normal_world": detector_normal_world,
+			"detector_shape_hw": (int(geometry.detector_shape_hw[0]), int(geometry.detector_shape_hw[1])),
+			"u_scale_sq": u_scale_sq,
+			"v_scale_sq": v_scale_sq,
+			"reference_transform": reference_transform.astype(np.float32, copy=False),
+		}
+		if geometry.is_cone_beam():
+			context["projection_mode"] = "cone"
+			context["source_world"] = _transform_point(reference_transform, geometry.source_position_ref).astype(np.float32)
+		else:
+			context["projection_mode"] = "parallel"
+			context["ray_direction_world"] = _normalize_vector(
+				_transform_direction(reference_transform, geometry.ray_direction_ref)
+			).astype(np.float32)
+		return context
+
+	def _project_points_to_detector_pixels(self, points_world, context):
+		"""Project world-space points onto detector pixel coordinates."""
+		points_world = np.asarray(points_world, dtype=np.float32)
+		normal = context["detector_normal_world"]
+		detector_origin_world = context["detector_origin_world"]
+
+		if context["projection_mode"] == "cone":
+			source_world = context["source_world"]
+			line_dirs = points_world - source_world[np.newaxis, :]
+			denom = np.sum(line_dirs * normal[np.newaxis, :], axis=1)
+			valid = np.abs(denom) > 1e-8
+			lambda_plane = np.full(points_world.shape[0], np.nan, dtype=np.float32)
+			lambda_plane[valid] = (
+				np.dot(detector_origin_world - source_world, normal) / denom[valid]
+			).astype(np.float32, copy=False)
+			projected_points = source_world[np.newaxis, :] + line_dirs * lambda_plane[:, np.newaxis]
+		else:
+			back_dir = -context["ray_direction_world"]
+			denom = float(np.dot(back_dir, normal))
+			valid = np.full(points_world.shape[0], abs(denom) > 1e-8, dtype=bool)
+			lambda_plane = np.full(points_world.shape[0], np.nan, dtype=np.float32)
+			if abs(denom) > 1e-8:
+				lambda_plane[:] = np.sum((detector_origin_world[np.newaxis, :] - points_world) * normal[np.newaxis, :], axis=1) / denom
+			projected_points = points_world + back_dir[np.newaxis, :] * lambda_plane[:, np.newaxis]
+
+		delta = projected_points - detector_origin_world[np.newaxis, :]
+		cols = np.sum(delta * context["detector_u_world"][np.newaxis, :], axis=1) / context["u_scale_sq"]
+		rows = np.sum(delta * context["detector_v_world"][np.newaxis, :], axis=1) / context["v_scale_sq"]
+		uv_pixels = np.stack([cols, rows], axis=1).astype(np.float32, copy=False)
+		return uv_pixels, projected_points.astype(np.float32, copy=False), valid
+
+	def _triangle_shell_gain(self, triangle_index, hit_points_world, ray_directions):
+		"""Return one shell path-length gain per hit point based on local surface normal."""
+		hit_points_world = np.asarray(hit_points_world, dtype=np.float32)
+		ray_directions = np.asarray(ray_directions, dtype=np.float32)
+		if hit_points_world.shape != ray_directions.shape:
+			raise ValueError("hit_points_world and ray_directions must have the same shape.")
+		if hit_points_world.ndim != 2 or hit_points_world.shape[1] != 3:
+			raise ValueError("hit_points_world must have shape (N, 3).")
+		if hit_points_world.shape[0] == 0:
+			return np.empty((0,), dtype=np.float32)
+
+		if self._triangle_vertex_normals_world.shape[0] == self._triangles_world.shape[0]:
+			triangle = self._triangles_world[triangle_index]
+			v0 = triangle[0]
+			v1 = triangle[1]
+			v2 = triangle[2]
+			v0v1 = v1 - v0
+			v0v2 = v2 - v0
+			v0p = hit_points_world - v0[np.newaxis, :]
+			d00 = float(np.dot(v0v1, v0v1))
+			d01 = float(np.dot(v0v1, v0v2))
+			d11 = float(np.dot(v0v2, v0v2))
+			d20 = np.sum(v0p * v0v1[np.newaxis, :], axis=1)
+			d21 = np.sum(v0p * v0v2[np.newaxis, :], axis=1)
+			denom = d00 * d11 - d01 * d01
+			if abs(denom) > 1e-12:
+				v_weight = (d11 * d20 - d01 * d21) / denom
+				w_weight = (d00 * d21 - d01 * d20) / denom
+				u_weight = 1.0 - v_weight - w_weight
+				weights = np.stack([u_weight, v_weight, w_weight], axis=1).astype(np.float32, copy=False)
+				normals = np.sum(
+					self._triangle_vertex_normals_world[triangle_index][np.newaxis, :, :] * weights[:, :, np.newaxis],
+					axis=1,
+				)
+				normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-8)
+			else:
+				normals = np.repeat(self._face_normals_world[triangle_index][np.newaxis, :], hit_points_world.shape[0], axis=0)
+		else:
+			normals = np.repeat(self._face_normals_world[triangle_index][np.newaxis, :], hit_points_world.shape[0], axis=0)
+
+		cos_incidence = np.abs(np.sum(normals * ray_directions, axis=1))
+		cos_floor = 0.08
+		return (1.0 / np.maximum(cos_incidence, cos_floor)).astype(np.float32, copy=False)
+
+	def _merge_sorted_shell_hits(self, t_hits, shell_gains, dedup_eps):
+		"""Merge nearly identical shell hits and average their angular gains.
+
+		Projected rasterisation can emit duplicate hits on shared triangle edges or
+		vertices. For a shell model those duplicates should behave like one surface
+		crossing, not like multiple extra material layers, so hits that land within
+		`dedup_eps` along the ray are collapsed into one cluster.
+		"""
+		t_hits = np.asarray(t_hits, dtype=np.float32)
+		shell_gains = np.asarray(shell_gains, dtype=np.float32)
+		if t_hits.size == 0:
+			return t_hits, shell_gains
+		if t_hits.shape != shell_gains.shape:
+			raise ValueError("t_hits and shell_gains must have identical shapes.")
+
+		merged_t = [float(t_hits[0])]
+		merged_gains = [float(shell_gains[0])]
+		cluster_count = 1
+		for hit_idx in range(1, int(t_hits.size)):
+			t_value = float(t_hits[hit_idx])
+			if abs(t_value - merged_t[-1]) <= dedup_eps:
+				cluster_count += 1
+				merged_t[-1] = merged_t[-1] + (t_value - merged_t[-1]) / float(cluster_count)
+				merged_gains[-1] = merged_gains[-1] + (float(shell_gains[hit_idx]) - merged_gains[-1]) / float(cluster_count)
+				continue
+			cluster_count = 1
+			merged_t.append(t_value)
+			merged_gains.append(float(shell_gains[hit_idx]))
+
+		return (
+			np.asarray(merged_t, dtype=np.float32),
+			np.asarray(merged_gains, dtype=np.float32),
+		)
+
+	def _triangle_projected_pixel_hits(self, triangle_index, context):
+		"""Return pixel indices, ray parameters and shell gains hit by one projected triangle."""
+		height, width = context["detector_shape_hw"]
+		triangle_world = self._triangles_world[triangle_index]
+		triangle_uv, _projected_points, valid = self._project_points_to_detector_pixels(triangle_world, context)
+		if not np.all(valid):
+			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+		uv_min = np.min(triangle_uv, axis=0)
+		uv_max = np.max(triangle_uv, axis=0)
+		col_min = max(0, int(np.ceil(uv_min[0])))
+		col_max = min(width - 1, int(np.floor(uv_max[0])))
+		row_min = max(0, int(np.ceil(uv_min[1])))
+		row_max = min(height - 1, int(np.floor(uv_max[1])))
+		if col_max < col_min or row_max < row_min:
+			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+		cols = np.arange(col_min, col_max + 1, dtype=np.float32)
+		rows = np.arange(row_min, row_max + 1, dtype=np.float32)
+		col_grid, row_grid = np.meshgrid(cols, rows)
+		pixel_points_2d = np.stack([col_grid, row_grid], axis=-1)
+
+		a = triangle_uv[0].astype(np.float32, copy=False)
+		b = triangle_uv[1].astype(np.float32, copy=False)
+		c = triangle_uv[2].astype(np.float32, copy=False)
+		area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+		if abs(float(area)) <= 1e-8:
+			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+		e0 = (pixel_points_2d[..., 0] - b[0]) * (c[1] - b[1]) - (pixel_points_2d[..., 1] - b[1]) * (c[0] - b[0])
+		e1 = (pixel_points_2d[..., 0] - c[0]) * (a[1] - c[1]) - (pixel_points_2d[..., 1] - c[1]) * (a[0] - c[0])
+		e2 = (pixel_points_2d[..., 0] - a[0]) * (b[1] - a[1]) - (pixel_points_2d[..., 1] - a[1]) * (b[0] - a[0])
+		winding_sign = 1.0 if area < 0.0 else -1.0
+		e0 *= winding_sign
+		e1 *= winding_sign
+		e2 *= winding_sign
+		eps = 1e-6
+		inside_mask = (
+			(e0 >= -eps)
+			& (e1 >= -eps)
+			& (e2 >= -eps)
+		)
+		if not np.any(inside_mask):
+			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+		hit_rows = row_grid[inside_mask].astype(np.int32, copy=False)
+		hit_cols = col_grid[inside_mask].astype(np.int32, copy=False)
+		pixel_indices = (hit_rows * width + hit_cols).astype(np.int32, copy=False)
+		pixel_centers_world = (
+			context["detector_origin_world"][np.newaxis, :]
+			+ context["detector_u_world"][np.newaxis, :] * hit_cols[:, np.newaxis]
+			+ context["detector_v_world"][np.newaxis, :] * hit_rows[:, np.newaxis]
+		).astype(np.float32, copy=False)
+
+		if context["projection_mode"] == "cone":
+			source_world = context["source_world"]
+			ray_origins = np.repeat(source_world[np.newaxis, :], pixel_centers_world.shape[0], axis=0)
+			ray_directions = pixel_centers_world - source_world[np.newaxis, :]
+			ray_directions /= np.maximum(np.linalg.norm(ray_directions, axis=1, keepdims=True), 1e-8)
+		else:
+			ray_origins = pixel_centers_world
+			ray_directions = np.repeat(context["ray_direction_world"][np.newaxis, :], pixel_centers_world.shape[0], axis=0)
+
+		t_values = _rays_single_triangle_hit_distances(
+			ray_origins=ray_origins,
+			ray_directions=ray_directions,
+			triangle_world=triangle_world,
+		)
+		valid_hits = np.isfinite(t_values)
+		if not np.any(valid_hits):
+			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+		hit_points_world = ray_origins[valid_hits] + ray_directions[valid_hits] * t_values[valid_hits][:, np.newaxis]
+		shell_gain = self._triangle_shell_gain(
+			triangle_index=triangle_index,
+			hit_points_world=hit_points_world,
+			ray_directions=ray_directions[valid_hits],
+		)
+		return (
+			pixel_indices[valid_hits],
+			t_values[valid_hits].astype(np.float32, copy=False),
+			shell_gain.astype(np.float32, copy=False),
+		)
+
+	def build_projected_intersection_stack(self, geometry, reference_transform=None, progress_callback=None,
+	                                       progress_fraction=(0.0, 1.0), use_cache=True):
+		"""Build one compact per-pixel stack of projected mesh-triangle intersections."""
+		cache_key = self._projected_stack_cache_key(geometry, reference_transform)
+		if use_cache and cache_key in self._projected_stack_cache:
+			return self._projected_stack_cache[cache_key]
+
+		context = self._detector_projection_context(geometry, reference_transform)
+		height, width = context["detector_shape_hw"]
+		pixel_hit_counts = np.zeros(height * width, dtype=np.int32)
+		triangle_count = int(self._triangles_world.shape[0])
+		progress_start = float(progress_fraction[0])
+		progress_end = float(progress_fraction[1])
+		progress_span = max(0.0, progress_end - progress_start)
+		progress_stride = max(1, triangle_count // 100)
+		triangle_hits_cache = [None] * triangle_count
+
+		for triangle_index in range(triangle_count):
+			if progress_callback is not None and triangle_index % progress_stride == 0:
+				progress_callback(progress_start + 0.5 * progress_span * (float(triangle_index) / float(max(triangle_count, 1))))
+			pixel_indices, t_values, shell_gain = self._triangle_projected_pixel_hits(triangle_index, context)
+			triangle_hits_cache[triangle_index] = (
+				pixel_indices,
+				t_values,
+				shell_gain,
+			)
+			if pixel_indices.size == 0:
+				continue
+			unique_pixels, unique_counts = np.unique(pixel_indices, return_counts=True)
+			pixel_hit_counts[unique_pixels] += unique_counts.astype(np.int32, copy=False)
+
+		pixel_offsets = np.zeros(pixel_hit_counts.shape[0] + 1, dtype=np.int64)
+		pixel_offsets[1:] = np.cumsum(pixel_hit_counts, dtype=np.int64)
+		total_hits = int(pixel_offsets[-1])
+		sample_t = np.empty(total_hits, dtype=np.float32)
+		sample_triangle_index = np.empty(total_hits, dtype=np.int32)
+		sample_shell_gain = np.empty(total_hits, dtype=np.float32)
+		write_offsets = pixel_offsets[:-1].copy()
+
+		for triangle_index in range(triangle_count):
+			if progress_callback is not None and triangle_index % progress_stride == 0:
+				progress_callback(progress_start + 0.5 * progress_span + 0.5 * progress_span * (float(triangle_index) / float(max(triangle_count, 1))))
+			pixel_indices, t_values, shell_gain = triangle_hits_cache[triangle_index]
+			if pixel_indices.size == 0:
+				continue
+			sort_order = np.argsort(pixel_indices, kind="mergesort")
+			pixel_indices = pixel_indices[sort_order]
+			t_values = t_values[sort_order]
+			shell_gain = shell_gain[sort_order]
+			run_starts = np.flatnonzero(np.r_[True, pixel_indices[1:] != pixel_indices[:-1]])
+			run_ends = np.r_[run_starts[1:], pixel_indices.shape[0]]
+			for run_start, run_end in zip(run_starts, run_ends):
+				pixel_index = int(pixel_indices[run_start])
+				write_start = int(write_offsets[pixel_index])
+				write_end = write_start + int(run_end - run_start)
+				sample_t[write_start:write_end] = t_values[run_start:run_end]
+				sample_triangle_index[write_start:write_end] = int(triangle_index)
+				sample_shell_gain[write_start:write_end] = shell_gain[run_start:run_end]
+				write_offsets[pixel_index] = write_end
+
+		stack = ProjectedTrianglePixelStack(
+			detector_shape_hw=(height, width),
+			pixel_offsets=pixel_offsets.astype(np.int32, copy=False),
+			sample_t=sample_t,
+			sample_triangle_index=sample_triangle_index,
+			sample_shell_gain=sample_shell_gain,
+		)
+		if use_cache:
+			self._projected_stack_cache[cache_key] = stack
+		if progress_callback is not None:
+			progress_callback(progress_end)
+		return stack
+
 	def ray_integral_world(self, ray_origins, ray_directions, t_starts, t_ends, physics_model, step_mm,
-	                      progress_callback=None, progress_fraction=(0.0, 1.0)):
+	                      progress_callback=None, progress_fraction=(0.0, 1.0),
+	                      geometry=None, reference_transform=None, hit_ray_indices=None, detector_shape_hw=None):
 		"""Return one simplified per-ray integral by intersecting rays with mesh triangles."""
 		ray_origins = np.asarray(ray_origins, dtype=np.float32)
 		ray_directions = np.asarray(ray_directions, dtype=np.float32)
@@ -1245,6 +1663,56 @@ class MeshXRaySource(XRaySampleSource):
 		)[0]) * self.attenuation_multiplier
 		if mu_value <= 0.0:
 			return integrals, 0
+
+		if self.backend == "projected_intersection_list":
+			if geometry is None or hit_ray_indices is None or detector_shape_hw is None:
+				raise ValueError("Projected mesh backend requires geometry, detector_shape_hw and hit_ray_indices.")
+			stack = self.build_projected_intersection_stack(
+				geometry=geometry,
+				reference_transform=reference_transform,
+				progress_callback=progress_callback,
+				progress_fraction=progress_fraction,
+			)
+			dedup_eps = max(1e-4, 0.25 * float(step_mm))
+			intersection_work_count = 0
+			for local_ray_idx, pixel_index in enumerate(np.asarray(hit_ray_indices, dtype=np.int32)):
+				start_idx, end_idx = stack.pixel_sample_slice(pixel_index)
+				if end_idx <= start_idx:
+					continue
+				raw_t_hits = np.asarray(stack.sample_t[start_idx:end_idx], dtype=np.float32)
+				raw_shell_gains = np.asarray(stack.sample_shell_gain[start_idx:end_idx], dtype=np.float32)
+				sort_order = np.argsort(raw_t_hits, kind="mergesort")
+				t_hits = raw_t_hits[sort_order]
+				shell_gains = raw_shell_gains[sort_order]
+				range_mask = (
+					(t_hits >= t_starts[local_ray_idx] - dedup_eps)
+					& (t_hits <= t_ends[local_ray_idx] + dedup_eps)
+				)
+				t_hits = t_hits[range_mask]
+				shell_gains = shell_gains[range_mask]
+				if t_hits.size == 0:
+					continue
+				if self.mode == "shell":
+					t_hits, shell_gains = self._merge_sorted_shell_hits(
+						t_hits=t_hits,
+						shell_gains=shell_gains,
+						dedup_eps=dedup_eps,
+					)
+					integrals[local_ray_idx] = np.sum(shell_gains, dtype=np.float32) * self.shell_thickness_mm * mu_value
+					intersection_work_count += int(t_hits.size)
+					continue
+				merged_hits = [float(t_hits[0])]
+				for t_value in t_hits[1:]:
+					if abs(float(t_value) - merged_hits[-1]) > dedup_eps:
+						merged_hits.append(float(t_value))
+				t_hits = np.asarray(merged_hits, dtype=np.float32)
+				intersection_work_count += int(t_hits.size)
+				if t_hits.size >= 2:
+					if t_hits.size % 2 == 1:
+						t_hits = t_hits[:-1]
+					inside_lengths = t_hits[1::2] - t_hits[::2]
+					integrals[local_ray_idx] = np.sum(np.maximum(inside_lengths, 0.0), dtype=np.float32) * mu_value
+			return integrals, intersection_work_count
 
 		intersection_work_count = 0
 		dedup_eps = max(1e-4, 0.25 * float(step_mm))
@@ -1286,9 +1754,6 @@ class MeshXRaySource(XRaySampleSource):
 					t_hits = t_hits[:-1]
 				inside_lengths = t_hits[1::2] - t_hits[::2]
 				integrals[ray_idx] = np.sum(np.maximum(inside_lengths, 0.0), dtype=np.float32) * mu_value
-			else:
-				# Fallback for open or imperfect meshes: treat one isolated hit as a thin shell.
-				integrals[ray_idx] = self.shell_thickness_mm * mu_value
 
 		if progress_callback is not None:
 			progress_callback(progress_end)
@@ -1462,6 +1927,10 @@ class XRayProjector:
 					step_mm=step_mm,
 					progress_callback=progress_callback,
 					progress_fraction=(source_progress_start, source_progress_end),
+					geometry=geometry,
+					reference_transform=reference_transform,
+					hit_ray_indices=hit_indices,
+					detector_shape_hw=(height, width),
 				)
 				source_integrals, source_work_count = direct_integral
 				projection_flat[hit_indices] += np.asarray(source_integrals, dtype=np.float32)

@@ -1091,7 +1091,8 @@ class PropVirtualXRay(PropWidget):
 			self._refresh_image_viewers(image_obj)
 			return
 
-		image_obj = Image(image=qimage)
+		image_obj = Image()
+		image_obj.setImage(qimage)
 		image_obj.label = f"{obj.label}_projection"
 		obj.last_projection_image = image_obj
 		AP.addObject(image_obj)

@@ -130,7 +130,7 @@ class PropVirtualXRay(PropWidget):
 		self.modeCombo = QComboBox()
 		self.modeCombo.addItems(["cone", "parallel"])
 		self._set_compact_field(self.modeCombo)
-		scene_layout.addRow("Volumes:", self.volumesLabel)
+		scene_layout.addRow("Sources:", self.volumesLabel)
 		scene_layout.addRow("Preset:", self.geometryPresetWidget)
 		scene_layout.addRow("Mode:", self.modeCombo)
 		geomLayout.addWidget(sceneGroup)
@@ -196,6 +196,37 @@ class PropVirtualXRay(PropWidget):
 		sampling_layout.addRow("Step [mm]:", self.stepSpin)
 		sampling_layout.addRow("Quality:", self.qualityCombo)
 		geomLayout.addWidget(samplingGroup)
+
+		depthWindowGroup = _CollapsibleGroup("Depth window", collapsed=True)
+		depth_window_layout = QFormLayout(depthWindowGroup.body())
+		self._configure_form_layout(depth_window_layout)
+		self.depthWindowModeCombo = QComboBox()
+		self.depthWindowModeCombo.addItems(["off", "ray", "planar_auto", "planar_custom"])
+		self._set_compact_field(self.depthWindowModeCombo)
+		self.depthWindowRangeSpin = MultiSpinBox(2, labels=("From", "To"))
+		self._set_compact_field(self.depthWindowRangeSpin)
+		self.depthWindowOriginSpin = MultiSpinBox(3, labels=("X", "Y", "Z"))
+		self.depthWindowAxisSpin = MultiSpinBox(3, labels=("X", "Y", "Z"))
+		self._set_compact_field(self.depthWindowOriginSpin)
+		self._set_compact_field(self.depthWindowAxisSpin)
+		self.depthWindowAxisSpin.setToolTip("Custom planar mode uses this axis. Auto planar mode follows the current projection axis.")
+		self.depthWindowToolsWidget = QWidget()
+		self._set_compact_field(self.depthWindowToolsWidget)
+		depth_tools_layout = QHBoxLayout(self.depthWindowToolsWidget)
+		depth_tools_layout.setContentsMargins(0, 0, 0, 0)
+		depth_tools_layout.setSpacing(4)
+		self.depthAlignAxisButton = QPushButton("Align axis")
+		self.depthAlignOriginButton = QPushButton("Origin = detector")
+		self.depthAlignAxisButton.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+		self.depthAlignOriginButton.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+		depth_tools_layout.addWidget(self.depthAlignAxisButton)
+		depth_tools_layout.addWidget(self.depthAlignOriginButton)
+		depth_window_layout.addRow("Mode:", self.depthWindowModeCombo)
+		depth_window_layout.addRow("Range [mm]:", self.depthWindowRangeSpin)
+		depth_window_layout.addRow("Origin [mm]:", self.depthWindowOriginSpin)
+		depth_window_layout.addRow("Axis:", self.depthWindowAxisSpin)
+		depth_window_layout.addRow("", self.depthWindowToolsWidget)
+		geomLayout.addWidget(depthWindowGroup)
 
 		self.geometryAdvancedCheck = QCheckBox("Show advanced")
 		geomLayout.addWidget(self.geometryAdvancedCheck)
@@ -329,6 +360,21 @@ class PropVirtualXRay(PropWidget):
 		self.physicsAttenuationScaleSpin.setDecimals(6)
 		self.physicsAttenuationScaleSpin.setSingleStep(0.01)
 		self._set_compact_field(self.physicsAttenuationScaleSpin)
+		self.physicsSourceEnergySpin = QDoubleSpinBox()
+		self.physicsSourceEnergySpin.setRange(1.0, 1000.0)
+		self.physicsSourceEnergySpin.setDecimals(3)
+		self.physicsSourceEnergySpin.setSingleStep(1.0)
+		self._set_compact_field(self.physicsSourceEnergySpin)
+		self.physicsReferenceEnergySpin = QDoubleSpinBox()
+		self.physicsReferenceEnergySpin.setRange(1.0, 1000.0)
+		self.physicsReferenceEnergySpin.setDecimals(3)
+		self.physicsReferenceEnergySpin.setSingleStep(1.0)
+		self._set_compact_field(self.physicsReferenceEnergySpin)
+		self.physicsEnergyExponentSpin = QDoubleSpinBox()
+		self.physicsEnergyExponentSpin.setRange(0.0, 10.0)
+		self.physicsEnergyExponentSpin.setDecimals(3)
+		self.physicsEnergyExponentSpin.setSingleStep(0.1)
+		self._set_compact_field(self.physicsEnergyExponentSpin)
 		self.physicsOutputModeCombo = QComboBox()
 		self.physicsOutputModeCombo.addItems(["integral", "intensity"])
 		self._set_compact_field(self.physicsOutputModeCombo)
@@ -337,12 +383,31 @@ class PropVirtualXRay(PropWidget):
 		self.physicsIntensityFloorSpin.setDecimals(6)
 		self.physicsIntensityFloorSpin.setSingleStep(0.001)
 		self._set_compact_field(self.physicsIntensityFloorSpin)
+		self.physicsDistanceFalloffModeCombo = QComboBox()
+		self.physicsDistanceFalloffModeCombo.addItems(["none", "inverse_square"])
+		self._set_compact_field(self.physicsDistanceFalloffModeCombo)
+		self.physicsDistanceReferenceSpin = QDoubleSpinBox()
+		self.physicsDistanceReferenceSpin.setRange(0.0, 1e6)
+		self.physicsDistanceReferenceSpin.setDecimals(3)
+		self.physicsDistanceReferenceSpin.setSingleStep(1.0)
+		self._set_compact_field(self.physicsDistanceReferenceSpin)
+		self.physicsDistancePowerSpin = QDoubleSpinBox()
+		self.physicsDistancePowerSpin.setRange(0.0, 10.0)
+		self.physicsDistancePowerSpin.setDecimals(3)
+		self.physicsDistancePowerSpin.setSingleStep(0.1)
+		self._set_compact_field(self.physicsDistancePowerSpin)
 		advanced_physics_layout.addRow("mu_air:", self.physicsMuAirSpin)
 		advanced_physics_layout.addRow("mu_water:", self.physicsMuWaterSpin)
 		advanced_physics_layout.addRow("hounsfield_air:", self.physicsHounsfieldAirSpin)
 		advanced_physics_layout.addRow("attenuation_scale:", self.physicsAttenuationScaleSpin)
+		advanced_physics_layout.addRow("source_energy_kev:", self.physicsSourceEnergySpin)
+		advanced_physics_layout.addRow("reference_energy_kev:", self.physicsReferenceEnergySpin)
+		advanced_physics_layout.addRow("energy_exponent:", self.physicsEnergyExponentSpin)
 		advanced_physics_layout.addRow("output_mode:", self.physicsOutputModeCombo)
 		advanced_physics_layout.addRow("intensity_floor:", self.physicsIntensityFloorSpin)
+		advanced_physics_layout.addRow("distance_falloff:", self.physicsDistanceFalloffModeCombo)
+		advanced_physics_layout.addRow("distance_ref [mm]:", self.physicsDistanceReferenceSpin)
+		advanced_physics_layout.addRow("distance_power:", self.physicsDistancePowerSpin)
 		self.advancedPhysicsGroup.setVisible(False)
 		physLayout.addWidget(self.advancedPhysicsGroup)
 
@@ -472,6 +537,12 @@ class PropVirtualXRay(PropWidget):
 		self.rayDirectionSpin.valueChanged.connect(self.on_ray_direction_changed)
 		self.stepSpin.valueChanged.connect(self.on_step_changed)
 		self.qualityCombo.currentTextChanged.connect(self.on_quality_changed)
+		self.depthWindowModeCombo.currentTextChanged.connect(self.on_depth_window_mode_changed)
+		self.depthWindowRangeSpin.valueChanged.connect(self.on_depth_window_range_changed)
+		self.depthWindowOriginSpin.valueChanged.connect(self.on_depth_window_origin_changed)
+		self.depthWindowAxisSpin.valueChanged.connect(self.on_depth_window_axis_changed)
+		self.depthAlignAxisButton.clicked.connect(self.on_depth_align_axis)
+		self.depthAlignOriginButton.clicked.connect(self.on_depth_align_origin)
 		self.physicsMaterialResponseModeCombo.currentTextChanged.connect(self.on_physics_material_response_changed)
 		self.physicsBoneThresholdSpin.valueChanged.connect(self.on_physics_bone_threshold_changed)
 		self.physicsBoneThresholdSoftnessSpin.valueChanged.connect(self.on_physics_bone_threshold_softness_changed)
@@ -492,8 +563,14 @@ class PropVirtualXRay(PropWidget):
 		self.physicsMuWaterSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.physicsHounsfieldAirSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.physicsAttenuationScaleSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsSourceEnergySpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsReferenceEnergySpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsEnergyExponentSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.physicsOutputModeCombo.currentTextChanged.connect(self.on_advanced_physics_changed)
 		self.physicsIntensityFloorSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsDistanceFalloffModeCombo.currentTextChanged.connect(self.on_advanced_physics_changed)
+		self.physicsDistanceReferenceSpin.valueChanged.connect(self.on_advanced_physics_changed)
+		self.physicsDistancePowerSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.sourceInterpolationCombo.currentTextChanged.connect(self.on_advanced_source_changed)
 		self.sourcePreprocessModeCombo.currentTextChanged.connect(self.on_advanced_source_changed)
 		self.sourcePreprocessLowPercentileSpin.valueChanged.connect(self.on_advanced_source_changed)
@@ -528,6 +605,10 @@ class PropVirtualXRay(PropWidget):
 			self.rayDirectionSpin,
 			self.stepSpin,
 			self.qualityCombo,
+			self.depthWindowModeCombo,
+			self.depthWindowRangeSpin,
+			self.depthWindowOriginSpin,
+			self.depthWindowAxisSpin,
 			self.physicsMaterialResponseModeCombo,
 			self.physicsBoneThresholdSpin,
 			self.physicsBoneThresholdSoftnessSpin,
@@ -547,8 +628,14 @@ class PropVirtualXRay(PropWidget):
 			self.physicsMuWaterSpin,
 			self.physicsHounsfieldAirSpin,
 			self.physicsAttenuationScaleSpin,
+			self.physicsSourceEnergySpin,
+			self.physicsReferenceEnergySpin,
+			self.physicsEnergyExponentSpin,
 			self.physicsOutputModeCombo,
 			self.physicsIntensityFloorSpin,
+			self.physicsDistanceFalloffModeCombo,
+			self.physicsDistanceReferenceSpin,
+			self.physicsDistancePowerSpin,
 			self.sourceInterpolationCombo,
 			self.sourcePreprocessModeCombo,
 			self.sourcePreprocessLowPercentileSpin,
@@ -565,6 +652,18 @@ class PropVirtualXRay(PropWidget):
 		is_cone = str(obj.projection_mode).lower() == "cone"
 		self.sourcePositionSpin.setEnabled(is_cone)
 		self.rayDirectionSpin.setEnabled(not is_cone)
+
+	def _update_depth_window_visibility(self, obj: VirtualXRay):
+		"""Enable only controls relevant to the currently selected depth-window mode."""
+		depth_mode = str(getattr(obj, "depth_window_mode", "off")).strip().lower()
+		enabled = depth_mode not in {"", "none", "off"}
+		is_planar = depth_mode in {"planar", "planar_auto", "planar_custom"}
+		is_custom_planar = depth_mode == "planar_custom"
+		self.depthWindowRangeSpin.setEnabled(enabled)
+		self.depthWindowOriginSpin.setEnabled(is_planar)
+		self.depthWindowAxisSpin.setEnabled(is_custom_planar)
+		self.depthAlignAxisButton.setEnabled(is_planar)
+		self.depthAlignOriginButton.setEnabled(is_planar)
 
 	def _update_presentation_visibility(self, obj: VirtualXRay):
 		"""Enable only presentation controls relevant to the selected display mode."""
@@ -584,11 +683,14 @@ class PropVirtualXRay(PropWidget):
 		uses_bone_threshold = response_mode == "bone_threshold"
 		width_enabled = obj.physics_material_window_width is not None and float(obj.physics_material_window_width) > 0.0
 		mode = str(obj.physics_material_window_mode).lower()
+		distance_enabled = str(getattr(obj, "physics_source_distance_falloff_mode", "none")).lower() != "none"
 		self.physicsBoneThresholdSpin.setEnabled(uses_bone_threshold)
 		self.physicsBoneThresholdSoftnessSpin.setEnabled(uses_bone_threshold)
 		self.physicsMaterialWindowModeCombo.setEnabled(width_enabled)
 		self.physicsMaterialWindowSoftnessSpin.setEnabled(width_enabled and mode in {"linear", "sigmoid"})
 		self.physicsIntensityFloorSpin.setEnabled(str(obj.physics_output_mode).lower() == "intensity")
+		self.physicsDistanceReferenceSpin.setEnabled(distance_enabled)
+		self.physicsDistancePowerSpin.setEnabled(distance_enabled)
 
 	def _update_advanced_source_visibility(self, obj: VirtualXRay):
 		"""Enable explicit source fill value only when that override is active."""
@@ -616,6 +718,15 @@ class PropVirtualXRay(PropWidget):
 		self.rayDirectionSpin.setValue(obj.ray_direction_ref)
 		self.stepSpin.setValue(float(obj.step_mm))
 		self.qualityCombo.setCurrentText(str(obj.quality_profile_name))
+		depth_mode = str(getattr(obj, "depth_window_mode", "off"))
+		self.depthWindowModeCombo.setCurrentText(depth_mode)
+		self.depthWindowRangeSpin.setValue(tuple(getattr(obj, "depth_window_mm", [0.0, 0.0])))
+		self.depthWindowOriginSpin.setValue(getattr(obj, "depth_window_origin_ref", np.array([0.0, 0.0, 0.0], dtype=np.float32)))
+		depth_mode_norm = depth_mode.strip().lower()
+		if depth_mode_norm in {"planar", "planar_auto"} and hasattr(obj, "_projection_axis_ref"):
+			self.depthWindowAxisSpin.setValue(obj._projection_axis_ref())
+		else:
+			self.depthWindowAxisSpin.setValue(getattr(obj, "depth_window_axis_ref", np.array([0.0, 0.0, 1.0], dtype=np.float32)))
 		self.physicsMaterialResponseModeCombo.setCurrentText(str(obj.physics_material_response_mode))
 		self.physicsBoneThresholdSpin.setValue(0.0 if obj.physics_bone_threshold_hu is None else float(obj.physics_bone_threshold_hu))
 		self.physicsBoneThresholdSoftnessSpin.setValue(float(obj.physics_bone_threshold_softness))
@@ -634,8 +745,14 @@ class PropVirtualXRay(PropWidget):
 		self.physicsMuWaterSpin.setValue(float(obj.physics_mu_water))
 		self.physicsHounsfieldAirSpin.setValue(float(obj.physics_hounsfield_air))
 		self.physicsAttenuationScaleSpin.setValue(float(obj.physics_attenuation_scale))
+		self.physicsSourceEnergySpin.setValue(float(getattr(obj, "physics_source_energy_kev", 70.0)))
+		self.physicsReferenceEnergySpin.setValue(float(getattr(obj, "physics_reference_energy_kev", 70.0)))
+		self.physicsEnergyExponentSpin.setValue(float(getattr(obj, "physics_attenuation_energy_exponent", 2.0)))
 		self.physicsOutputModeCombo.setCurrentText(str(obj.physics_output_mode))
 		self.physicsIntensityFloorSpin.setValue(float(obj.physics_intensity_floor))
+		self.physicsDistanceFalloffModeCombo.setCurrentText(str(getattr(obj, "physics_source_distance_falloff_mode", "none")))
+		self.physicsDistanceReferenceSpin.setValue(0.0 if getattr(obj, "physics_source_distance_reference_mm", None) is None else float(obj.physics_source_distance_reference_mm))
+		self.physicsDistancePowerSpin.setValue(float(getattr(obj, "physics_source_distance_power", 2.0)))
 		self.sourceInterpolationCombo.setCurrentText(str(obj.source_interpolation))
 		self.sourcePreprocessModeCombo.setCurrentText(str(obj.source_preprocess_mode))
 		self.sourcePreprocessLowPercentileSpin.setValue(float(obj.source_preprocess_low_percentile))
@@ -644,10 +761,11 @@ class PropVirtualXRay(PropWidget):
 		self.sourcePreprocessOutputHighSpin.setValue(float(obj.source_preprocess_output_high))
 		self.sourceUseFillValueCheck.setChecked(obj.source_fill_value is not None)
 		self.sourceFillValueSpin.setValue(0.0 if obj.source_fill_value is None else float(obj.source_fill_value))
-		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
+		self.volumesLabel.setText(str(len(obj.collect_xray_objects())))
 		self.renderInfoLabel.setText(obj.info())
 		self.updateDisplayButton.setEnabled(obj.last_raw_projection is not None)
 		self._update_mode_visibility(obj)
+		self._update_depth_window_visibility(obj)
 		self._update_physics_visibility(obj)
 		self._update_advanced_source_visibility(obj)
 		self._update_presentation_visibility(obj)
@@ -739,6 +857,52 @@ class PropVirtualXRay(PropWidget):
 		"""Store the currently selected quality preset name."""
 		obj = self.obj_ref()
 		obj.quality_profile_name = str(value)
+		self._after_change(obj)
+
+	@pyqtSlot(str)
+	def on_depth_window_mode_changed(self, value):
+		"""Store the optional projection depth-window mode."""
+		obj = self.obj_ref()
+		obj.depth_window_mode = str(value).strip().lower()
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_depth_window_range_changed(self, values):
+		"""Store the depth-window limits in millimetres."""
+		obj = self.obj_ref()
+		obj.depth_window_mm = [float(values[0]), float(values[1])]
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_depth_window_origin_changed(self, values):
+		"""Store the planar depth-window origin in the local X-ray reference frame."""
+		obj = self.obj_ref()
+		obj.depth_window_origin_ref = np.asarray(values, dtype=np.float32)
+		self._after_change(obj)
+
+	@pyqtSlot(tuple)
+	def on_depth_window_axis_changed(self, values):
+		"""Store the planar depth-window axis in the local X-ray reference frame."""
+		obj = self.obj_ref()
+		obj.depth_window_axis_ref = np.asarray(values, dtype=np.float32)
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_depth_align_axis(self):
+		"""Align the custom planar axis with the current projection axis."""
+		obj = self.obj_ref()
+		if obj is None or not hasattr(obj, "_projection_axis_ref"):
+			return
+		obj.depth_window_axis_ref = np.asarray(obj._projection_axis_ref(), dtype=np.float32)
+		self._after_change(obj)
+
+	@pyqtSlot()
+	def on_depth_align_origin(self):
+		"""Set the planar depth-window origin to the current detector centre."""
+		obj = self.obj_ref()
+		if obj is None:
+			return
+		obj.depth_window_origin_ref = np.asarray(obj.detector_center_ref, dtype=np.float32)
 		self._after_change(obj)
 
 	@pyqtSlot(str)
@@ -858,10 +1022,10 @@ class PropVirtualXRay(PropWidget):
 
 	@pyqtSlot()
 	def on_refresh_requested(self):
-		"""Refresh the volume count and textual scene summary."""
+		"""Refresh the source count and textual scene summary."""
 		obj = self.obj_ref()
 		self.renderInfoLabel.setText(obj.info())
-		self.volumesLabel.setText(str(len(obj.collect_volumetrics())))
+		self.volumesLabel.setText(str(len(obj.collect_xray_objects())))
 
 	@pyqtSlot()
 	def on_advanced_physics_changed(self):
@@ -871,8 +1035,15 @@ class PropVirtualXRay(PropWidget):
 		obj.physics_mu_water = float(self.physicsMuWaterSpin.value())
 		obj.physics_hounsfield_air = float(self.physicsHounsfieldAirSpin.value())
 		obj.physics_attenuation_scale = float(self.physicsAttenuationScaleSpin.value())
+		obj.physics_source_energy_kev = max(1e-6, float(self.physicsSourceEnergySpin.value()))
+		obj.physics_reference_energy_kev = max(1e-6, float(self.physicsReferenceEnergySpin.value()))
+		obj.physics_attenuation_energy_exponent = max(0.0, float(self.physicsEnergyExponentSpin.value()))
 		obj.physics_output_mode = str(self.physicsOutputModeCombo.currentText())
 		obj.physics_intensity_floor = float(self.physicsIntensityFloorSpin.value())
+		obj.physics_source_distance_falloff_mode = str(self.physicsDistanceFalloffModeCombo.currentText())
+		distance_reference = float(self.physicsDistanceReferenceSpin.value())
+		obj.physics_source_distance_reference_mm = distance_reference if distance_reference > 0.0 else None
+		obj.physics_source_distance_power = max(0.0, float(self.physicsDistancePowerSpin.value()))
 		self._after_change(obj)
 
 	@pyqtSlot()

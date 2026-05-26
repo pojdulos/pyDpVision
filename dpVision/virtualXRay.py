@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Scene-tree object that owns X-ray geometry and gathers descendant volumetric sources."""
+"""Scene-tree object that owns X-ray geometry and gathers descendant X-ray sources."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ import OpenGL.GL as gl
 import numpy as np
 
 from .marchingCubes import mc_estimate_threshold, mc_gradient
+from .mesh import Mesh
 from .object import Object
 from .volumetric import Volumetric
 from .xrayProjection import (
 	DigitalRadiographyPresentationModel,
 	FilmLikePresentationModel,
+	MeshXRaySource,
 	RawPresentationModel,
 	VolumetricXRaySource,
 	XRayPhysicsModel,
@@ -23,6 +25,7 @@ from .xrayProjection import (
 	XRayProjectionQualityProfile,
 	XRayScalarPreprocessor,
 	XRayScene,
+	ensure_xray_source_config,
 )
 
 
@@ -136,6 +139,10 @@ class VirtualXRay(Object):
 		self.ray_direction_ref = np.array([0.0, 0.0, 1.0], dtype=np.float32)
 		self.projection_mode = "cone"
 		self.step_mm = 1.0
+		self.depth_window_mode = "off"
+		self.depth_window_mm = [0.0, 0.0]
+		self.depth_window_origin_ref = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+		self.depth_window_axis_ref = np.array([0.0, 0.0, 1.0], dtype=np.float32)
 		self.last_raw_projection = None
 		self.last_projection_image = None
 
@@ -147,13 +154,22 @@ class VirtualXRay(Object):
 		self.source_preprocess_high_percentile = 99.5
 		self.source_preprocess_output_low = -1000.0
 		self.source_preprocess_output_high = 2500.0
+		self.mesh_source_scalar_value = 1800.0
+		self.mesh_source_mode = "solid"
+		self.mesh_surface_thickness_mm = 1.0
 
 		self.physics_mu_air = 0.0
 		self.physics_mu_water = 0.02
 		self.physics_hounsfield_air = -1000.0
 		self.physics_attenuation_scale = 1.0
+		self.physics_source_energy_kev = 70.0
+		self.physics_reference_energy_kev = 70.0
+		self.physics_attenuation_energy_exponent = 2.0
 		self.physics_output_mode = "integral"
 		self.physics_intensity_floor = 0.0
+		self.physics_source_distance_falloff_mode = "none"
+		self.physics_source_distance_reference_mm = None
+		self.physics_source_distance_power = 2.0
 		self.physics_material_response_mode = "linear"
 		self.physics_bone_threshold_hu = None
 		self.physics_bone_threshold_softness = 250.0
@@ -176,6 +192,9 @@ class VirtualXRay(Object):
 		self.source_color = (1.00, 0.72, 0.22)
 		self.link_color = (0.96, 0.78, 0.34)
 		self.frustum_color = (0.86, 0.84, 0.52)
+		self.depth_window_fill_color = (0.88, 0.42, 0.18)
+		self.depth_window_edge_color = (1.00, 0.62, 0.28)
+		self.depth_window_link_color = (0.98, 0.76, 0.44)
 		self.axis_colors = (
 			(0.92, 0.30, 0.30),
 			(0.30, 0.82, 0.42),
@@ -183,12 +202,40 @@ class VirtualXRay(Object):
 		)
 		self.detector_fill_alpha = 0.10
 		self.frustum_alpha = 0.28
+		self.depth_window_fill_alpha = 0.10
+		self.depth_window_link_alpha = 0.24
 		self.source_gizmo_size_mm = 4.0
 		self.axis_gizmo_length_mm = 18.0
 
 	def reference_transform(self):
 		"""Return the global transform of this scene node used as a local X-ray reference frame."""
 		return np.asarray(self.getGlobalTransformation(), dtype=np.float32)
+
+	def _ensure_depth_window_defaults(self):
+		"""Backfill depth-window attributes for older serialized objects."""
+		if not hasattr(self, "depth_window_mode"):
+			self.depth_window_mode = "off"
+		if not hasattr(self, "depth_window_mm"):
+			self.depth_window_mm = [0.0, 0.0]
+		if not hasattr(self, "depth_window_origin_ref"):
+			self.depth_window_origin_ref = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+		if not hasattr(self, "depth_window_axis_ref"):
+			self.depth_window_axis_ref = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+
+	def _ensure_physics_defaults(self):
+		"""Backfill newer physics attributes for older serialized objects."""
+		if not hasattr(self, "physics_source_energy_kev"):
+			self.physics_source_energy_kev = 70.0
+		if not hasattr(self, "physics_reference_energy_kev"):
+			self.physics_reference_energy_kev = 70.0
+		if not hasattr(self, "physics_attenuation_energy_exponent"):
+			self.physics_attenuation_energy_exponent = 2.0
+		if not hasattr(self, "physics_source_distance_falloff_mode"):
+			self.physics_source_distance_falloff_mode = "none"
+		if not hasattr(self, "physics_source_distance_reference_mm"):
+			self.physics_source_distance_reference_mm = None
+		if not hasattr(self, "physics_source_distance_power"):
+			self.physics_source_distance_power = 2.0
 
 	def child_transform_relative_to_self(self, child):
 		"""Return one descendant transform expressed in the local frame of this X-ray object."""
@@ -207,24 +254,60 @@ class VirtualXRay(Object):
 
 	def collect_volumetrics(self):
 		"""Return volumetric descendants that should participate in this X-ray scene."""
-		return [node for node in self._iter_descendants() if isinstance(node, Volumetric)]
+		return [ensure_xray_source_config(node) for node in self._iter_descendants() if isinstance(node, Volumetric)]
+
+	def collect_meshes(self):
+		"""Return mesh descendants that should participate in this X-ray scene."""
+		return [ensure_xray_source_config(node) for node in self._iter_descendants() if isinstance(node, Mesh)]
+
+	def collect_xray_objects(self):
+		"""Return X-ray-capable descendants that are currently enabled."""
+		candidates = self.collect_volumetrics() + self.collect_meshes()
+		return [obj for obj in candidates if bool(getattr(obj, "xray_source_enabled", True))]
 
 	def scene_sources(self):
-		"""Build X-ray sample sources from descendant volumetrics in the local frame of this object."""
+		"""Build X-ray sample sources from descendant volumetrics and meshes."""
 		scalar_preprocessor = self.build_scalar_preprocessor()
-		return [
+		sources = [
 			VolumetricXRaySource(
 				volumetric=vol,
 				global_transform=self.child_transform_relative_to_self(vol),
-				interpolation=self.source_interpolation,
-				fill_value=self.source_fill_value,
+				interpolation=(
+					self.source_interpolation
+					if str(getattr(vol, "xray_interpolation_override", "default")).lower() == "default"
+					else str(vol.xray_interpolation_override).lower()
+				),
+				fill_value=(
+					self.source_fill_value
+					if not bool(getattr(vol, "xray_fill_value_override_enabled", False))
+					else float(vol.xray_fill_value_override)
+				),
 				scalar_preprocessor=scalar_preprocessor,
+				scalar_scale=float(getattr(vol, "xray_scalar_scale", 1.0)),
+				scalar_bias=float(getattr(vol, "xray_scalar_bias", 0.0)),
+				attenuation_multiplier=float(getattr(vol, "xray_attenuation_multiplier", 1.0)),
 			)
 			for vol in self.collect_volumetrics()
+			if bool(getattr(vol, "xray_source_enabled", True))
 		]
+		sources.extend(
+			MeshXRaySource(
+				mesh=mesh,
+				global_transform=self.child_transform_relative_to_self(mesh),
+				scalar_value=float(getattr(mesh, "xray_mesh_scalar_value", self.mesh_source_scalar_value)),
+				mode=str(getattr(mesh, "xray_mesh_mode", self.mesh_source_mode)).lower(),
+				shell_thickness_mm=float(getattr(mesh, "xray_mesh_shell_thickness_mm", self.mesh_surface_thickness_mm)),
+				scalar_scale=float(getattr(mesh, "xray_scalar_scale", 1.0)),
+				scalar_bias=float(getattr(mesh, "xray_scalar_bias", 0.0)),
+				attenuation_multiplier=float(getattr(mesh, "xray_attenuation_multiplier", 1.0)),
+			)
+			for mesh in self.collect_meshes()
+			if bool(getattr(mesh, "xray_source_enabled", True))
+		)
+		return sources
 
 	def build_scene(self):
-		"""Return an `XRayScene` assembled from the current descendant volumetrics."""
+		"""Return an `XRayScene` assembled from the current descendant X-ray sources."""
 		return XRayScene.from_sample_sources(self.scene_sources())
 
 	def quality_profile(self):
@@ -238,7 +321,19 @@ class VirtualXRay(Object):
 
 	def build_geometry(self):
 		"""Build the current projection geometry from intuitive detector pose parameters."""
+		self._ensure_depth_window_defaults()
 		is_cone = str(self.projection_mode).lower() == "cone"
+		depth_mode = str(self.depth_window_mode).strip().lower()
+		if depth_mode in {"", "none", "off"}:
+			depth_mode = None
+		geometry_depth_mode = depth_mode
+		depth_axis_ref = None
+		if depth_mode in {"planar", "planar_auto"}:
+			geometry_depth_mode = "planar"
+			depth_axis_ref = self._projection_axis_ref()
+		elif depth_mode == "planar_custom":
+			geometry_depth_mode = "planar"
+			depth_axis_ref = np.asarray(self.depth_window_axis_ref, dtype=np.float32)
 		return XRayProjectionGeometry.from_detector_pose(
 			detector_center_ref=self.detector_center_ref,
 			detector_normal_ref=self.detector_normal_ref,
@@ -248,6 +343,10 @@ class VirtualXRay(Object):
 			step_mm=self.step_mm,
 			source_position_ref=self.source_position_ref if is_cone else None,
 			ray_direction_ref=self.ray_direction_ref if not is_cone else None,
+			depth_window_mode=geometry_depth_mode,
+			depth_window_mm=self.depth_window_mm if geometry_depth_mode is not None else None,
+			depth_window_origin_ref=self.depth_window_origin_ref if geometry_depth_mode == "planar" else None,
+			depth_window_axis_ref=depth_axis_ref,
 		)
 
 	def build_scalar_preprocessor(self):
@@ -262,13 +361,20 @@ class VirtualXRay(Object):
 
 	def build_physics_model(self):
 		"""Build the physics model described by the current object state."""
+		self._ensure_physics_defaults()
 		return XRayPhysicsModel(
 			mu_air=self.physics_mu_air,
 			mu_water=self.physics_mu_water,
 			hounsfield_air=self.physics_hounsfield_air,
 			attenuation_scale=self.physics_attenuation_scale,
+			source_energy_kev=self.physics_source_energy_kev,
+			reference_energy_kev=self.physics_reference_energy_kev,
+			attenuation_energy_exponent=self.physics_attenuation_energy_exponent,
 			output_mode=self.physics_output_mode,
 			intensity_floor=self.physics_intensity_floor,
+			source_distance_falloff_mode=self.physics_source_distance_falloff_mode,
+			source_distance_reference_mm=self.physics_source_distance_reference_mm,
+			source_distance_power=self.physics_source_distance_power,
 			material_response_mode=self.physics_material_response_mode,
 			bone_threshold_hu=self.physics_bone_threshold_hu,
 			bone_threshold_softness=self.physics_bone_threshold_softness,
@@ -435,11 +541,11 @@ class VirtualXRay(Object):
 		return estimate
 
 	def project(self, return_stats=False):
-		"""Project all descendant volumetrics using the current setup state."""
+		"""Project all descendant X-ray sources using the current setup state."""
 		return self.build_scene().project(self.build_projection_config(), return_stats=return_stats)
 
 	def render_projection(self, return_stats=False):
-		"""Project and immediately apply the configured presentation model."""
+		"""Project the current scene and immediately apply the configured presentation model."""
 		return self.build_scene().render(self.build_projection_config(), return_stats=return_stats)
 
 	def project_and_cache(self, return_stats=False, progress_callback=None):
@@ -475,11 +581,148 @@ class VirtualXRay(Object):
 			origin + v * float(height - 1),
 		], dtype=np.float32)
 
+	def _projection_axis_ref(self):
+		"""Return the current main projection axis in local reference coordinates."""
+		if str(self.projection_mode).lower() == "cone":
+			source = np.asarray(self.source_position_ref, dtype=np.float32)
+			detector_center = np.asarray(self.detector_center_ref, dtype=np.float32)
+			axis = detector_center - source
+		else:
+			axis = np.asarray(self.ray_direction_ref, dtype=np.float32)
+		norm = float(np.linalg.norm(axis))
+		if norm <= 1e-8:
+			return np.array([0.0, 0.0, 1.0], dtype=np.float32)
+		return axis / norm
+
+	def _projection_axis_anchor_ref(self):
+		"""Return one point lying on the current main projection axis."""
+		if str(self.projection_mode).lower() == "cone":
+			return np.asarray(self.detector_center_ref, dtype=np.float32)
+		return np.asarray(self.detector_center_ref, dtype=np.float32)
+
+	def _detector_axes_ref(self):
+		"""Return detector pixel axes and centre in local reference coordinates."""
+		geometry = self.build_geometry()
+		center = np.asarray(geometry.detector_center_ref_point(), dtype=np.float32)
+		u = np.asarray(geometry.detector_u_ref, dtype=np.float32)
+		v = np.asarray(geometry.detector_v_ref, dtype=np.float32)
+		height, width = int(geometry.detector_shape_hw[0]), int(geometry.detector_shape_hw[1])
+		u_span = u * float(max(width - 1, 1))
+		v_span = v * float(max(height - 1, 1))
+		return center, u_span, v_span
+
+	def _slab_basis_from_axis_ref(self, axis):
+		"""Return two in-plane slab vectors orthogonal to the provided axis."""
+		axis = np.asarray(axis, dtype=np.float32)
+		axis_norm = float(np.linalg.norm(axis))
+		if axis_norm <= 1e-8:
+			return None, None
+		axis = axis / axis_norm
+
+		geometry = self.build_geometry()
+		detector_up = np.asarray(geometry.detector_v_ref, dtype=np.float32)
+		detector_up_norm = float(np.linalg.norm(detector_up))
+		if detector_up_norm > 1e-8:
+			detector_up = detector_up / detector_up_norm
+		else:
+			detector_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
+		u_size = float(np.linalg.norm(np.asarray(geometry.detector_u_ref, dtype=np.float32)) * max(int(geometry.detector_shape_hw[1]) - 1, 1))
+		v_size = float(np.linalg.norm(np.asarray(geometry.detector_v_ref, dtype=np.float32)) * max(int(geometry.detector_shape_hw[0]) - 1, 1))
+
+		basis_v = detector_up - axis * float(np.dot(detector_up, axis))
+		basis_v_norm = float(np.linalg.norm(basis_v))
+		if basis_v_norm <= 1e-8:
+			fallback = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+			if abs(float(np.dot(fallback, axis))) > 0.9:
+				fallback = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+			basis_v = fallback - axis * float(np.dot(fallback, axis))
+			basis_v_norm = float(np.linalg.norm(basis_v))
+			if basis_v_norm <= 1e-8:
+				return None, None
+		basis_v = basis_v / basis_v_norm
+		basis_u = np.cross(basis_v, axis)
+		basis_u_norm = float(np.linalg.norm(basis_u))
+		if basis_u_norm <= 1e-8:
+			return None, None
+		basis_u = basis_u / basis_u_norm
+		return basis_u * u_size, basis_v * v_size
+
+	def _depth_window_mode_normalized(self):
+		"""Return the normalized depth-window mode used by the scene object."""
+		self._ensure_depth_window_defaults()
+		mode = str(self.depth_window_mode).strip().lower()
+		return None if mode in {"", "none", "off"} else mode
+
+	def _depth_window_visual_quads_ref(self):
+		"""Return one list of quads visualizing the configured depth window in local coordinates."""
+		mode = self._depth_window_mode_normalized()
+		if mode is None:
+			return []
+
+		depth_start = float(self.depth_window_mm[0])
+		depth_end = float(self.depth_window_mm[1])
+		if depth_end < depth_start:
+			depth_start, depth_end = depth_end, depth_start
+
+		if mode in {"planar", "planar_auto", "planar_custom"}:
+			origin = np.asarray(self.depth_window_origin_ref, dtype=np.float32)
+			if mode in {"planar", "planar_auto"}:
+				axis = self._projection_axis_ref()
+				axis_anchor = self._projection_axis_anchor_ref()
+			else:
+				axis = np.asarray(self.depth_window_axis_ref, dtype=np.float32)
+				axis_norm = float(np.linalg.norm(axis))
+				if axis_norm <= 1e-8:
+					return []
+				axis = axis / axis_norm
+				axis_anchor = origin
+			u_span, v_span = self._slab_basis_from_axis_ref(axis)
+			if u_span is None or v_span is None:
+				return []
+
+			def _planar_quad(offset_mm):
+				offset_mm = float(offset_mm)
+				axis_anchor_offset = float(np.dot(axis_anchor - origin, axis))
+				plane_center = axis_anchor + axis * (offset_mm - axis_anchor_offset)
+				return np.array([
+					plane_center - 0.5 * u_span - 0.5 * v_span,
+					plane_center + 0.5 * u_span - 0.5 * v_span,
+					plane_center + 0.5 * u_span + 0.5 * v_span,
+					plane_center - 0.5 * u_span + 0.5 * v_span,
+				], dtype=np.float32)
+
+			return [_planar_quad(depth_start), _planar_quad(depth_end)]
+
+		corners = self.detector_corners_ref()
+		if str(self.projection_mode).lower() == "cone":
+			source = np.asarray(self.source_position_ref, dtype=np.float32)
+
+			def _cone_quad(offset_mm):
+				dirs = corners - source[np.newaxis, :]
+				norms = np.linalg.norm(dirs, axis=1, keepdims=True)
+				dirs = dirs / np.maximum(norms, 1e-8)
+				return source[np.newaxis, :] + dirs * float(offset_mm)
+
+			return [_cone_quad(depth_start), _cone_quad(depth_end)]
+
+		ray_dir = np.asarray(self.ray_direction_ref, dtype=np.float32)
+		norm = float(np.linalg.norm(ray_dir))
+		if norm <= 1e-8:
+			return []
+		ray_dir = ray_dir / norm
+		return [
+			corners + ray_dir[np.newaxis, :] * depth_start,
+			corners + ray_dir[np.newaxis, :] * depth_end,
+		]
+
 	def getLocalBB(self):
 		"""Return a local bounding box covering the source and detector gizmos."""
 		points = [self.detector_corners_ref()]
 		if str(self.projection_mode).lower() == "cone":
 			points.append(np.asarray(self.source_position_ref, dtype=np.float32)[None, :])
+		for quad in self._depth_window_visual_quads_ref():
+			points.append(np.asarray(quad, dtype=np.float32))
 		all_points = np.vstack(points)
 		return True, all_points.min(axis=0).tolist(), all_points.max(axis=0).tolist()
 
@@ -568,9 +811,52 @@ class VirtualXRay(Object):
 				gl.glVertex3f(*arrow_start); gl.glVertex3f(*center)
 				gl.glEnd()
 
+		depth_quads = self._depth_window_visual_quads_ref()
+		if len(depth_quads) == 2:
+			gl.glLineWidth(1.5)
+			for quad in depth_quads:
+				gl.glColor4f(
+					self.depth_window_fill_color[0],
+					self.depth_window_fill_color[1],
+					self.depth_window_fill_color[2],
+					self.depth_window_fill_alpha,
+				)
+				gl.glBegin(gl.GL_QUADS)
+				for point in quad:
+					gl.glVertex3f(*point)
+				gl.glEnd()
+
+				gl.glColor3f(*self.depth_window_edge_color)
+				gl.glBegin(gl.GL_LINE_LOOP)
+				for point in quad:
+					gl.glVertex3f(*point)
+				gl.glEnd()
+
+			gl.glColor4f(
+				self.depth_window_link_color[0],
+				self.depth_window_link_color[1],
+				self.depth_window_link_color[2],
+				self.depth_window_link_alpha,
+			)
+			gl.glBegin(gl.GL_LINES)
+			for point_a, point_b in zip(depth_quads[0], depth_quads[1]):
+				gl.glVertex3f(*point_a)
+				gl.glVertex3f(*point_b)
+			gl.glEnd()
+
 		gl.glPopAttrib()
 
 	def info(self):
 		"""Return a compact textual summary for debugging and quick inspection."""
-		volumes = len(self.collect_volumetrics())
-		return f"VirtualXRay(mode={self.projection_mode}, volumes={volumes}, detector_shape={self.detector_shape_hw}, step_mm={self.step_mm})"
+		self._ensure_depth_window_defaults()
+		volumes = len([obj for obj in self.collect_volumetrics() if bool(getattr(obj, "xray_source_enabled", True))])
+		meshes = len([obj for obj in self.collect_meshes() if bool(getattr(obj, "xray_source_enabled", True))])
+		depth_mode = str(self.depth_window_mode).strip().lower()
+		if depth_mode in {"", "none", "off"}:
+			depth_summary = "off"
+		else:
+			depth_summary = f"{depth_mode}:{float(self.depth_window_mm[0]):.1f}->{float(self.depth_window_mm[1]):.1f}"
+		return (
+			f"VirtualXRay(mode={self.projection_mode}, volumes={volumes}, meshes={meshes}, "
+			f"detector_shape={self.detector_shape_hw}, step_mm={self.step_mm}, depth={depth_summary})"
+		)

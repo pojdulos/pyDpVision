@@ -11,7 +11,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 import numpy as np
 
-from .. import AP
+from .. import AP, ensure_xray_source_config
 
 from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
@@ -25,10 +25,14 @@ class PropVolumetric(PropWidget):
 		AP.loadUi('propVolumetric.ui', self)
 
 		self.obj_ref = weakref.ref(_obj)
+		ensure_xray_source_config(_obj)
+		self._relax_ui_constraints()
 
 		self.f_check = [self.f0CheckBox, self.f1CheckBox, self.f2CheckBox, self.f3CheckBox, self.f4CheckBox, self.f5CheckBox, self.f6CheckBox]
 		self.spin_min = [self.f0SpinMin, self.f1SpinMin, self.f2SpinMin, self.f3SpinMin, self.f4SpinMin, self.f5SpinMin, self.f6SpinMin]
 		self.spin_max = [self.f0SpinMax, self.f1SpinMax, self.f2SpinMax, self.f3SpinMax, self.f4SpinMax, self.f5SpinMax, self.f6SpinMax]
+		self._build_xray_group()
+		self._connect_xray_signals()
 
 	@staticmethod
 	def create(m, parent = 0):
@@ -49,11 +53,94 @@ class PropVolumetric(PropWidget):
 			self.f3CheckBox, self.f3SpinMin, self.f3SpinMax,
 			self.f4CheckBox, self.f4SpinMin, self.f4SpinMax,
 			self.f5CheckBox, self.f5SpinMin, self.f5SpinMax,
-			self.f6CheckBox, self.f6SpinMin, self.f6SpinMax }:
+			self.f6CheckBox, self.f6SpinMin, self.f6SpinMax,
+			self.xrayEnabledCheck, self.xrayScalarScaleSpin, self.xrayScalarBiasSpin,
+			self.xrayAttenuationSpin, self.xrayInterpolationCombo,
+			self.xrayFillValueEnabledCheck, self.xrayFillValueSpin }:
 			w.blockSignals(b)
+
+	def _relax_ui_constraints(self):
+		"""Remove fixed-size limits inherited from the legacy volumetric `.ui`."""
+		for widget in (self, getattr(self, "volTK", None), getattr(self, "info", None)):
+			if widget is None:
+				continue
+			widget.setMinimumSize(0, 0)
+			widget.setMaximumSize(16777215, 16777215)
+			widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+		if self.layout() is None:
+			self._root_layout = QVBoxLayout(self)
+			self._root_layout.setContentsMargins(0, 0, 0, 0)
+			self._root_layout.setSpacing(6)
+			self.volTK.setParent(self)
+			self._root_layout.addWidget(self.volTK)
+		else:
+			self._root_layout = self.layout()
+
+	def _build_xray_group(self):
+		"""Append one readable per-object X-ray source group inside the main volume box."""
+		self.xrayGroup = QGroupBox("XRay Source", self)
+		xray_layout = QFormLayout(self.xrayGroup)
+		xray_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+		xray_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		xray_layout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+		self.xrayEnabledCheck = QCheckBox("Enabled in VirtualXRay")
+		self.xrayScalarScaleSpin = QDoubleSpinBox()
+		self.xrayScalarScaleSpin.setRange(-1e3, 1e3)
+		self.xrayScalarScaleSpin.setDecimals(6)
+		self.xrayScalarScaleSpin.setSingleStep(0.05)
+		self.xrayScalarBiasSpin = QDoubleSpinBox()
+		self.xrayScalarBiasSpin.setRange(-1e6, 1e6)
+		self.xrayScalarBiasSpin.setDecimals(3)
+		self.xrayScalarBiasSpin.setSingleStep(10.0)
+		self.xrayAttenuationSpin = QDoubleSpinBox()
+		self.xrayAttenuationSpin.setRange(0.0, 1e6)
+		self.xrayAttenuationSpin.setDecimals(6)
+		self.xrayAttenuationSpin.setSingleStep(0.05)
+		self.xrayInterpolationCombo = QComboBox()
+		self.xrayInterpolationCombo.addItems(["default", "nearest", "linear", "cubic"])
+		self.xrayFillValueEnabledCheck = QCheckBox("Use explicit fill value")
+		self.xrayFillValueSpin = QDoubleSpinBox()
+		self.xrayFillValueSpin.setRange(-1e9, 1e9)
+		self.xrayFillValueSpin.setDecimals(3)
+		self.xrayFillValueSpin.setSingleStep(10.0)
+
+		xray_layout.addRow("", self.xrayEnabledCheck)
+		xray_layout.addRow("Scalar scale:", self.xrayScalarScaleSpin)
+		xray_layout.addRow("Scalar bias:", self.xrayScalarBiasSpin)
+		xray_layout.addRow("Attenuation x:", self.xrayAttenuationSpin)
+		xray_layout.addRow("Interpolation:", self.xrayInterpolationCombo)
+		xray_layout.addRow("", self.xrayFillValueEnabledCheck)
+		xray_layout.addRow("Fill value:", self.xrayFillValueSpin)
+
+		root_layout = getattr(self, "_root_layout", None)
+		if isinstance(root_layout, QLayout):
+			root_layout.addWidget(self.xrayGroup)
+
+	def _connect_xray_signals(self):
+		"""Connect X-ray widgets to the volumetric object state."""
+		self.xrayEnabledCheck.toggled.connect(self.on_xray_source_changed)
+		self.xrayScalarScaleSpin.valueChanged.connect(self.on_xray_source_changed)
+		self.xrayScalarBiasSpin.valueChanged.connect(self.on_xray_source_changed)
+		self.xrayAttenuationSpin.valueChanged.connect(self.on_xray_source_changed)
+		self.xrayInterpolationCombo.currentTextChanged.connect(self.on_xray_source_changed)
+		self.xrayFillValueEnabledCheck.toggled.connect(self.on_xray_source_changed)
+		self.xrayFillValueSpin.valueChanged.connect(self.on_xray_source_changed)
+
+	def _update_xray_visibility(self, obj):
+		"""Enable only X-ray volumetric controls relevant to the active configuration."""
+		enabled = bool(obj.xray_source_enabled)
+		fill_enabled = enabled and bool(obj.xray_fill_value_override_enabled)
+		self.xrayScalarScaleSpin.setEnabled(enabled)
+		self.xrayScalarBiasSpin.setEnabled(enabled)
+		self.xrayAttenuationSpin.setEnabled(enabled)
+		self.xrayInterpolationCombo.setEnabled(enabled)
+		self.xrayFillValueEnabledCheck.setEnabled(enabled)
+		self.xrayFillValueSpin.setEnabled(fill_enabled)
 
 	def updateProperties(self):
 		obj = self.obj_ref()
+		ensure_xray_source_config(obj)
 		self.blockAll(True)
 
 		self.spinWinMin.setValue(obj.m_minDisplWin)
@@ -105,6 +192,14 @@ class PropVolumetric(PropWidget):
 		self.splatScaleSpin.setEnabled(obj.m_renderSplats)
 		self._update_splat_color_button()
 		self.splatColorButton.setEnabled(obj.m_renderSplats)
+		self.xrayEnabledCheck.setChecked(bool(obj.xray_source_enabled))
+		self.xrayScalarScaleSpin.setValue(float(obj.xray_scalar_scale))
+		self.xrayScalarBiasSpin.setValue(float(obj.xray_scalar_bias))
+		self.xrayAttenuationSpin.setValue(float(obj.xray_attenuation_multiplier))
+		self.xrayInterpolationCombo.setCurrentText(str(obj.xray_interpolation_override))
+		self.xrayFillValueEnabledCheck.setChecked(bool(obj.xray_fill_value_override_enabled))
+		self.xrayFillValueSpin.setValue(float(obj.xray_fill_value_override))
+		self._update_xray_visibility(obj)
 
 		self.blockAll(False)
 
@@ -350,6 +445,22 @@ class PropVolumetric(PropWidget):
 		AP.updateAllViews()
 
 	@pyqtSlot()
+	def on_xray_source_changed(self):
+		"""Store per-object X-ray settings directly on the selected volume."""
+		obj = self.obj_ref()
+		ensure_xray_source_config(obj)
+		obj.xray_source_enabled = bool(self.xrayEnabledCheck.isChecked())
+		obj.xray_scalar_scale = float(self.xrayScalarScaleSpin.value())
+		obj.xray_scalar_bias = float(self.xrayScalarBiasSpin.value())
+		obj.xray_attenuation_multiplier = max(0.0, float(self.xrayAttenuationSpin.value()))
+		obj.xray_interpolation_override = str(self.xrayInterpolationCombo.currentText()).lower()
+		obj.xray_fill_value_override_enabled = bool(self.xrayFillValueEnabledCheck.isChecked())
+		obj.xray_fill_value_override = float(self.xrayFillValueSpin.value())
+		self._update_xray_visibility(obj)
+		AP.updateProperties()
+		AP.updateAllViews()
+
+	@pyqtSlot()
 	def updateColorFilters():
 		pass
 
@@ -462,5 +573,3 @@ class PropVolumetric(PropWidget):
 		self.zBspin.setMaximum(val)
 		self.zBspin.blockSignals(False)
 		AP.updateAllViews()
-
-

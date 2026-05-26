@@ -253,12 +253,25 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Zakladka `Presentation` ma teraz tez szybkie presety wygladu (`balanced`, `bone_soft`, `bone_contrast`, `film_soft`), ktore jednoczesnie ustawiaja tryb prezentacji, `gamma`, `contrast` i `robust percentile` bez zmiany modelu fizycznego.
 - `VirtualXRay` ma teraz backendowa estymacje progu kosci na podstawie heurystyki z `marchingCubes.py`: metoda `estimate_bone_threshold()` uzywa gradientowego `mc_estimate_threshold(...)`, a `apply_estimated_bone_threshold()` ustawia tryb `bone_threshold`, wpisuje prog HU i czysci pelne okno materialowe. Panel `Physics` ma do tego przycisk `Auto bone threshold`.
 - `VirtualXRay` ma jawne pole `projection_mode = "cone" | "parallel"`. Nie opiera juz logiki trybu na `source_position_ref is None`.
+- Backend `XRayProjectionGeometry` obsluguje teraz opcjonalne ograniczenie zakresu projekcji przez `depth_window_mode` i `depth_window_mm`. Tryb `ray` przycina marching po parametrze promienia, a tryb `planar` ogranicza integracje do nieskonczonego plastra zdefiniowanego przez os i punkt odniesienia.
+- `VirtualXRay` i panel `PropVirtualXRay` wystawiaja juz ten zakres w `Geometry -> Depth window` jako `off / ray / planar_auto / planar_custom`, z zakresem `from/to [mm]`, lokalnym `origin` oraz opcjonalna reczna osia dla wariantu `planar_custom`.
+- Gizmo `VirtualXRay` wizualizuje teraz tez aktywne okno glebokosci: dla `planar` jako dwie polprzezroczyste plaszczyzny z lacznikami, a dla `ray` jako odpowiadajacy im wycinek promieniowania (stozkowy dla `cone`, przesuniete plaszczyzny dla `parallel`).
+- `planar_auto` opiera backend i gizmo na glownej osi aktualnej geometrii projekcji: `source -> detector_center` dla `cone` oraz `ray_direction_ref` dla `parallel`.
+- `planar_custom` zachowuje poprzednia eksperymentalna mozliwosc ukosnego cięcia i wizualizacji wedlug recznie wpisanej osi `Axis`.
+- Sekcja `Depth window` ma teraz tez dwa szybkie przyciski robocze: `Align axis` oraz `Origin = detector`, zeby latwo zsynchronizowac odpowiednio kierunek lub punkt odniesienia bez wymuszania obu zmian naraz.
+- `XRayPhysicsModel` obsluguje teraz tez dwa dodatkowe efekty nizszego poziomu: heurystyczne skalowanie oslabienia przez `source_energy_kev` wzgledem `reference_energy_kev` oraz opcjonalny zanik sygnalu z odlegloscia od zrodla (`source_distance_falloff_mode = inverse_square`) dla geometrii `cone`.
+- Panel `VirtualXRay -> Physics -> Advanced` wystawia te parametry jako `source_energy_kev`, `reference_energy_kev`, `energy_exponent`, `distance_falloff`, `distance_ref [mm]` i `distance_power`.
 - Presety geometrii `VirtualXRay` sa teraz ladowane z pliku `dpVision/presets/xray_geometry_presets.json`, a definicje zaszyte w `virtualXRay.py` zostaly tylko jako fallback awaryjny. Zakladka `Geometry` nadal ma szybki wybor `Preset` + `Apply`, ale nowe modele geometrii mozna dodawac bez zmiany kodu.
 - `VirtualXRay` przechowuje `last_raw_projection` i udostepnia:
 - `project_and_cache(...)`: liczy surowa projekcje i zapisuje ja do cache.
 - `apply_presentation()`: stosuje biezacy model prezentacji do cache bez ponownego ray-marchingu.
 - `build_geometry()` przekazuje do `XRayProjectionGeometry` tylko aktywny parametr geometrii: `source_position_ref` dla `cone` albo `ray_direction_ref` dla `parallel`.
 - `VirtualXRay` nadal pracuje w lokalnym ukladzie odniesienia obiektu i zbiera potomne `Volumetric` przez istniejace mechanizmy drzewa sceny, przeliczajac transformacje wzgledem siebie.
+- `VirtualXRay` zbiera teraz takze potomne `Mesh`. Dla meshy backend RTG uzywa uproszczonego modelu: promien przecina trojkaty, a wynik jest liczony jako stala absorpcja materialu dla zamknietego mesha (`solid`) albo cienkiej powloki (`shell`).
+- Konfiguracja zrodel RTG zaczyna byc teraz rozdzielona na poziom sceny i poziom obiektu. `VirtualXRay` nadal trzyma ustawienia globalne geometrii i fizyki, ale `Mesh` i `Volumetric` moga juz miec lokalne pola `xray_*`, np. `enabled`, `scalar_scale`, `scalar_bias`, `attenuation_multiplier`, a dodatkowo: dla wolumenow `interpolation/fill_value`, dla meshy `solid/shell`, `scalar_value` i `shell_thickness_mm`.
+- Panele `PropMesh` i `PropVolumetric` dostaly robocze sekcje `XRay Source`, zeby te ustawienia dalo sie stroic per obiekt bez ruszania panelu `VirtualXRay`.
+- Progress callback backendu RTG obejmuje teraz nie tylko ray-marching wolumenow, ale tez etap przeciec promieni z meshem w `MeshXRaySource`, zeby panel `VirtualXRay` mogl pokazywac zywy progress bar takze przy wolnych projekcjach mesh-only lub hybrid.
+- `MeshXRaySource` nie testuje juz kazdego promienia przeciw wszystkim trojkatom mesha. Buduje teraz lokalne binarne drzewo AABB (BVH) cache'owane w zrodle i traversuje je per promien, co ma istotnie zmniejszac koszt projekcji dla wiekszych siatek.
 - Panel `PropVirtualXRay` jest aktualnie zorganizowany jako zakladki:
 - `Geometry`
 - `Physics`
@@ -276,6 +289,7 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Aktualizacja obrazu projekcji odswieza tez jawnie otwarte okna `ImageViewer` i panel wlasciwosci `Image`, bo te komponenty trzymaja wlasne kopie `QPixmap` i bez tego mogly sprawiac wrazenie, ze `Update display` nic nie robi.
 - Przy przejsciu `cone -> parallel` GUI ustawia domyslny kierunek promieni zgodny z `detector_normal_ref`, zeby projekcja rownolegla nie startowala w zla strone.
 - Gizmo `VirtualXRay` ma subtelniejsze kolory, lokalne osie i dla `cone` cienkie linie od zrodla do naroznikow detektora, pokazujace pole widzenia.
+- W `dp_testy.py` demonstrator syntetycznego RTG moze teraz laczyc dwa wolumeny z prostym meshem probki, co ulatwia pierwsze testy ukladow hybrydowych.
 - `docs/xray_projection.tex` zostal przepisany pod aktualny stan backendu RTG: obejmuje teraz `XRayScalarPreprocessor`, aktualne tryby `material_response_mode`, profile jakosci, integracje z `VirtualXRay`, cache `last_raw_projection` i ograniczenia modelu. Tekst ma obecnie forme techniczno-opisowa blizsza szkicowi sekcji artykulu niz samej notatce implementacyjnej.
 - `docs/main.tex` zostal przebudowany z luźnego projektu notatek w kierunku spójnego szkicu publikacji. Zachowuje anglojezyczne fragmenty `Related Work`, ale reszte materialu porzadkuje wokol: motywacji, architektury projekcyjnej, modelu akwizycji, integracji `VirtualXRay`, symulacji ruchu zuchwy, zastosowan badawczych i ograniczen aktualnego modelu.
 - `docs/main.tex` ma obecnie rozbudowana sekcje `Method` z opisem modeli geometrii, próbkowania, preprocessingu, odpowiedzi materialowej, prezentacji i kosztu obliczen oraz osobno rozszerzona sekcje `Dynamiczny RTG`. Dokument zostal domkniety sekcjami o zastosowaniach badawczych, implementacji, ograniczeniach i dalszych kierunkach rozwoju.

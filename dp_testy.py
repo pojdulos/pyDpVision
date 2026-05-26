@@ -17,6 +17,7 @@ from dpVision.xrayProjection import (
 	XRayProjectionConfig,
 	RawPresentationModel,
 	DigitalRadiographyPresentationModel,
+	MeshXRaySource,
 	VolumetricXRaySource,
 	XRayScene,
 	save_projection_png,
@@ -221,10 +222,36 @@ def build_synthetic_xray_demo_volumes():
 	return skull, jaw
 
 
+def build_synthetic_xray_demo_mesh():
+	"""Create one simple synthetic mesh sample for hybrid volume + mesh X-ray tests."""
+	vertices = np.array([
+		[-12.0, -6.0, -25.0],
+		[ 12.0, -6.0, -25.0],
+		[ 12.0,  6.0, -25.0],
+		[-12.0,  6.0, -25.0],
+		[-12.0, -6.0,  25.0],
+		[ 12.0, -6.0,  25.0],
+		[ 12.0,  6.0,  25.0],
+		[-12.0,  6.0,  25.0],
+	], dtype=np.float32)
+	faces = np.array([
+		[0, 1, 2], [0, 2, 3],
+		[4, 6, 5], [4, 7, 6],
+		[0, 4, 5], [0, 5, 1],
+		[1, 5, 6], [1, 6, 2],
+		[2, 6, 7], [2, 7, 3],
+		[3, 7, 4], [3, 4, 0],
+	], dtype=np.uint32)
+	mesh = Mesh.create(vertices=vertices, faces=faces)
+	mesh.label = "synthetic_implant_mesh"
+	return mesh
+
+
 def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8.0, 0.0), jaw_rotation_deg_z=8.0):
-	"""Generate synthetic DICOM sets and one example multi-volume X-ray projection."""
+	"""Generate one example hybrid volume + mesh X-ray projection."""
 	create_synthetic_xray_demo_dicoms()
 	skull, jaw = build_synthetic_xray_demo_volumes()
+	implant_mesh = build_synthetic_xray_demo_mesh()
 	if output_dir is None:
 		output_dir = _demo_output_dir("xray_demo_output")
 	os.makedirs(output_dir, exist_ok=True)
@@ -234,6 +261,8 @@ def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8
 		translation_xyz=jaw_translation_xyz,
 		rotation_deg_z=jaw_rotation_deg_z,
 	)
+	mesh_transform = np.eye(4, dtype=np.float32)
+	mesh_transform[:3, 3] = np.array([42.0, 18.0, 48.0], dtype=np.float32)
 
 	geometry = XRayProjectionGeometry.from_detector_pose(
 		detector_center_ref=[42.2, 42.2, 180.0],
@@ -253,6 +282,7 @@ def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8
 	scene = XRayScene.from_sample_sources([
 		VolumetricXRaySource(skull, global_transform=skull_transform, interpolation="linear"),
 		VolumetricXRaySource(jaw, global_transform=jaw_transform, interpolation="linear"),
+		MeshXRaySource(implant_mesh, global_transform=mesh_transform, scalar_value=2200.0, mode="solid", shell_thickness_mm=1.2),
 	])
 	config = XRayProjectionConfig(
 		geometry=geometry,
@@ -303,8 +333,9 @@ def demo_synthetic_xray_projection(output_dir=None, jaw_translation_xyz=(0.0, -8
 
 
 def create_virtual_xray_demo_object():
-	"""Create one `VirtualXRay` scene node with synthetic skull and jaw descendants."""
+	"""Create one `VirtualXRay` scene node with synthetic skull, jaw and mesh descendants."""
 	skull, jaw = build_synthetic_xray_demo_volumes()
+	implant_mesh = build_synthetic_xray_demo_mesh()
 	jaw_transform = _make_jaw_transform(
 		translation_xyz=(0.0, -8.0, 0.0),
 		rotation_deg_z=8.0,
@@ -326,6 +357,12 @@ def create_virtual_xray_demo_object():
 	jaw_node.label = "jaw_pose"
 	jaw_node.addChild(jaw)
 	setup.addChild(jaw_node)
+
+	mesh_node = Transform()
+	mesh_node.label = "implant_pose"
+	mesh_node.translate(42.0, 18.0, 48.0)
+	mesh_node.addChild(implant_mesh)
+	setup.addChild(mesh_node)
 
 	AP.addObject(setup)
 	return setup
@@ -378,9 +415,10 @@ def create_real_xray_demo():
 	# pathD = "d:/praca/dane/masks/dol/slice_000.dcm"
 
 	pathG = "d:/praca/dane/vols/gora1/filtered_194.dcm"
-	pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
+	# pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
+	pathD = "d:/praca0/dane/vol/dol/jaw_poissonAAA.ply"
 	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
-	pathA = "d:/praca/dane/vols/20140521/0000.dcm"
+	# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
 
 	if os.path.isfile(pathG):
 		AP.load(pathG, on_success=on_success)
@@ -798,4 +836,3 @@ create_real_xray_demo()
 # print(result["png_path"])
 # print(result["tiff_path"])
 # print(result["dicom_path"])
-

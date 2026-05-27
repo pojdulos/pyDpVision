@@ -294,6 +294,41 @@ def _rays_single_triangle_hit_distances(ray_origins, ray_directions, triangle_wo
 	return t_out
 
 
+def _one_ray_per_triangle_hit(ray_origins, ray_directions, triangles_world, epsilon=1e-6):
+	"""Möller-Trumbore intersection — one *distinct* ray per triangle, fully vectorised.
+
+	Unlike `_rays_single_triangle_hit_distances` (many rays, one triangle), this
+	function handles M ray-triangle pairs where every pair uses a different triangle.
+
+	Args:
+		ray_origins:     (M, 3) float32 world-space ray origins.
+		ray_directions:  (M, 3) float32 unit-length ray directions.
+		triangles_world: (M, 3, 3) float32 world-space triangle vertices.
+
+	Returns:
+		t_values: (M,) float32 — hit distance along the ray, or ``nan`` where
+		          there is no valid intersection.
+	"""
+	v0    = triangles_world[:, 0, :]             # (M, 3)
+	edge1 = triangles_world[:, 1, :] - v0       # (M, 3)
+	edge2 = triangles_world[:, 2, :] - v0       # (M, 3)
+	pvec  = np.cross(ray_directions, edge2)      # (M, 3)
+	det   = np.einsum("ij,ij->i", edge1, pvec)   # (M,)
+	mask  = np.abs(det) > float(epsilon)
+	# Replace near-zero det with 1 to avoid ZeroDivision — discarded by mask.
+	safe_det = np.where(mask, det, np.float32(1.0))
+	inv_det  = np.where(mask, np.float32(1.0) / safe_det, np.float32(0.0))
+	tvec = ray_origins - v0                                            # (M, 3)
+	u    = np.einsum("ij,ij->i", tvec, pvec) * inv_det                # (M,)
+	mask &= (u >= -epsilon) & (u <= 1.0 + epsilon)
+	qvec = np.cross(tvec, edge1)                                       # (M, 3)
+	v    = np.einsum("ij,ij->i", ray_directions, qvec) * inv_det      # (M,)
+	mask &= (v >= -epsilon) & ((u + v) <= 1.0 + epsilon)
+	t    = np.einsum("ij,ij->i", edge2, qvec) * inv_det               # (M,)
+	mask &= t >= -epsilon
+	return np.where(mask, t, np.float32(np.nan)).astype(np.float32)
+
+
 def _is_top_left_edge_2d(point_a, point_b):
 	"""Return `True` when one directed 2D edge should be inclusive in top-left rasterization."""
 	dy = float(point_b[1] - point_a[1])
@@ -1328,25 +1363,29 @@ class MeshXRaySource(XRaySampleSource):
 			self._face_normals_world = face_normals.astype(np.float32, copy=False)
 		else:
 			self._face_normals_world = np.empty((0, 3), dtype=np.float32)
-		_t_bvh = perf_counter()
-		_log.info("MeshXRaySource: building BVH for %d triangles …", self._triangles_world.shape[0])
-		self._bvh_nodes = _build_triangle_bvh(self._triangles_world, max_leaf_size=8)
-		_log.info("MeshXRaySource: BVH built in %.3f s (%d nodes)",
-		          perf_counter() - _t_bvh, len(self._bvh_nodes))
+		# BVH is built lazily on first use (not needed for projected_intersection_list backend).
+		self._bvh_nodes = None
 		self._projected_stack_cache = {}
 		# Persistent thread pool — reused across projection calls to amortise
 		# OS thread-creation overhead (~150 ms/thread on Windows).
 		self._thread_pool: "ThreadPoolExecutor | None" = None
 		self._thread_pool_workers: int = 0
 
+	def _ensure_bvh(self):
+		"""Build the BVH on first call; no-op on subsequent calls."""
+		if self._bvh_nodes is not None:
+			return
+		_t_bvh = perf_counter()
+		_log.info("MeshXRaySource: building BVH for %d triangles …", self._triangles_world.shape[0])
+		self._bvh_nodes = _build_triangle_bvh(self._triangles_world, max_leaf_size=8)
+		_log.info("MeshXRaySource: BVH built in %.3f s (%d nodes)",
+		          perf_counter() - _t_bvh, len(self._bvh_nodes))
+
 	def bounds_world(self):
 		"""Return the world-space AABB of the transformed mesh vertices."""
 		if self._vertices_world.size == 0:
 			zero = np.zeros(3, dtype=np.float32)
 			return zero.copy(), zero.copy()
-		if self._bvh_nodes:
-			root = self._bvh_nodes[0]
-			return root["bbox_min"].copy(), root["bbox_max"].copy()
 		return self._vertices_world.min(axis=0).astype(np.float32), self._vertices_world.max(axis=0).astype(np.float32)
 
 	def sample_attenuation_world(self, points_world, physics_model):
@@ -1713,6 +1752,146 @@ class MeshXRaySource(XRaySampleSource):
 			shell_gain.astype(np.float32, copy=False),
 		)
 
+	def _vectorized_rasterize(self, vis_idx, tri_uvs_vis, context):
+		"""Rasterise all visible triangles in a single vectorised NumPy pass.
+
+		Replaces the per-triangle Python loop with five bulk operations:
+		  1. Expand every triangle's integer bbox into candidate (col, row) pixels.
+		  2. Run the 2-D inside test (edge functions + top-left rule) for all candidates.
+		  3. Build world rays for every inside candidate.
+		  4. One-ray-per-triangle Möller-Trumbore for all inside candidates at once.
+		  5. Assemble flat output arrays.
+
+		Returns:
+			(pixel_indices, t_values, shell_gains, tri_indices) — four (M,) flat arrays.
+		"""
+		height, width = context["detector_shape_hw"]
+		N_vis = len(vis_idx)
+		_e32  = np.empty(0, dtype=np.float32)
+		_e32i = np.empty(0, dtype=np.int32)
+		if N_vis == 0:
+			return _e32i.copy(), _e32.copy(), _e32.copy(), _e32i.copy()
+
+		# ── 1. Integer bbox for every visible triangle ────────────────────────
+		bbox_min  = tri_uvs_vis.min(axis=1)   # (N_vis, 2)
+		bbox_max  = tri_uvs_vis.max(axis=1)   # (N_vis, 2)
+		col_lo = np.clip(np.ceil(bbox_min[:, 0]).astype(np.int32), 0, width  - 1)
+		col_hi = np.clip(np.floor(bbox_max[:, 0]).astype(np.int32), 0, width  - 1)
+		row_lo = np.clip(np.ceil(bbox_min[:, 1]).astype(np.int32), 0, height - 1)
+		row_hi = np.clip(np.floor(bbox_max[:, 1]).astype(np.int32), 0, height - 1)
+		n_cols    = (col_hi - col_lo + 1).astype(np.int32)   # (N_vis,)
+		n_rows    = (row_hi - row_lo + 1).astype(np.int32)   # (N_vis,)
+		bbox_area = n_cols * n_rows                           # (N_vis,) candidates per triangle
+
+		# ── 2. Expand every bbox into candidate (col, row, tri) triples ───────
+		total_cands = int(bbox_area.sum())
+		if total_cands == 0:
+			return _e32i.copy(), _e32.copy(), _e32.copy(), _e32i.copy()
+		cand_tri = np.repeat(np.arange(N_vis, dtype=np.int32), bbox_area)   # (C,)
+		cum = np.empty(N_vis + 1, dtype=np.int64)
+		cum[0] = 0
+		np.cumsum(bbox_area, out=cum[1:])
+		offset   = np.arange(total_cands, dtype=np.int64) - cum[cand_tri]
+		ncols_c  = n_cols[cand_tri].astype(np.int64)
+		cand_col = (col_lo[cand_tri] + offset % ncols_c).astype(np.int32)    # (C,)
+		cand_row = (row_lo[cand_tri] + offset // ncols_c).astype(np.int32)   # (C,)
+
+		# ── 3. Vectorised 2-D inside test (matches _triangle_projected_pixel_hits) ──
+		uvA = tri_uvs_vis[cand_tri, 0, :]   # (C, 2)
+		uvB = tri_uvs_vis[cand_tri, 1, :]   # (C, 2)
+		uvC = tri_uvs_vis[cand_tri, 2, :]   # (C, 2)
+		px  = cand_col.astype(np.float32)   # (C,)
+		py  = cand_row.astype(np.float32)   # (C,)
+
+		# Signed 2-D area per triangle (broadcast to candidates via cand_tri index).
+		v_area = (
+			(tri_uvs_vis[:, 1, 0] - tri_uvs_vis[:, 0, 0]) * (tri_uvs_vis[:, 2, 1] - tri_uvs_vis[:, 0, 1])
+			- (tri_uvs_vis[:, 1, 1] - tri_uvs_vis[:, 0, 1]) * (tri_uvs_vis[:, 2, 0] - tri_uvs_vis[:, 0, 0])
+		)  # (N_vis,)
+		area_c = v_area[cand_tri]            # (C,)
+
+		# Edge functions — identical formulas to _triangle_projected_pixel_hits.
+		e0 = (px - uvB[:, 0]) * (uvC[:, 1] - uvB[:, 1]) - (py - uvB[:, 1]) * (uvC[:, 0] - uvB[:, 0])
+		e1 = (px - uvC[:, 0]) * (uvA[:, 1] - uvC[:, 1]) - (py - uvC[:, 1]) * (uvA[:, 0] - uvC[:, 0])
+		e2 = (px - uvA[:, 0]) * (uvB[:, 1] - uvA[:, 1]) - (py - uvA[:, 1]) * (uvB[:, 0] - uvA[:, 0])
+		winding = np.where(area_c < 0, np.float32(1.0), np.float32(-1.0))
+		e0 = (e0 * winding).astype(np.float32)
+		e1 = (e1 * winding).astype(np.float32)
+		e2 = (e2 * winding).astype(np.float32)
+
+		# Vectorised top-left rule — mirrors _is_top_left_edge_2d exactly.
+		def _tl(p, q):
+			dy = q[:, 1] - p[:, 1]
+			return (dy > 0.0) | ((np.abs(dy) <= 1e-8) & (q[:, 0] - p[:, 0] < 0.0))
+
+		uvA_l = tri_uvs_vis[:, 0, :]
+		uvB_l = tri_uvs_vis[:, 1, :]
+		uvC_l = tri_uvs_vis[:, 2, :]
+		ccw_l = v_area > 0                                          # (N_vis,) True = CCW
+		tl0 = np.where(ccw_l, _tl(uvB_l, uvC_l), _tl(uvC_l, uvB_l))  # (N_vis,)
+		tl1 = np.where(ccw_l, _tl(uvC_l, uvA_l), _tl(uvA_l, uvC_l))
+		tl2 = np.where(ccw_l, _tl(uvA_l, uvB_l), _tl(uvB_l, uvA_l))
+		_eps = np.float32(1e-8)
+		inside = (
+			(e0 >= np.where(tl0[cand_tri], np.float32(0.0), _eps))
+			& (e1 >= np.where(tl1[cand_tri], np.float32(0.0), _eps))
+			& (e2 >= np.where(tl2[cand_tri], np.float32(0.0), _eps))
+			& (np.abs(area_c) > 1e-8)
+		)
+		if not np.any(inside):
+			return _e32i.copy(), _e32.copy(), _e32.copy(), _e32i.copy()
+
+		# ── 4. Build world rays for inside candidates ─────────────────────────
+		in_col     = cand_col[inside]                       # (M,)
+		in_row     = cand_row[inside]                       # (M,)
+		in_tri_loc = cand_tri[inside]                       # (M,) local index into vis_idx
+		in_tri_gbl = vis_idx[in_tri_loc]                    # (M,) global triangle index
+		pixel_centers_world = (
+			context["detector_origin_world"]
+			+ context["detector_u_world"] * in_col[:, np.newaxis].astype(np.float32)
+			+ context["detector_v_world"] * in_row[:, np.newaxis].astype(np.float32)
+		).astype(np.float32)
+		M = in_col.shape[0]
+		if context["projection_mode"] == "cone":
+			src      = context["source_world"].astype(np.float32)
+			ray_orig = np.broadcast_to(src, (M, 3)).copy()
+			ray_dir  = pixel_centers_world - src
+			ray_dir /= np.maximum(np.linalg.norm(ray_dir, axis=1, keepdims=True), np.float32(1e-8))
+		else:
+			ray_orig = pixel_centers_world.copy()
+			rdir     = context["ray_direction_world"].astype(np.float32)
+			ray_dir  = np.broadcast_to(rdir, (M, 3)).copy()
+
+		# ── 5. Vectorised one-ray-per-triangle Möller-Trumbore ────────────────
+		tris_w = self._triangles_world[in_tri_gbl]          # (M, 3, 3)
+		t_vals = _one_ray_per_triangle_hit(ray_orig, ray_dir, tris_w)
+		valid  = np.isfinite(t_vals)
+		if not np.any(valid):
+			return _e32i.copy(), _e32.copy(), _e32.copy(), _e32i.copy()
+
+		# ── 6. Assemble output ────────────────────────────────────────────────
+		out_pixel = (in_row[valid] * width + in_col[valid]).astype(np.int32)
+		out_t     = t_vals[valid].astype(np.float32)
+		out_tri   = in_tri_gbl[valid].astype(np.int32)
+		n_hits    = int(valid.sum())
+		if self.mode == "shell":
+			out_shell = np.empty(n_hits, dtype=np.float32)
+			# Group valid hits by triangle and call _triangle_shell_gain for each.
+			ray_orig_hits = ray_orig[valid]   # (n_hits, 3)
+			ray_dir_hits  = ray_dir[valid]    # (n_hits, 3)
+			unique_tris, inv = np.unique(out_tri, return_inverse=True)
+			for k, tri_idx in enumerate(unique_tris):
+				sel = inv == k
+				hp  = ray_orig_hits[sel] + ray_dir_hits[sel] * out_t[sel][:, np.newaxis]
+				out_shell[sel] = self._triangle_shell_gain(
+					triangle_index=int(tri_idx),
+					hit_points_world=hp,
+					ray_directions=ray_dir_hits[sel],
+				)
+		else:
+			out_shell = np.empty(n_hits, dtype=np.float32)
+		return out_pixel, out_t, out_shell, out_tri
+
 	def build_projected_intersection_stack(self, geometry, reference_transform=None, progress_callback=None,
 	                                       progress_fraction=(0.0, 1.0), use_cache=True):
 		"""Build one compact per-pixel stack of projected mesh-triangle intersections."""
@@ -1731,20 +1910,6 @@ class MeshXRaySource(XRaySampleSource):
 		# Signal immediately so the progress bar appears before any heavy work.
 		if progress_callback is not None:
 			progress_callback(progress_start)
-
-		# Rasterise triangles in parallel.  Submitting one Future per triangle
-		# causes severe lock-contention on the thread-pool queue (e.g. 127k
-		# triangles → ~27 s just for submit()).  Instead we group triangles into
-		# coarse chunks; ~20 chunks per worker keeps overhead tiny while still
-		# giving good load-balance and smooth progress reporting.
-		n_workers = min(os.cpu_count() or 1, max(1, triangle_count))
-		chunk_size = max(1, triangle_count // max(n_workers * 20, 1))
-		chunk_ranges = [
-			(s, min(s + chunk_size, triangle_count))
-			for s in range(0, triangle_count, chunk_size)
-		]
-		n_chunks = len(chunk_ranges)
-		triangle_hits_cache = [None] * triangle_count
 
 		# Vectorised UV pre-projection: project all N×3 vertices in a single NumPy
 		# call instead of N separate function calls (each handling only 3 points).
@@ -1780,68 +1945,24 @@ class MeshXRaySource(XRaySampleSource):
 		)
 
 		_log.info(
-			"build_projected_intersection_stack: rasterising %d triangles onto %dx%d detector"
-			" (%d workers, %d chunks of ~%d triangles each) …",
-			triangle_count, width, height, n_workers, n_chunks, chunk_size,
-		)
-
-		def _rasterize_chunk(chunk_range):
-			start, end = chunk_range
-			_empty = (np.empty(0, dtype=np.int32), np.empty(0, dtype=np.float32), np.empty(0, dtype=np.float32))
-			return [
-				(
-					i,
-					self._triangle_projected_pixel_hits(i, context, precomputed_uv=tri_uvs[i])
-					if tri_visible[i] else _empty,
-				)
-				for i in range(start, end)
-			]
-
-		# Reuse a cached thread pool to avoid paying ~150 ms-per-thread OS startup
-		# cost on every call.  The pool is recreated only when n_workers changes.
-		if self._thread_pool is None or self._thread_pool_workers != n_workers:
-			if self._thread_pool is not None:
-				self._thread_pool.shutdown(wait=False)
-			self._thread_pool = ThreadPoolExecutor(max_workers=n_workers)
-			self._thread_pool_workers = n_workers
-		executor = self._thread_pool
-
-		_t_submit = perf_counter()
-		chunk_futures = [executor.submit(_rasterize_chunk, cr) for cr in chunk_ranges]
-		_log.info(
-			"build_projected_intersection_stack: %d chunks submitted in %.3f s, waiting …",
-			n_chunks, perf_counter() - _t_submit,
+			"build_projected_intersection_stack: rasterising %d/%d visible triangles "
+			"onto %dx%d detector …",
+			n_visible, triangle_count, width, height,
 		)
 		_t_raster = perf_counter()
-		completed_triangles = 0
-		for future in as_completed(chunk_futures):
-			chunk_results = future.result()
-			for tri_idx, hit_data in chunk_results:
-				triangle_hits_cache[tri_idx] = hit_data
-			completed_triangles += len(chunk_results)
-			if progress_callback is not None:
-				progress_callback(
-					progress_start + 0.5 * progress_span * (float(completed_triangles) / float(triangle_count))
-				)
+		vis_idx = np.where(tri_visible)[0]
+		all_pixel_indices, all_t_values, all_shell_gains, all_tri_indices = \
+			self._vectorized_rasterize(vis_idx, tri_uvs[vis_idx], context)
 		if progress_callback is not None:
 			progress_callback(progress_start + 0.5 * progress_span)
 		_log.info(
-			"build_projected_intersection_stack: rasterisation done in %.3f s",
-			perf_counter() - _t_raster,
+			"build_projected_intersection_stack: rasterisation done in %.3f s (%d hits)",
+			perf_counter() - _t_raster, len(all_t_values),
 		)
 
-		# Collect all non-empty triangle results into flat arrays, sort once by
-		# pixel index, and build the CSR offsets with np.bincount — no second
-		# Python loop needed.
+		# Build CSR offsets with np.argsort + np.bincount.
 		_t_csr = perf_counter()
-		nonempty = [(i, h) for i, h in enumerate(triangle_hits_cache) if h[0].size > 0]
-		if nonempty:
-			all_pixel_indices = np.concatenate([h[0] for _, h in nonempty])
-			all_t_values      = np.concatenate([h[1] for _, h in nonempty])
-			all_shell_gains   = np.concatenate([h[2] for _, h in nonempty])
-			all_tri_indices   = np.concatenate([
-				np.full(h[0].size, i, dtype=np.int32) for i, h in nonempty
-			])
+		if len(all_pixel_indices) > 0:
 			sort_order            = np.argsort(all_pixel_indices, kind="stable")
 			sample_pixel_sorted   = all_pixel_indices[sort_order]
 			sample_t              = all_t_values[sort_order]
@@ -1919,10 +2040,27 @@ class MeshXRaySource(XRaySampleSource):
 			projected_min_abs_cos = np.ones(n_rays, dtype=np.float32) if debug_export_enabled else None
 			analytic_merged_counts = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled and self.debug_compare_analytic else None
 			analytic_path_lengths = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled and self.debug_compare_analytic else None
-			for local_ray_idx, pixel_index in enumerate(hit_ray_indices):
-				start_idx, end_idx = stack.pixel_sample_slice(pixel_index)
-				if end_idx <= start_idx:
-					continue
+			# Pre-compute all CSR start/end offsets at once to skip empty pixels without
+			# iterating over them in Python — avoids overhead for typically ~50-70 % of rays.
+			_idx64 = hit_ray_indices.astype(np.int64)
+			batch_starts = stack.pixel_offsets[_idx64]
+			batch_ends   = stack.pixel_offsets[_idx64 + 1]
+			active_local_indices = np.where(batch_ends > batch_starts)[0]
+			n_active = len(active_local_indices)
+			_log.info(
+				"ray_integral_world: projected integration starting — %d/%d rays have CSR hits …",
+				n_active, len(hit_ray_indices),
+			)
+			_t_integ = perf_counter()
+			progress_span_integ = 0.5 * (float(progress_fraction[1]) - float(progress_fraction[0]))
+			progress_base_integ = float(progress_fraction[0]) + progress_span_integ
+			progress_stride = max(1, n_active // 50)
+			for k, local_ray_idx in enumerate(active_local_indices.tolist()):
+				if progress_callback is not None and k % progress_stride == 0:
+					progress_callback(progress_base_integ + progress_span_integ * (k / max(n_active, 1)))
+				pixel_index = int(hit_ray_indices[local_ray_idx])
+				start_idx   = int(batch_starts[local_ray_idx])
+				end_idx     = int(batch_ends[local_ray_idx])
 				raw_t_hits = np.asarray(stack.sample_t[start_idx:end_idx], dtype=np.float32)
 				raw_shell_gains = np.asarray(stack.sample_shell_gain[start_idx:end_idx], dtype=np.float32)
 				raw_tri_indices = np.asarray(stack.sample_triangle_index[start_idx:end_idx], dtype=np.int32)
@@ -1961,6 +2099,7 @@ class MeshXRaySource(XRaySampleSource):
 						projected_min_abs_cos[local_ray_idx] = float(np.min(abs_cos_hits))
 				if t_hits.size == 0:
 					if analytic_merged_counts is not None:
+						self._ensure_bvh()
 						analytic_hits = _ray_triangle_intersections_bvh(
 							ray_origin=ray_origins[local_ray_idx],
 							ray_direction=ray_directions[local_ray_idx],
@@ -1993,6 +2132,7 @@ class MeshXRaySource(XRaySampleSource):
 						projected_odd_mask[local_ray_idx] = float(int(t_hits.size) % 2)
 						projected_path_lengths[local_ray_idx] = path_length
 					if analytic_merged_counts is not None:
+						self._ensure_bvh()
 						analytic_hits = _ray_triangle_intersections_bvh(
 							ray_origin=ray_origins[local_ray_idx],
 							ray_direction=ray_directions[local_ray_idx],
@@ -2064,6 +2204,7 @@ class MeshXRaySource(XRaySampleSource):
 					if debug_export_enabled:
 						projected_path_lengths[local_ray_idx] = path_length
 				if analytic_merged_counts is not None:
+					self._ensure_bvh()
 					analytic_hits = _ray_triangle_intersections_bvh(
 						ray_origin=ray_origins[local_ray_idx],
 						ray_direction=ray_directions[local_ray_idx],
@@ -2088,6 +2229,10 @@ class MeshXRaySource(XRaySampleSource):
 							analytic_hits = analytic_hits[:-1]
 						analytic_inside_lengths = analytic_hits[1::2] - analytic_hits[::2]
 						analytic_path_lengths[local_ray_idx] = float(np.sum(np.maximum(analytic_inside_lengths, 0.0), dtype=np.float32))
+			_log.info(
+				"ray_integral_world: projected integration done in %.3f s (%d work intersections)",
+				perf_counter() - _t_integ, intersection_work_count,
+			)
 			if debug_export_enabled:
 				self._save_projected_debug_maps(
 					detector_shape_hw=detector_shape_hw,
@@ -2109,6 +2254,7 @@ class MeshXRaySource(XRaySampleSource):
 		progress_end = float(progress_fraction[1])
 		progress_span = max(0.0, progress_end - progress_start)
 		progress_stride = max(1, n_rays // 200)
+		self._ensure_bvh()
 		for ray_idx in range(n_rays):
 			if progress_callback is not None and (ray_idx % progress_stride == 0):
 				progress_callback(progress_start + progress_span * (float(ray_idx) / float(max(n_rays, 1))))

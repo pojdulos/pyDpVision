@@ -1127,6 +1127,17 @@ class XRayProjectionStats:
 	projection_mode: str
 	detector_shape_hw: tuple[int, int]
 	depth_window_mode: str | None = None
+	# Per-phase wall-clock timing breakdown (phase_name -> seconds).
+	# Keys: "ray_setup", "aabb_intersection", "depth_clipping",
+	#       "direct_sources_total", "marching_total", "physics_conversion".
+	phase_timings: dict = field(default_factory=dict)
+	# Per-source statistics — one dict per XRaySampleSource in scene order.
+	# Volumetric keys: "label", "source_type", "elapsed_s", "work_count",
+	#   "volume_shape", "interpolation".
+	# Mesh keys additionally: "backend", "mode", "triangle_count",
+	#   "bvh_build_s" (analytic_bvh only), "stack_build_s", "stack_uv_projection_s",
+	#   "stack_rasterize_s", "stack_csr_s", "integration_s".
+	per_source_stats: list = field(default_factory=list)
 
 	@property
 	def average_samples_per_traced_pixel(self):
@@ -1141,6 +1152,49 @@ class XRayProjectionStats:
 		if self.elapsed_seconds <= 1e-9:
 			return 0.0
 		return float(self.total_sample_count) / float(self.elapsed_seconds)
+
+	def format_report(self):
+		"""Return a formatted multi-line performance report suitable for building tables."""
+		lines = []
+		h, w = self.detector_shape_hw
+		lines.append("=== XRay Projection Performance Report ===")
+		lines.append(f"  Detector:          {w} x {h} px  ({self.total_pixels:,} total)")
+		lines.append(f"  Traced pixels:     {self.traced_pixels:,}  ({100.0 * self.traced_pixels / max(self.total_pixels, 1):.1f} %)")
+		lines.append(f"  Step:              {self.step_mm:.2f} mm")
+		lines.append(f"  Projection mode:   {self.projection_mode}")
+		lines.append(f"  Sources:           {self.source_count}")
+		lines.append(f"  Total samples:     {self.total_sample_count:,}")
+		lines.append(f"  Samples/s:         {self.samples_per_second:,.0f}")
+		lines.append(f"  Avg samples/ray:   {self.average_samples_per_traced_pixel:.1f}")
+		lines.append(f"  Total elapsed:     {self.elapsed_seconds * 1000:.1f} ms")
+		if self.phase_timings:
+			lines.append("  --- Phase breakdown ---")
+			phase_total = sum(self.phase_timings.values())
+			for phase_name, t_s in self.phase_timings.items():
+				pct = 100.0 * t_s / max(phase_total, 1e-9)
+				lines.append(f"    {phase_name:<30s} {t_s * 1000:8.1f} ms  ({pct:.1f} %)")
+		if self.per_source_stats:
+			lines.append("  --- Per-source breakdown ---")
+			for i, src in enumerate(self.per_source_stats):
+				label = src.get("label", f"source_{i}")
+				stype = src.get("source_type", "?")
+				t_s   = src.get("elapsed_s", 0.0)
+				wc    = src.get("work_count", 0)
+				lines.append(f"    [{i}] {stype:<24s} '{label}'  {t_s * 1000:.1f} ms  work={wc:,}")
+				if src.get("backend") is not None:
+					lines.append(f"         backend={src['backend']}  mode={src.get('mode', '?')}  triangles={src.get('triangle_count', '?'):,}")
+				if src.get("volume_shape") is not None:
+					lines.append(f"         volume_shape={src['volume_shape']}  interpolation={src.get('interpolation', '?')}")
+				for sub_key in ("bvh_build_s", "stack_build_s", "stack_uv_projection_s",
+				                "stack_rasterize_s", "stack_csr_s", "integration_s"):
+					if sub_key in src:
+						lines.append(f"         {sub_key:<28s} {src[sub_key] * 1000:.1f} ms")
+		lines.append("==========================================")
+		return "\n".join(lines)
+
+	def print_report(self):
+		"""Print the formatted performance report to stdout."""
+		print(self.format_report())
 
 
 @dataclass
@@ -1378,8 +1432,9 @@ class MeshXRaySource(XRaySampleSource):
 		_t_bvh = perf_counter()
 		_log.info("MeshXRaySource: building BVH for %d triangles …", self._triangles_world.shape[0])
 		self._bvh_nodes = _build_triangle_bvh(self._triangles_world, max_leaf_size=8)
+		self._last_bvh_build_s = float(perf_counter() - _t_bvh)
 		_log.info("MeshXRaySource: BVH built in %.3f s (%d nodes)",
-		          perf_counter() - _t_bvh, len(self._bvh_nodes))
+		          self._last_bvh_build_s, len(self._bvh_nodes))
 
 	def bounds_world(self):
 		"""Return the world-space AABB of the transformed mesh vertices."""
@@ -1979,10 +2034,17 @@ class MeshXRaySource(XRaySampleSource):
 		pixel_offsets[1:] = np.cumsum(pixel_hit_counts, dtype=np.int64)
 
 		total_hits = int(pixel_offsets[-1])
+		_t_stack_end = perf_counter()
 		_log.info(
 			"build_projected_intersection_stack: CSR stack built in %.3f s (%d total hits)",
-			perf_counter() - _t_csr, total_hits,
+			_t_stack_end - _t_csr, total_hits,
 		)
+		self._last_stack_timing = {
+			"uv_projection_s": float(_t_raster - _t_proj),
+			"rasterize_s": float(_t_csr - _t_raster),
+			"csr_s": float(_t_stack_end - _t_csr),
+			"total_s": float(_t_stack_end - _t_proj),
+		}
 
 		stack = ProjectedTrianglePixelStack(
 			detector_shape_hw=(height, width),
@@ -2229,10 +2291,12 @@ class MeshXRaySource(XRaySampleSource):
 							analytic_hits = analytic_hits[:-1]
 						analytic_inside_lengths = analytic_hits[1::2] - analytic_hits[::2]
 						analytic_path_lengths[local_ray_idx] = float(np.sum(np.maximum(analytic_inside_lengths, 0.0), dtype=np.float32))
+			_t_integ_end = perf_counter()
 			_log.info(
 				"ray_integral_world: projected integration done in %.3f s (%d work intersections)",
-				perf_counter() - _t_integ, intersection_work_count,
+				_t_integ_end - _t_integ, intersection_work_count,
 			)
+			self._last_integral_timing = {"integration_s": float(_t_integ_end - _t_integ)}
 			if debug_export_enabled:
 				self._save_projected_debug_maps(
 					detector_shape_hw=detector_shape_hw,
@@ -2254,6 +2318,7 @@ class MeshXRaySource(XRaySampleSource):
 		progress_end = float(progress_fraction[1])
 		progress_span = max(0.0, progress_end - progress_start)
 		progress_stride = max(1, n_rays // 200)
+		_t_analytic_start = perf_counter()
 		self._ensure_bvh()
 		for ray_idx in range(n_rays):
 			if progress_callback is not None and (ray_idx % progress_stride == 0):
@@ -2292,6 +2357,7 @@ class MeshXRaySource(XRaySampleSource):
 
 		if progress_callback is not None:
 			progress_callback(progress_end)
+		self._last_integral_timing = {"integration_s": float(perf_counter() - _t_analytic_start)}
 		return integrals, intersection_work_count
 
 
@@ -2348,6 +2414,8 @@ class XRayProjector:
 		n_pixels = height * width
 		step_mm = float(geometry.step_mm)
 		start_time = perf_counter()
+		_phase_timings: dict = {}
+		_per_source_stats: list = []
 
 		# Build all detector pixel centers (H*W, 3)
 		detector_origin_world = _transform_point(reference_transform, geometry.detector_origin_ref).astype(np.float32)
@@ -2381,12 +2449,18 @@ class XRayProjector:
 			ray_directions[:] = ray_dir_world
 			source_to_detector_distance_mm = None
 
+		_phase_timings["ray_setup"] = float(perf_counter() - start_time)
+
 		# Vectorized AABB intersection for all rays
+		_t_aabb_start = perf_counter()
 		t_starts, t_ends, hit_mask = _ray_box_intersections_vectorized(
 			ray_origins, ray_directions, scene_min_world, scene_max_world,
 		)
 		t_starts = np.maximum(t_starts, 0.0)
 		hit_mask &= t_ends > t_starts
+		_phase_timings["aabb_intersection"] = float(perf_counter() - _t_aabb_start)
+
+		_t_depth_start = perf_counter()
 		depth_mode = geometry.normalized_depth_window_mode()
 		depth_limits = geometry.depth_window_limits_mm()
 		if depth_mode == "ray" and depth_limits is not None:
@@ -2417,6 +2491,7 @@ class XRayProjector:
 			hit_mask &= slab_hit_mask & (t_ends > t_starts)
 
 		# Slab marching: one Python iteration per depth step, all active rays batched
+		_phase_timings["depth_clipping"] = float(perf_counter() - _t_depth_start)
 		projection_flat = np.zeros(n_pixels, dtype=np.float32)
 		total_sample_count = 0
 		traced_pixels = int(np.sum(hit_mask))
@@ -2443,6 +2518,7 @@ class XRayProjector:
 				direct_progress_fraction = (0.0, 0.0)
 				marched_progress_fraction = (0.0, 1.0)
 
+			_t_direct_start = perf_counter()
 			for source_idx, source in enumerate(direct_sources):
 				source_progress_start = direct_progress_fraction[0]
 				source_progress_end = direct_progress_fraction[1]
@@ -2453,6 +2529,7 @@ class XRayProjector:
 					source_progress_end = direct_progress_fraction[0] + (
 						(direct_progress_fraction[1] - direct_progress_fraction[0]) * (float(source_idx + 1) / float(len(direct_sources)))
 					)
+				_t_src_start = perf_counter()
 				direct_integral = source.ray_integral_world(
 					ray_origins=ray_origins[hit_indices],
 					ray_directions=ray_directions[hit_indices],
@@ -2470,7 +2547,32 @@ class XRayProjector:
 				source_integrals, source_work_count = direct_integral
 				projection_flat[hit_indices] += np.asarray(source_integrals, dtype=np.float32)
 				total_sample_count += int(source_work_count)
-
+				_t_src_elapsed = float(perf_counter() - _t_src_start)
+				_src_stat: dict = {
+					"label": getattr(
+						getattr(source, "mesh", None) or getattr(source, "volumetric", None),
+						"label", type(source).__name__,
+					),
+					"source_type": type(source).__name__,
+					"elapsed_s": _t_src_elapsed,
+					"work_count": int(source_work_count),
+				}
+				if isinstance(source, MeshXRaySource):
+					_src_stat["backend"] = source.backend
+					_src_stat["mode"] = source.mode
+					_src_stat["triangle_count"] = int(source._triangles_world.shape[0])
+					if hasattr(source, "_last_bvh_build_s"):
+						_src_stat["bvh_build_s"] = float(source._last_bvh_build_s)
+					if hasattr(source, "_last_stack_timing"):
+						_src_stat["stack_build_s"]         = float(source._last_stack_timing.get("total_s", 0.0))
+						_src_stat["stack_uv_projection_s"] = float(source._last_stack_timing.get("uv_projection_s", 0.0))
+						_src_stat["stack_rasterize_s"]     = float(source._last_stack_timing.get("rasterize_s", 0.0))
+						_src_stat["stack_csr_s"]           = float(source._last_stack_timing.get("csr_s", 0.0))
+					if hasattr(source, "_last_integral_timing"):
+						_src_stat["integration_s"] = float(source._last_integral_timing.get("integration_s", 0.0))
+				_per_source_stats.append(_src_stat)
+			_phase_timings["direct_sources_total"] = float(perf_counter() - _t_direct_start)
+			_t_marching_start = perf_counter()
 			if marched_sources:
 				t_global_max = float(np.max(t_ends[hit_mask]))
 				t_values = np.arange(0.0, t_global_max + step_mm * 0.5, step_mm, dtype=np.float64)
@@ -2493,14 +2595,30 @@ class XRayProjector:
 					projection_flat[active_idx] += total_mu * step_mm
 					total_sample_count += len(active_idx)
 
+			_phase_timings["marching_total"] = float(perf_counter() - _t_marching_start)
+			for _vsrc in marched_sources:
+				_vol_label = getattr(getattr(_vsrc, "volumetric", None), "label", None) or type(_vsrc).__name__
+				_vsrc_stat: dict = {
+					"label": _vol_label,
+					"source_type": type(_vsrc).__name__,
+					"elapsed_s": _phase_timings["marching_total"] / max(len(marched_sources), 1),
+					"work_count": int(total_sample_count),
+				}
+				if isinstance(_vsrc, VolumetricXRaySource):
+					_vsrc_stat["volume_shape"] = tuple(int(x) for x in _vsrc._volume.shape)
+					_vsrc_stat["interpolation"] = _vsrc.interpolation
+				_per_source_stats.append(_vsrc_stat)
+
 			if progress_callback is not None:
 				progress_callback(1.0)
 
+		_t_physics_start = perf_counter()
 		projection = physics_model.integral_to_image(
 			projection_flat,
 			source_to_detector_distance_mm=source_to_detector_distance_mm,
 			projection_mode="cone" if geometry.is_cone_beam() else "parallel",
 		).reshape(height, width)
+		_phase_timings["physics_conversion"] = float(perf_counter() - _t_physics_start)
 
 		if not return_stats:
 			return projection
@@ -2516,6 +2634,8 @@ class XRayProjector:
 			projection_mode="cone" if geometry.is_cone_beam() else "parallel",
 			detector_shape_hw=(height, width),
 			depth_window_mode=depth_mode,
+			phase_timings=_phase_timings,
+			per_source_stats=_per_source_stats,
 		)
 		return projection, stats
 

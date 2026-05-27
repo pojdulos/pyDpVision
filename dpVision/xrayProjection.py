@@ -1334,6 +1334,10 @@ class MeshXRaySource(XRaySampleSource):
 		_log.info("MeshXRaySource: BVH built in %.3f s (%d nodes)",
 		          perf_counter() - _t_bvh, len(self._bvh_nodes))
 		self._projected_stack_cache = {}
+		# Persistent thread pool — reused across projection calls to amortise
+		# OS thread-creation overhead (~150 ms/thread on Windows).
+		self._thread_pool: "ThreadPoolExecutor | None" = None
+		self._thread_pool_workers: int = 0
 
 	def bounds_world(self):
 		"""Return the world-space AABB of the transformed mesh vertices."""
@@ -1759,10 +1763,20 @@ class MeshXRaySource(XRaySampleSource):
 			& (bbox_max_uv[:, 0] >= -0.5) & (bbox_min_uv[:, 0] <= float(width)  - 0.5)
 			& (bbox_max_uv[:, 1] >= -0.5) & (bbox_min_uv[:, 1] <= float(height) - 0.5)
 		)
+		# Pixel-centre filter: pixel at column c has its centre at u=c (integer).
+		# A bbox [min_u, max_u] contains at least one integer centre iff
+		#   floor(max_u) >= ceil(min_u)  (same in v).
+		# Triangles that fail this test produce zero hits even after the full
+		# edge-function test — skip them completely.
+		tri_visible &= (
+			(np.floor(bbox_max_uv[:, 0]) >= np.ceil(bbox_min_uv[:, 0]))
+			& (np.floor(bbox_max_uv[:, 1]) >= np.ceil(bbox_min_uv[:, 1]))
+		)
 		n_visible = int(tri_visible.sum())
 		_log.info(
-			"build_projected_intersection_stack: UV pre-projection done in %.3f s: %d/%d triangles visible",
-			perf_counter() - _t_proj, n_visible, triangle_count,
+			"build_projected_intersection_stack: UV pre-projection done in %.3f s: "
+			"%d/%d triangles with pixel centres in projected bbox (%d skipped as sub-pixel)",
+			perf_counter() - _t_proj, n_visible, triangle_count, triangle_count - n_visible,
 		)
 
 		_log.info(
@@ -1783,26 +1797,34 @@ class MeshXRaySource(XRaySampleSource):
 				for i in range(start, end)
 			]
 
+		# Reuse a cached thread pool to avoid paying ~150 ms-per-thread OS startup
+		# cost on every call.  The pool is recreated only when n_workers changes.
+		if self._thread_pool is None or self._thread_pool_workers != n_workers:
+			if self._thread_pool is not None:
+				self._thread_pool.shutdown(wait=False)
+			self._thread_pool = ThreadPoolExecutor(max_workers=n_workers)
+			self._thread_pool_workers = n_workers
+		executor = self._thread_pool
+
 		_t_submit = perf_counter()
-		with ThreadPoolExecutor(max_workers=n_workers) as executor:
-			chunk_futures = [executor.submit(_rasterize_chunk, cr) for cr in chunk_ranges]
-			_log.info(
-				"build_projected_intersection_stack: %d chunks submitted in %.3f s, waiting …",
-				n_chunks, perf_counter() - _t_submit,
-			)
-			_t_raster = perf_counter()
-			completed_triangles = 0
-			for future in as_completed(chunk_futures):
-				chunk_results = future.result()
-				for tri_idx, hit_data in chunk_results:
-					triangle_hits_cache[tri_idx] = hit_data
-				completed_triangles += len(chunk_results)
-				if progress_callback is not None:
-					progress_callback(
-						progress_start + 0.5 * progress_span * (float(completed_triangles) / float(triangle_count))
-					)
+		chunk_futures = [executor.submit(_rasterize_chunk, cr) for cr in chunk_ranges]
+		_log.info(
+			"build_projected_intersection_stack: %d chunks submitted in %.3f s, waiting …",
+			n_chunks, perf_counter() - _t_submit,
+		)
+		_t_raster = perf_counter()
+		completed_triangles = 0
+		for future in as_completed(chunk_futures):
+			chunk_results = future.result()
+			for tri_idx, hit_data in chunk_results:
+				triangle_hits_cache[tri_idx] = hit_data
+			completed_triangles += len(chunk_results)
 			if progress_callback is not None:
-				progress_callback(progress_start + 0.5 * progress_span)
+				progress_callback(
+					progress_start + 0.5 * progress_span * (float(completed_triangles) / float(triangle_count))
+				)
+		if progress_callback is not None:
+			progress_callback(progress_start + 0.5 * progress_span)
 		_log.info(
 			"build_projected_intersection_stack: rasterisation done in %.3f s",
 			perf_counter() - _t_raster,

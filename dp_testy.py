@@ -649,7 +649,7 @@ def create_real_xray_demo():
 
 	pathG = "d:/praca/dane/vols/gora1/filtered_194.dcm"
 	# pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
-	pathD = "d:/praca/dane/vols/jaw_poissonDDD.ply"
+	pathD = "d:/praca/dane/vols/jaw_poisson.ply"
 	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
 	# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
 

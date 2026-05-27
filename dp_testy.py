@@ -603,13 +603,13 @@ def create_real_xray_demo():
 
 		AP.removeObject(child=skull.parent)
 
-		if isinstance(skull, Mesh):
-			report_mesh_xray_topology(skull)
+		# if isinstance(skull, Mesh):
+		# 	report_mesh_xray_topology(skull)
 
-			skull, result = clean_mesh_for_xray(skull, 
-						drop_nonmanifold_faces=True,
-    					drop_boundary_faces=False,)
-			print(result)
+			# skull, result = clean_mesh_for_xray(skull, 
+			# 			drop_nonmanifold_faces=True,
+    		# 			drop_boundary_faces=False,)
+			# print(result)
 			# print(result["cleaned_report"])
 
 
@@ -624,6 +624,10 @@ def create_real_xray_demo():
 		AP.mainWin.dock["workspace"].rebuildTree()
 
 		skull.xray_mesh_backend = "projected_intersection_list"
+		# skull.xray_debug_export_dir = r"d:\temp\xray_debug"
+		# skull.xray_debug_compare_analytic = True
+		# skull.xray_projected_min_abs_cos = 0.25
+
 		#setup.debug_run_simulation_stop_after = "display"
 		#setup.debug_run_simulation_stop_after = "update_views"
 		#result = run_virtual_xray_headless(setup, r"d:/temp/vxray_test.png")
@@ -645,7 +649,7 @@ def create_real_xray_demo():
 
 	pathG = "d:/praca/dane/vols/gora1/filtered_194.dcm"
 	# pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
-	pathD = "d:/praca0/dane/vol/dol/jaw_poissonAAA.ply"
+	pathD = "d:/praca0/dane/vol/jaw_poissonCCC.ply"
 	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
 	# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
 

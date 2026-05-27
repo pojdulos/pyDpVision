@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
+import os
 from time import perf_counter
 from typing import Iterable, Sequence
 
@@ -44,6 +45,9 @@ def ensure_xray_source_config(source_object):
 			"xray_mesh_mode": "solid",
 			"xray_mesh_scalar_value": 1800.0,
 			"xray_mesh_shell_thickness_mm": 1.0,
+			"xray_projected_min_abs_cos": 0.0,
+			"xray_debug_export_dir": None,
+			"xray_debug_compare_analytic": True,
 		}
 	else:
 		return source_object
@@ -1281,6 +1285,9 @@ class MeshXRaySource(XRaySampleSource):
 		self.scalar_bias = float(scalar_bias)
 		self.attenuation_multiplier = float(attenuation_multiplier)
 		self.backend = str(backend).strip().lower()
+		self.projected_min_abs_cos = max(0.0, min(1.0, float(getattr(self.mesh, "xray_projected_min_abs_cos", 0.0))))
+		self.debug_export_dir = getattr(self.mesh, "xray_debug_export_dir", None)
+		self.debug_compare_analytic = bool(getattr(self.mesh, "xray_debug_compare_analytic", True))
 		if self.mode not in {"solid", "shell"}:
 			raise ValueError("mode must be either 'solid' or 'shell'.")
 		if self.backend not in {"analytic_bvh", "projected_intersection_list"}:
@@ -1486,6 +1493,109 @@ class MeshXRaySource(XRaySampleSource):
 			np.asarray(merged_gains, dtype=np.float32),
 		)
 
+	def _save_projected_debug_maps(self, detector_shape_hw, hit_ray_indices, projected_raw_counts,
+	                               projected_merged_counts, projected_odd_mask, projected_path_lengths,
+	                               projected_max_shell_gain, projected_min_abs_cos,
+	                               analytic_merged_counts=None, analytic_path_lengths=None):
+		"""Save projected-backend diagnostic maps for one mesh when debug export is enabled."""
+		debug_export_dir = getattr(self, "debug_export_dir", None)
+		if debug_export_dir is None:
+			return
+		debug_export_dir = str(debug_export_dir).strip()
+		if not debug_export_dir:
+			return
+
+		os.makedirs(debug_export_dir, exist_ok=True)
+		height, width = int(detector_shape_hw[0]), int(detector_shape_hw[1])
+		n_pixels = height * width
+		hit_ray_indices = np.asarray(hit_ray_indices, dtype=np.int32)
+
+		def _full_map_from_hits(hit_values):
+			full_map = np.zeros(n_pixels, dtype=np.float32)
+			full_map[hit_ray_indices] = np.asarray(hit_values, dtype=np.float32)
+			return full_map.reshape(height, width)
+
+		def _safe_max(image):
+			max_value = float(np.max(np.asarray(image, dtype=np.float32)))
+			return max(1.0, max_value)
+
+		def _safe_label(label_text):
+			return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(label_text))
+
+		label_prefix = _safe_label(getattr(self.mesh, "label", "mesh"))
+		base_name = f"{label_prefix}_{self.backend}_{self.mode}"
+
+		projected_raw_count_map = _full_map_from_hits(projected_raw_counts)
+		projected_merged_count_map = _full_map_from_hits(projected_merged_counts)
+		projected_odd_mask_map = _full_map_from_hits(projected_odd_mask)
+		projected_path_length_map = _full_map_from_hits(projected_path_lengths)
+		projected_max_shell_gain_map = _full_map_from_hits(projected_max_shell_gain)
+		projected_min_abs_cos_map = _full_map_from_hits(projected_min_abs_cos)
+
+		save_projection_png(
+			projected_raw_count_map,
+			os.path.join(debug_export_dir, f"{base_name}_projected_raw_hit_count.png"),
+			fixed_range=(0.0, _safe_max(projected_raw_count_map)),
+			invert=False,
+		)
+		save_projection_png(
+			projected_merged_count_map,
+			os.path.join(debug_export_dir, f"{base_name}_projected_merged_hit_count.png"),
+			fixed_range=(0.0, _safe_max(projected_merged_count_map)),
+			invert=False,
+		)
+		save_projection_png(
+			projected_odd_mask_map,
+			os.path.join(debug_export_dir, f"{base_name}_projected_odd_mask.png"),
+			fixed_range=(0.0, 1.0),
+			invert=False,
+		)
+		save_projection_png(
+			projected_path_length_map,
+			os.path.join(debug_export_dir, f"{base_name}_projected_path_length.png"),
+			fixed_range=(0.0, _safe_max(projected_path_length_map)),
+			invert=False,
+		)
+		save_projection_png(
+			projected_max_shell_gain_map,
+			os.path.join(debug_export_dir, f"{base_name}_projected_max_shell_gain.png"),
+			fixed_range=(0.0, _safe_max(projected_max_shell_gain_map)),
+			invert=False,
+		)
+		save_projection_png(
+			projected_min_abs_cos_map,
+			os.path.join(debug_export_dir, f"{base_name}_projected_min_abs_cos.png"),
+			fixed_range=(0.0, 1.0),
+			invert=False,
+		)
+
+		if analytic_merged_counts is None or analytic_path_lengths is None:
+			return
+
+		analytic_merged_count_map = _full_map_from_hits(analytic_merged_counts)
+		analytic_path_length_map = _full_map_from_hits(analytic_path_lengths)
+		count_mismatch_map = (projected_merged_count_map != analytic_merged_count_map).astype(np.float32)
+		path_length_abs_diff_map = np.abs(projected_path_length_map - analytic_path_length_map).astype(np.float32, copy=False)
+
+		save_projection_png(
+			analytic_merged_count_map,
+			os.path.join(debug_export_dir, f"{base_name}_analytic_merged_hit_count.png"),
+			fixed_range=(0.0, _safe_max(analytic_merged_count_map)),
+			invert=False,
+		)
+		save_projection_png(
+			count_mismatch_map,
+			os.path.join(debug_export_dir, f"{base_name}_hit_count_mismatch.png"),
+			fixed_range=(0.0, 1.0),
+			invert=False,
+		)
+		save_projection_png(
+			path_length_abs_diff_map,
+			os.path.join(debug_export_dir, f"{base_name}_path_length_abs_diff.png"),
+			fixed_range=(0.0, _safe_max(path_length_abs_diff_map)),
+			invert=False,
+		)
+
 	def _triangle_projected_pixel_hits(self, triangle_index, context):
 		"""Return pixel indices, ray parameters and shell gains hit by one projected triangle."""
 		height, width = context["detector_shape_hw"]
@@ -1522,11 +1632,25 @@ class MeshXRaySource(XRaySampleSource):
 		e0 *= winding_sign
 		e1 *= winding_sign
 		e2 *= winding_sign
-		eps = 1e-6
+		# Top-left rasterisation convention: each projected-edge pixel is owned by
+		# exactly one adjacent triangle, eliminating shared-edge duplicate hits.
+		if area > 0:
+			# CCW in standard 2D – edges traverse B→C, C→A, A→B
+			tl_e0 = _is_top_left_edge_2d(b, c)
+			tl_e1 = _is_top_left_edge_2d(c, a)
+			tl_e2 = _is_top_left_edge_2d(a, b)
+		else:
+			# CW in standard 2D – edges effectively traverse C→B, A→C, B→A
+			tl_e0 = _is_top_left_edge_2d(c, b)
+			tl_e1 = _is_top_left_edge_2d(a, c)
+			tl_e2 = _is_top_left_edge_2d(b, a)
+		eps_e0 = np.float32(0.0) if tl_e0 else np.float32(1e-8)
+		eps_e1 = np.float32(0.0) if tl_e1 else np.float32(1e-8)
+		eps_e2 = np.float32(0.0) if tl_e2 else np.float32(1e-8)
 		inside_mask = (
-			(e0 >= -eps)
-			& (e1 >= -eps)
-			& (e2 >= -eps)
+			(e0 >= eps_e0)
+			& (e1 >= eps_e1)
+			& (e2 >= eps_e2)
 		)
 		if not np.any(inside_mask):
 			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
@@ -1667,6 +1791,7 @@ class MeshXRaySource(XRaySampleSource):
 		if self.backend == "projected_intersection_list":
 			if geometry is None or hit_ray_indices is None or detector_shape_hw is None:
 				raise ValueError("Projected mesh backend requires geometry, detector_shape_hw and hit_ray_indices.")
+			hit_ray_indices = np.asarray(hit_ray_indices, dtype=np.int32)
 			stack = self.build_projected_intersection_stack(
 				geometry=geometry,
 				reference_transform=reference_transform,
@@ -1675,22 +1800,74 @@ class MeshXRaySource(XRaySampleSource):
 			)
 			dedup_eps = max(1e-4, 0.25 * float(step_mm))
 			intersection_work_count = 0
-			for local_ray_idx, pixel_index in enumerate(np.asarray(hit_ray_indices, dtype=np.int32)):
+			debug_export_enabled = self.debug_export_dir is not None and str(self.debug_export_dir).strip() != ""
+			projected_raw_counts = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled else None
+			projected_merged_counts = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled else None
+			projected_odd_mask = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled else None
+			projected_path_lengths = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled else None
+			projected_max_shell_gain = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled else None
+			projected_min_abs_cos = np.ones(n_rays, dtype=np.float32) if debug_export_enabled else None
+			analytic_merged_counts = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled and self.debug_compare_analytic else None
+			analytic_path_lengths = np.zeros(n_rays, dtype=np.float32) if debug_export_enabled and self.debug_compare_analytic else None
+			for local_ray_idx, pixel_index in enumerate(hit_ray_indices):
 				start_idx, end_idx = stack.pixel_sample_slice(pixel_index)
 				if end_idx <= start_idx:
 					continue
 				raw_t_hits = np.asarray(stack.sample_t[start_idx:end_idx], dtype=np.float32)
 				raw_shell_gains = np.asarray(stack.sample_shell_gain[start_idx:end_idx], dtype=np.float32)
+				raw_tri_indices = np.asarray(stack.sample_triangle_index[start_idx:end_idx], dtype=np.int32)
 				sort_order = np.argsort(raw_t_hits, kind="mergesort")
 				t_hits = raw_t_hits[sort_order]
 				shell_gains = raw_shell_gains[sort_order]
+				tri_indices = raw_tri_indices[sort_order]
 				range_mask = (
 					(t_hits >= t_starts[local_ray_idx] - dedup_eps)
 					& (t_hits <= t_ends[local_ray_idx] + dedup_eps)
 				)
 				t_hits = t_hits[range_mask]
 				shell_gains = shell_gains[range_mask]
+				tri_indices = tri_indices[range_mask]
+				# Compute actual face-normal cosines for accurate grazing filtering and
+				# winding determination (avoids the cos_floor bias in stored shell_gain).
+				ray_dir_local = ray_directions[local_ray_idx]
+				if tri_indices.size > 0:
+					face_normals_hits = self._face_normals_world[tri_indices]
+					face_dots = np.einsum("ij,j->i", face_normals_hits, ray_dir_local).astype(np.float32, copy=False)
+					abs_cos_hits = np.abs(face_dots)
+				else:
+					face_dots = np.empty((0,), dtype=np.float32)
+					abs_cos_hits = np.empty((0,), dtype=np.float32)
+				if self.projected_min_abs_cos > 0.0 and t_hits.size > 0:
+					grazing_mask = abs_cos_hits >= self.projected_min_abs_cos
+					t_hits = t_hits[grazing_mask]
+					shell_gains = shell_gains[grazing_mask]
+					tri_indices = tri_indices[grazing_mask]
+					face_dots = face_dots[grazing_mask]
+					abs_cos_hits = abs_cos_hits[grazing_mask]
+				if debug_export_enabled:
+					projected_raw_counts[local_ray_idx] = float(t_hits.size)
+					if t_hits.size > 0:
+						projected_max_shell_gain[local_ray_idx] = float(np.max(shell_gains))
+						projected_min_abs_cos[local_ray_idx] = float(np.min(abs_cos_hits))
 				if t_hits.size == 0:
+					if analytic_merged_counts is not None:
+						analytic_hits = _ray_triangle_intersections_bvh(
+							ray_origin=ray_origins[local_ray_idx],
+							ray_direction=ray_directions[local_ray_idx],
+							triangles_world=self._triangles_world,
+							bvh_nodes=self._bvh_nodes,
+						)
+						analytic_hits = analytic_hits[
+							(analytic_hits >= t_starts[local_ray_idx] - dedup_eps)
+							& (analytic_hits <= t_ends[local_ray_idx] + dedup_eps)
+						]
+						if analytic_hits.size > 0:
+							analytic_merged_hits = [float(analytic_hits[0])]
+							for t_value in analytic_hits[1:]:
+								if abs(float(t_value) - analytic_merged_hits[-1]) > dedup_eps:
+									analytic_merged_hits.append(float(t_value))
+							analytic_hits = np.asarray(analytic_merged_hits, dtype=np.float32)
+						analytic_merged_counts[local_ray_idx] = float(analytic_hits.size)
 					continue
 				if self.mode == "shell":
 					t_hits, shell_gains = self._merge_sorted_shell_hits(
@@ -1698,20 +1875,114 @@ class MeshXRaySource(XRaySampleSource):
 						shell_gains=shell_gains,
 						dedup_eps=dedup_eps,
 					)
-					integrals[local_ray_idx] = np.sum(shell_gains, dtype=np.float32) * self.shell_thickness_mm * mu_value
+					path_length = float(np.sum(shell_gains, dtype=np.float32) * self.shell_thickness_mm)
+					integrals[local_ray_idx] = path_length * mu_value
 					intersection_work_count += int(t_hits.size)
+					if debug_export_enabled:
+						projected_merged_counts[local_ray_idx] = float(t_hits.size)
+						projected_odd_mask[local_ray_idx] = float(int(t_hits.size) % 2)
+						projected_path_lengths[local_ray_idx] = path_length
+					if analytic_merged_counts is not None:
+						analytic_hits = _ray_triangle_intersections_bvh(
+							ray_origin=ray_origins[local_ray_idx],
+							ray_direction=ray_directions[local_ray_idx],
+							triangles_world=self._triangles_world,
+							bvh_nodes=self._bvh_nodes,
+						)
+						analytic_hits = analytic_hits[
+							(analytic_hits >= t_starts[local_ray_idx] - dedup_eps)
+							& (analytic_hits <= t_ends[local_ray_idx] + dedup_eps)
+						]
+						if analytic_hits.size > 0:
+							analytic_merged_hits = [float(analytic_hits[0])]
+							for t_value in analytic_hits[1:]:
+								if abs(float(t_value) - analytic_merged_hits[-1]) > dedup_eps:
+									analytic_merged_hits.append(float(t_value))
+							analytic_hits = np.asarray(analytic_merged_hits, dtype=np.float32)
+						analytic_merged_counts[local_ray_idx] = float(analytic_hits.size)
+						analytic_path_lengths[local_ray_idx] = float(analytic_hits.size) * self.shell_thickness_mm
 					continue
-				merged_hits = [float(t_hits[0])]
-				for t_value in t_hits[1:]:
-					if abs(float(t_value) - merged_hits[-1]) > dedup_eps:
-						merged_hits.append(float(t_value))
-				t_hits = np.asarray(merged_hits, dtype=np.float32)
-				intersection_work_count += int(t_hits.size)
-				if t_hits.size >= 2:
-					if t_hits.size % 2 == 1:
-						t_hits = t_hits[:-1]
-					inside_lengths = t_hits[1::2] - t_hits[::2]
-					integrals[local_ray_idx] = np.sum(np.maximum(inside_lengths, 0.0), dtype=np.float32) * mu_value
+				# Signed crossing: cluster hits within dedup_eps and aggregate face-normal
+				# winding votes per cluster, then use a depth counter for path length.
+				# This avoids the parity errors that even-odd counting produces for
+				# near-grazing triangles that add spurious extra intersections.
+				cluster_t_list = []
+				cluster_sign_list = []
+				i_hit = 0
+				n_solid_hits = int(t_hits.size)
+				while i_hit < n_solid_hits:
+					j_hit = i_hit + 1
+					while j_hit < n_solid_hits and float(t_hits[j_hit]) - float(t_hits[i_hit]) <= dedup_eps:
+						j_hit += 1
+					net_sign = float(np.sum(np.sign(face_dots[i_hit:j_hit])))
+					if net_sign > 1e-8:
+						cluster_t_list.append(float(np.mean(t_hits[i_hit:j_hit])))
+						cluster_sign_list.append(1)
+					elif net_sign < -1e-8:
+						cluster_t_list.append(float(np.mean(t_hits[i_hit:j_hit])))
+						cluster_sign_list.append(-1)
+					i_hit = j_hit
+				intersection_work_count += len(cluster_t_list)
+				if debug_export_enabled:
+					projected_merged_counts[local_ray_idx] = float(len(cluster_t_list))
+					projected_odd_mask[local_ray_idx] = float(len(cluster_t_list) % 2)
+				if cluster_t_list:
+					# sign -1 (dot(N,D) < 0 → front face) means entering the solid;
+					# sign +1 (dot(N,D) > 0 → back face) means exiting the solid.
+					depth = 0
+					path_length = 0.0
+					enter_t = 0.0
+					for t_val, csgn in zip(cluster_t_list, cluster_sign_list):
+						if csgn < 0:  # front face → entering
+							if depth == 0:
+								enter_t = t_val
+							depth += 1
+						else:  # back face → exiting
+							if depth > 0:
+								depth -= 1
+								if depth == 0:
+									path_length += max(0.0, t_val - enter_t)
+					integrals[local_ray_idx] = path_length * mu_value
+					if debug_export_enabled:
+						projected_path_lengths[local_ray_idx] = path_length
+				if analytic_merged_counts is not None:
+					analytic_hits = _ray_triangle_intersections_bvh(
+						ray_origin=ray_origins[local_ray_idx],
+						ray_direction=ray_directions[local_ray_idx],
+						triangles_world=self._triangles_world,
+						bvh_nodes=self._bvh_nodes,
+					)
+					analytic_hits = analytic_hits[
+						(analytic_hits >= t_starts[local_ray_idx] - dedup_eps)
+						& (analytic_hits <= t_ends[local_ray_idx] + dedup_eps)
+					]
+					if analytic_hits.size > 0:
+						analytic_merged_hits = [float(analytic_hits[0])]
+						for t_value in analytic_hits[1:]:
+							if abs(float(t_value) - analytic_merged_hits[-1]) > dedup_eps:
+								analytic_merged_hits.append(float(t_value))
+						analytic_hits = np.asarray(analytic_merged_hits, dtype=np.float32)
+					analytic_merged_counts[local_ray_idx] = float(analytic_hits.size)
+					if self.mode == "shell":
+						analytic_path_lengths[local_ray_idx] = float(analytic_hits.size) * self.shell_thickness_mm
+					elif analytic_hits.size >= 2:
+						if analytic_hits.size % 2 == 1:
+							analytic_hits = analytic_hits[:-1]
+						analytic_inside_lengths = analytic_hits[1::2] - analytic_hits[::2]
+						analytic_path_lengths[local_ray_idx] = float(np.sum(np.maximum(analytic_inside_lengths, 0.0), dtype=np.float32))
+			if debug_export_enabled:
+				self._save_projected_debug_maps(
+					detector_shape_hw=detector_shape_hw,
+					hit_ray_indices=hit_ray_indices,
+					projected_raw_counts=projected_raw_counts,
+					projected_merged_counts=projected_merged_counts,
+					projected_odd_mask=projected_odd_mask,
+					projected_path_lengths=projected_path_lengths,
+					projected_max_shell_gain=projected_max_shell_gain,
+					projected_min_abs_cos=projected_min_abs_cos,
+					analytic_merged_counts=analytic_merged_counts,
+					analytic_path_lengths=analytic_path_lengths,
+				)
 			return integrals, intersection_work_count
 
 		intersection_work_count = 0

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
+import logging
 import os
 from time import perf_counter
 from typing import Iterable, Sequence
@@ -16,6 +18,8 @@ from scipy.ndimage import map_coordinates
 
 from .mesh import Mesh
 from .volumetric import Volumetric
+
+_log = logging.getLogger(__name__)
 
 
 def ensure_xray_source_config(source_object):
@@ -1324,7 +1328,11 @@ class MeshXRaySource(XRaySampleSource):
 			self._face_normals_world = face_normals.astype(np.float32, copy=False)
 		else:
 			self._face_normals_world = np.empty((0, 3), dtype=np.float32)
+		_t_bvh = perf_counter()
+		_log.info("MeshXRaySource: building BVH for %d triangles …", self._triangles_world.shape[0])
 		self._bvh_nodes = _build_triangle_bvh(self._triangles_world, max_leaf_size=8)
+		_log.info("MeshXRaySource: BVH built in %.3f s (%d nodes)",
+		          perf_counter() - _t_bvh, len(self._bvh_nodes))
 		self._projected_stack_cache = {}
 
 	def bounds_world(self):
@@ -1596,13 +1604,16 @@ class MeshXRaySource(XRaySampleSource):
 			invert=False,
 		)
 
-	def _triangle_projected_pixel_hits(self, triangle_index, context):
+	def _triangle_projected_pixel_hits(self, triangle_index, context, precomputed_uv=None):
 		"""Return pixel indices, ray parameters and shell gains hit by one projected triangle."""
 		height, width = context["detector_shape_hw"]
 		triangle_world = self._triangles_world[triangle_index]
-		triangle_uv, _projected_points, valid = self._project_points_to_detector_pixels(triangle_world, context)
-		if not np.all(valid):
-			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+		if precomputed_uv is not None:
+			triangle_uv = precomputed_uv
+		else:
+			triangle_uv, _projected_points, valid = self._project_points_to_detector_pixels(triangle_world, context)
+			if not np.all(valid):
+				return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
 
 		uv_min = np.min(triangle_uv, axis=0)
 		uv_max = np.max(triangle_uv, axis=0)
@@ -1681,12 +1692,17 @@ class MeshXRaySource(XRaySampleSource):
 		valid_hits = np.isfinite(t_values)
 		if not np.any(valid_hits):
 			return np.empty((0,), dtype=np.int32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
-		hit_points_world = ray_origins[valid_hits] + ray_directions[valid_hits] * t_values[valid_hits][:, np.newaxis]
-		shell_gain = self._triangle_shell_gain(
-			triangle_index=triangle_index,
-			hit_points_world=hit_points_world,
-			ray_directions=ray_directions[valid_hits],
-		)
+		# shell_gain is only used in shell mode; skip the costly barycentric
+		# interpolation entirely when computing a solid mesh projection.
+		if self.mode == "shell":
+			hit_points_world = ray_origins[valid_hits] + ray_directions[valid_hits] * t_values[valid_hits][:, np.newaxis]
+			shell_gain = self._triangle_shell_gain(
+				triangle_index=triangle_index,
+				hit_points_world=hit_points_world,
+				ray_directions=ray_directions[valid_hits],
+			)
+		else:
+			shell_gain = np.empty(int(valid_hits.sum()), dtype=np.float32)
 		return (
 			pixel_indices[valid_hits],
 			t_values[valid_hits].astype(np.float32, copy=False),
@@ -1698,60 +1714,132 @@ class MeshXRaySource(XRaySampleSource):
 		"""Build one compact per-pixel stack of projected mesh-triangle intersections."""
 		cache_key = self._projected_stack_cache_key(geometry, reference_transform)
 		if use_cache and cache_key in self._projected_stack_cache:
+			_log.info("build_projected_intersection_stack: returning cached stack")
 			return self._projected_stack_cache[cache_key]
 
 		context = self._detector_projection_context(geometry, reference_transform)
 		height, width = context["detector_shape_hw"]
-		pixel_hit_counts = np.zeros(height * width, dtype=np.int32)
 		triangle_count = int(self._triangles_world.shape[0])
 		progress_start = float(progress_fraction[0])
 		progress_end = float(progress_fraction[1])
 		progress_span = max(0.0, progress_end - progress_start)
-		progress_stride = max(1, triangle_count // 100)
+
+		# Signal immediately so the progress bar appears before any heavy work.
+		if progress_callback is not None:
+			progress_callback(progress_start)
+
+		# Rasterise triangles in parallel.  Submitting one Future per triangle
+		# causes severe lock-contention on the thread-pool queue (e.g. 127k
+		# triangles → ~27 s just for submit()).  Instead we group triangles into
+		# coarse chunks; ~20 chunks per worker keeps overhead tiny while still
+		# giving good load-balance and smooth progress reporting.
+		n_workers = min(os.cpu_count() or 1, max(1, triangle_count))
+		chunk_size = max(1, triangle_count // max(n_workers * 20, 1))
+		chunk_ranges = [
+			(s, min(s + chunk_size, triangle_count))
+			for s in range(0, triangle_count, chunk_size)
+		]
+		n_chunks = len(chunk_ranges)
 		triangle_hits_cache = [None] * triangle_count
 
-		for triangle_index in range(triangle_count):
-			if progress_callback is not None and triangle_index % progress_stride == 0:
-				progress_callback(progress_start + 0.5 * progress_span * (float(triangle_index) / float(max(triangle_count, 1))))
-			pixel_indices, t_values, shell_gain = self._triangle_projected_pixel_hits(triangle_index, context)
-			triangle_hits_cache[triangle_index] = (
-				pixel_indices,
-				t_values,
-				shell_gain,
+		# Vectorised UV pre-projection: project all N×3 vertices in a single NumPy
+		# call instead of N separate function calls (each handling only 3 points).
+		# Also pre-filters triangles that project entirely outside the detector so
+		# the parallel loop can skip them without any per-pixel work.
+		_t_proj = perf_counter()
+		all_uvs_flat, _, all_valid_flat = self._project_points_to_detector_pixels(
+			self._triangles_world.reshape(-1, 3), context
+		)
+		tri_uvs = all_uvs_flat.reshape(triangle_count, 3, 2).astype(np.float32, copy=False)
+		tri_all_valid = all_valid_flat.reshape(triangle_count, 3).all(axis=1)
+		bbox_min_uv = tri_uvs.min(axis=1)  # (N, 2)
+		bbox_max_uv = tri_uvs.max(axis=1)  # (N, 2)
+		tri_visible = (
+			tri_all_valid
+			& (bbox_max_uv[:, 0] >= -0.5) & (bbox_min_uv[:, 0] <= float(width)  - 0.5)
+			& (bbox_max_uv[:, 1] >= -0.5) & (bbox_min_uv[:, 1] <= float(height) - 0.5)
+		)
+		n_visible = int(tri_visible.sum())
+		_log.info(
+			"build_projected_intersection_stack: UV pre-projection done in %.3f s: %d/%d triangles visible",
+			perf_counter() - _t_proj, n_visible, triangle_count,
+		)
+
+		_log.info(
+			"build_projected_intersection_stack: rasterising %d triangles onto %dx%d detector"
+			" (%d workers, %d chunks of ~%d triangles each) …",
+			triangle_count, width, height, n_workers, n_chunks, chunk_size,
+		)
+
+		def _rasterize_chunk(chunk_range):
+			start, end = chunk_range
+			_empty = (np.empty(0, dtype=np.int32), np.empty(0, dtype=np.float32), np.empty(0, dtype=np.float32))
+			return [
+				(
+					i,
+					self._triangle_projected_pixel_hits(i, context, precomputed_uv=tri_uvs[i])
+					if tri_visible[i] else _empty,
+				)
+				for i in range(start, end)
+			]
+
+		_t_submit = perf_counter()
+		with ThreadPoolExecutor(max_workers=n_workers) as executor:
+			chunk_futures = [executor.submit(_rasterize_chunk, cr) for cr in chunk_ranges]
+			_log.info(
+				"build_projected_intersection_stack: %d chunks submitted in %.3f s, waiting …",
+				n_chunks, perf_counter() - _t_submit,
 			)
-			if pixel_indices.size == 0:
-				continue
-			unique_pixels, unique_counts = np.unique(pixel_indices, return_counts=True)
-			pixel_hit_counts[unique_pixels] += unique_counts.astype(np.int32, copy=False)
+			_t_raster = perf_counter()
+			completed_triangles = 0
+			for future in as_completed(chunk_futures):
+				chunk_results = future.result()
+				for tri_idx, hit_data in chunk_results:
+					triangle_hits_cache[tri_idx] = hit_data
+				completed_triangles += len(chunk_results)
+				if progress_callback is not None:
+					progress_callback(
+						progress_start + 0.5 * progress_span * (float(completed_triangles) / float(triangle_count))
+					)
+			if progress_callback is not None:
+				progress_callback(progress_start + 0.5 * progress_span)
+		_log.info(
+			"build_projected_intersection_stack: rasterisation done in %.3f s",
+			perf_counter() - _t_raster,
+		)
+
+		# Collect all non-empty triangle results into flat arrays, sort once by
+		# pixel index, and build the CSR offsets with np.bincount — no second
+		# Python loop needed.
+		_t_csr = perf_counter()
+		nonempty = [(i, h) for i, h in enumerate(triangle_hits_cache) if h[0].size > 0]
+		if nonempty:
+			all_pixel_indices = np.concatenate([h[0] for _, h in nonempty])
+			all_t_values      = np.concatenate([h[1] for _, h in nonempty])
+			all_shell_gains   = np.concatenate([h[2] for _, h in nonempty])
+			all_tri_indices   = np.concatenate([
+				np.full(h[0].size, i, dtype=np.int32) for i, h in nonempty
+			])
+			sort_order            = np.argsort(all_pixel_indices, kind="stable")
+			sample_pixel_sorted   = all_pixel_indices[sort_order]
+			sample_t              = all_t_values[sort_order]
+			sample_triangle_index = all_tri_indices[sort_order]
+			sample_shell_gain     = all_shell_gains[sort_order]
+			pixel_hit_counts      = np.bincount(sample_pixel_sorted, minlength=height * width).astype(np.int32)
+		else:
+			sample_t              = np.empty(0, dtype=np.float32)
+			sample_triangle_index = np.empty(0, dtype=np.int32)
+			sample_shell_gain     = np.empty(0, dtype=np.float32)
+			pixel_hit_counts      = np.zeros(height * width, dtype=np.int32)
 
 		pixel_offsets = np.zeros(pixel_hit_counts.shape[0] + 1, dtype=np.int64)
 		pixel_offsets[1:] = np.cumsum(pixel_hit_counts, dtype=np.int64)
-		total_hits = int(pixel_offsets[-1])
-		sample_t = np.empty(total_hits, dtype=np.float32)
-		sample_triangle_index = np.empty(total_hits, dtype=np.int32)
-		sample_shell_gain = np.empty(total_hits, dtype=np.float32)
-		write_offsets = pixel_offsets[:-1].copy()
 
-		for triangle_index in range(triangle_count):
-			if progress_callback is not None and triangle_index % progress_stride == 0:
-				progress_callback(progress_start + 0.5 * progress_span + 0.5 * progress_span * (float(triangle_index) / float(max(triangle_count, 1))))
-			pixel_indices, t_values, shell_gain = triangle_hits_cache[triangle_index]
-			if pixel_indices.size == 0:
-				continue
-			sort_order = np.argsort(pixel_indices, kind="mergesort")
-			pixel_indices = pixel_indices[sort_order]
-			t_values = t_values[sort_order]
-			shell_gain = shell_gain[sort_order]
-			run_starts = np.flatnonzero(np.r_[True, pixel_indices[1:] != pixel_indices[:-1]])
-			run_ends = np.r_[run_starts[1:], pixel_indices.shape[0]]
-			for run_start, run_end in zip(run_starts, run_ends):
-				pixel_index = int(pixel_indices[run_start])
-				write_start = int(write_offsets[pixel_index])
-				write_end = write_start + int(run_end - run_start)
-				sample_t[write_start:write_end] = t_values[run_start:run_end]
-				sample_triangle_index[write_start:write_end] = int(triangle_index)
-				sample_shell_gain[write_start:write_end] = shell_gain[run_start:run_end]
-				write_offsets[pixel_index] = write_end
+		total_hits = int(pixel_offsets[-1])
+		_log.info(
+			"build_projected_intersection_stack: CSR stack built in %.3f s (%d total hits)",
+			perf_counter() - _t_csr, total_hits,
+		)
 
 		stack = ProjectedTrianglePixelStack(
 			detector_shape_hw=(height, width),
@@ -1904,44 +1992,52 @@ class MeshXRaySource(XRaySampleSource):
 					continue
 				# Signed crossing: cluster hits within dedup_eps and aggregate face-normal
 				# winding votes per cluster, then use a depth counter for path length.
-				# This avoids the parity errors that even-odd counting produces for
-				# near-grazing triangles that add spurious extra intersections.
-				cluster_t_list = []
-				cluster_sign_list = []
-				i_hit = 0
-				n_solid_hits = int(t_hits.size)
-				while i_hit < n_solid_hits:
-					j_hit = i_hit + 1
-					while j_hit < n_solid_hits and float(t_hits[j_hit]) - float(t_hits[i_hit]) <= dedup_eps:
-						j_hit += 1
-					net_sign = float(np.sum(np.sign(face_dots[i_hit:j_hit])))
-					if net_sign > 1e-8:
-						cluster_t_list.append(float(np.mean(t_hits[i_hit:j_hit])))
-						cluster_sign_list.append(1)
-					elif net_sign < -1e-8:
-						cluster_t_list.append(float(np.mean(t_hits[i_hit:j_hit])))
-						cluster_sign_list.append(-1)
-					i_hit = j_hit
-				intersection_work_count += len(cluster_t_list)
+				# Fully vectorised with NumPy cumsum — no Python loops over hits.
+				n_solid_hits = t_hits.size
+				if n_solid_hits > 0:
+					# Assign a monotone cluster id to every hit.
+					new_cluster = np.empty(n_solid_hits, dtype=bool)
+					new_cluster[0] = True
+					if n_solid_hits > 1:
+						new_cluster[1:] = (t_hits[1:] - t_hits[:-1]) > dedup_eps
+					cluster_ids = np.cumsum(new_cluster, dtype=np.int32) - 1
+					n_clusters  = int(cluster_ids[-1]) + 1
+					# Net winding sign and mean t per cluster via np.bincount.
+					cluster_count = np.bincount(cluster_ids, minlength=n_clusters).astype(np.int32)
+					cluster_net   = np.bincount(cluster_ids, weights=np.sign(face_dots),
+					                            minlength=n_clusters).astype(np.float32)
+					cluster_t_sum = np.bincount(cluster_ids, weights=t_hits.astype(np.float64),
+					                            minlength=n_clusters)
+					cluster_t_mean = (cluster_t_sum / np.maximum(cluster_count, 1).astype(np.float64)).astype(np.float32)
+					# Discard clusters whose net sign is zero (shared-edge cancellation).
+					nonzero_mask     = np.abs(cluster_net) > 1e-8
+					cluster_t_arr    = cluster_t_mean[nonzero_mask]
+					cluster_sign_arr = np.sign(cluster_net[nonzero_mask]).astype(np.int8)
+					n_valid = int(nonzero_mask.sum())
+				else:
+					n_valid = 0
+					cluster_t_arr    = np.empty(0, dtype=np.float32)
+					cluster_sign_arr = np.empty(0, dtype=np.int8)
+				intersection_work_count += n_valid
 				if debug_export_enabled:
-					projected_merged_counts[local_ray_idx] = float(len(cluster_t_list))
-					projected_odd_mask[local_ray_idx] = float(len(cluster_t_list) % 2)
-				if cluster_t_list:
-					# sign -1 (dot(N,D) < 0 → front face) means entering the solid;
-					# sign +1 (dot(N,D) > 0 → back face) means exiting the solid.
-					depth = 0
-					path_length = 0.0
-					enter_t = 0.0
-					for t_val, csgn in zip(cluster_t_list, cluster_sign_list):
-						if csgn < 0:  # front face → entering
-							if depth == 0:
-								enter_t = t_val
-							depth += 1
-						else:  # back face → exiting
-							if depth > 0:
-								depth -= 1
-								if depth == 0:
-									path_length += max(0.0, t_val - enter_t)
+					projected_merged_counts[local_ray_idx] = float(n_valid)
+					projected_odd_mask[local_ray_idx] = float(n_valid % 2)
+				if n_valid > 0:
+					# Vectorised depth counter.
+					# sign < 0 (front face, entering) → depth +1
+					# sign > 0 (back face,  exiting)  → depth -1
+					depth_delta  = np.where(cluster_sign_arr < 0, np.int32(1), np.int32(-1))
+					depth_before = np.r_[np.int32(0),
+					                     np.cumsum(depth_delta, dtype=np.int32)[:-1]]
+					# 0→1 transitions are outer-surface entries; 1→0 are outer exits.
+					enters   = (depth_before == 0) & (depth_delta > 0)
+					exits    = (depth_before == 1) & (depth_delta < 0)
+					enter_ts = cluster_t_arr[enters]
+					exit_ts  = cluster_t_arr[exits]
+					n_pairs  = min(enter_ts.size, exit_ts.size)
+					path_length = float(np.sum(
+						np.maximum(exit_ts[:n_pairs] - enter_ts[:n_pairs], np.float32(0.0))
+					))
 					integrals[local_ray_idx] = path_length * mu_value
 					if debug_export_enabled:
 						projected_path_lengths[local_ray_idx] = path_length

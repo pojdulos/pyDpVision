@@ -8,3 +8,4 @@ plugins/*/quantum
 generated/
 .output_local/
 nasze/
+latex_virtRTG/

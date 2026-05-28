@@ -191,7 +191,7 @@ class PropVirtualXRay(PropWidget):
 		self.stepSpin.setSingleStep(0.1)
 		self._set_compact_field(self.stepSpin)
 		self.qualityCombo = QComboBox()
-		self.qualityCombo.addItems(["draft", "normal", "high"])
+		self.qualityCombo.addItems(["draft", "normal", "high", "custom"])
 		self._set_compact_field(self.qualityCombo)
 		sampling_layout.addRow("Step [mm]:", self.stepSpin)
 		sampling_layout.addRow("Quality:", self.qualityCombo)
@@ -1075,6 +1075,7 @@ class PropVirtualXRay(PropWidget):
 				fixed_range=(0.0, 1.0),
 				invert=False,
 			)
+		image_u8 = np.ascontiguousarray(np.flipud(image_u8))
 		height, width = image_u8.shape
 		qimage = QImage(
 			image_u8.data,
@@ -1084,7 +1085,7 @@ class PropVirtualXRay(PropWidget):
 			QImage.Format_Grayscale8,
 		).copy()
 		image_obj = getattr(obj, "last_projection_image", None)
-		if isinstance(image_obj, Image):
+		if isinstance(image_obj, Image) and self._is_image_in_workspace(image_obj):
 			image_obj.setImage(qimage)
 			image_obj.label = f"{obj.label}_projection"
 			AP.mainWin.dock["workspace"].refreshAll()
@@ -1097,6 +1098,12 @@ class PropVirtualXRay(PropWidget):
 		obj.last_projection_image = image_obj
 		AP.addObject(image_obj)
 		self._refresh_image_viewers(image_obj)
+
+	def _is_image_in_workspace(self, image_obj):
+		"""Return True if image_obj is still reachable in the workspace tree."""
+		if image_obj.parent is not None:
+			return True
+		return any(item is image_obj for item in AP.mainWin.workspace.m_data)
 
 	def _freeze_gl_viewers(self):
 		"""Temporarily disable GL viewer updates while image objects are inserted into the workspace."""

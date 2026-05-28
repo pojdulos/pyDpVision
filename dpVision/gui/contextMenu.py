@@ -58,6 +58,9 @@ class ContextMenu(QMenu):
 			elif self.m_obj.hasType('DHModel'):
 				self.addSeparator()
 				self.addMenu(self.create_dhmodel_menu())
+			elif self.m_obj.hasType('Image'):
+				self.addSeparator()
+				self.addMenu(self.create_image_menu())
 
 		self.addSeparator()
 		action = QAction("Refresh tree", self)
@@ -156,6 +159,13 @@ class ContextMenu(QMenu):
 		with open(fileName[0], 'w') as f:
 			import json
 			json.dump(dict, f, indent=4)
+
+	def create_image_menu(self):
+		menu = QMenu("image...", self)
+		action = QAction("save as PNG...", self)
+		action.triggered.connect(self.image_save_as_png)
+		menu.addAction(action)
+		return menu
 
 	def create_grid_menu(self):
 		menu = QMenu("grid...", self)
@@ -258,6 +268,14 @@ class ContextMenu(QMenu):
 		
 		if fileName[0] != '':
 			self.m_obj.export_as_obj(fileName[0])
+
+	@pyqtSlot()
+	def image_save_as_png(self):
+		fileName, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "PNG (*.png)")
+		if fileName:
+			if not fileName.lower().endswith('.png'):
+				fileName += '.png'
+			self.m_obj.save(fileName)
 
 	@pyqtSlot()
 	def point_cloud_invert_normals(self):

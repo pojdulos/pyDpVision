@@ -38,6 +38,7 @@ def ensure_xray_source_config(source_object):
 			"xray_interpolation_override": "default",
 			"xray_fill_value_override_enabled": False,
 			"xray_fill_value_override": 0.0,
+			"xray_volume_backend": "sampling",
 		}
 	elif isinstance(source_object, Mesh):
 		defaults = {
@@ -626,6 +627,11 @@ class DigitalRadiographyPresentationModel(XRayPresentationModel):
 
 	def apply(self, image):
 		"""Return a digital-radiography style normalized float image in the range `[0, 1]`."""
+		
+		if (image is None) or (not np.any(np.isfinite(image))):
+			_log.warning("Input image is empty or contains no finite values. Returning zero image.")
+			return np.zeros(image.shape, dtype=np.float32)
+		
 		image = np.asarray(image, dtype=np.float32)
 		finite_values = image[np.isfinite(image)]
 		if finite_values.size == 0:
@@ -1294,12 +1300,22 @@ class XRaySampleSource(ABC):
 		"""
 		return None
 
+	def uses_direct_integral(self):
+		"""Return True when this source provides direct line integrals via ray_integral_world.
+
+		Override in subclasses that implement ray_integral_world. The projector uses
+		this to classify sources into 'direct' (analytic/Siddon) vs 'marched' buckets
+		without relying on method-identity comparisons.
+		"""
+		return False
+		return None
+
 
 class VolumetricXRaySource(XRaySampleSource):
 	"""Adapt a `Volumetric` object into a world-space X-ray attenuation source."""
 
 	def __init__(self, volumetric, global_transform=None, interpolation="linear", fill_value=None, scalar_preprocessor=None,
-	             scalar_scale=1.0, scalar_bias=0.0, attenuation_multiplier=1.0):
+	             scalar_scale=1.0, scalar_bias=0.0, attenuation_multiplier=1.0, volume_backend="sampling"):
 		"""Store volumetric data and transformation used for world-space sampling."""
 		if not isinstance(volumetric, Volumetric):
 			raise TypeError("volumetric must be an instance of Volumetric.")
@@ -1318,6 +1334,9 @@ class VolumetricXRaySource(XRaySampleSource):
 		self.scalar_scale = float(scalar_scale)
 		self.scalar_bias = float(scalar_bias)
 		self.attenuation_multiplier = float(attenuation_multiplier)
+		self.volume_backend = str(volume_backend).lower()
+		if self.volume_backend not in {"sampling", "siddon"}:
+			raise ValueError("volume_backend must be 'sampling' or 'siddon'.")
 		self._scalar_stats = None if scalar_preprocessor is None else scalar_preprocessor.estimate_volume_stats(self._volume)
 
 	def bounds_world(self):
@@ -1350,6 +1369,235 @@ class VolumetricXRaySource(XRaySampleSource):
 	def sample_attenuation_world(self, points_world, physics_model):
 		"""Sample attenuation coefficients in world coordinates using the supplied physics model."""
 		return physics_model.scalar_to_mu(self.sample_scalar_world(points_world)) * self.attenuation_multiplier
+
+	def _siddon_integral_vectorized(
+		self,
+		ray_origins_world,
+		ray_directions_world,
+		t_starts,
+		t_ends,
+		physics_model,
+		progress_callback=None,
+		progress_fraction=(0.0, 1.0),
+	):
+		"""Analytically integrate attenuation using the Siddon exact voxel-traversal algorithm.
+
+		For every active ray the method computes the exact chord length inside each
+		traversed voxel by collecting all voxel-boundary plane crossings along each
+		axis, sorting them, and accumulating ``mu * chord_length`` per segment.
+		The result is fully independent of any step-size parameter.
+
+		Assumptions
+		-----------
+		* ``global_transform`` is a rigid (rotation + translation) transform so
+		  the ray parameter ``t`` stays in world-millimetres after the local-space
+		  change of coordinates.
+		* The volume grid is an axis-aligned lattice in the local frame returned
+		  by ``Volumetric.get_volume_geometry()``.
+
+		Args:
+			ray_origins_world:    (N, 3) float32 ray origins in world space.
+			ray_directions_world: (N, 3) float32 unit ray directions in world mm.
+			t_starts:             (N,) float32 entry parametric distances (mm).
+			t_ends:               (N,) float32 exit parametric distances (mm).
+			physics_model:        ``XRayPhysicsModel`` instance.
+			progress_callback:    Optional callable receiving progress in [0, 1].
+			progress_fraction:    (start, end) fraction of the overall progress bar
+			                      assigned to this source.
+
+		Returns:
+			(N,) float32 line integrals in the same order as the input rays.
+		"""
+		N = int(ray_origins_world.shape[0])
+		if N == 0:
+			return np.empty((0,), dtype=np.float32)
+		integrals = np.zeros(N, dtype=np.float32)
+
+		# --- Volume geometry in local space ---------------------------------
+		origin, basis, spacing = self.volumetric.get_volume_geometry()
+		origin  = origin.astype(np.float64)
+		basis   = basis.astype(np.float64)
+		spacing = spacing.astype(np.float64)
+		# T maps fractional voxel index -> local-space offset:
+		#   local_point = origin + T @ voxel_idx
+		T     = basis * spacing[np.newaxis, :]  # (3, 3) = basis @ diag(spacing)
+		T_inv = np.linalg.inv(T)               # (3, 3)
+
+		vol_shape = self._volume.shape  # (Nz, Ny, Nx)
+		Nz, Ny, Nx = int(vol_shape[0]), int(vol_shape[1]), int(vol_shape[2])
+		NyNx     = Ny * Nx
+		vol_flat = self._volume.ravel()  # (Nz*Ny*Nx,) read-only view
+
+		# --- Transform rays: world -> local -> voxel-index space -----------
+		inv_g = self._inverse_global_transform.astype(np.float64)
+		R_inv = inv_g[:3, :3]  # rotation part
+		t_inv = inv_g[:3, 3]   # translation part
+
+		# world -> local  (rigid: only rotation + translation)
+		o_l = ray_origins_world.astype(np.float64) @ R_inv.T + t_inv[np.newaxis, :]  # (N, 3)
+		d_l = ray_directions_world.astype(np.float64) @ R_inv.T                        # (N, 3)
+
+		# local -> voxel-index:
+		#   o_v = T_inv @ (o_l - origin),  d_v = T_inv @ d_l
+		o_v = (o_l - origin[np.newaxis, :]) @ T_inv.T  # (N, 3)  fractional (x, y, z)
+		d_v = d_l @ T_inv.T                             # (N, 3)  voxel-units per world-mm
+
+		# --- Pre-build grid-boundary arrays --------------------------------
+		# Boundaries are at integer voxel indices 0, 1, ..., Na for axis a.
+		kx = np.arange(0, Nx + 1, dtype=np.float64)  # (Nx+1,)
+		ky = np.arange(0, Ny + 1, dtype=np.float64)  # (Ny+1,)
+		kz = np.arange(0, Nz + 1, dtype=np.float64)  # (Nz+1,)
+		n_cross = (Nx + 1) + (Ny + 1) + (Nz + 1)  # max plane crossings per ray
+
+		# Adaptive chunk size: target ~16 MB for t_all (float64 = 8 bytes)
+		chunk_size = max(64, min(1024, int(16 * 1024 * 1024 // max(n_cross * 8, 1))))
+
+		_INF = np.float64(1e30)
+		_EPS = np.float64(1e-7)
+
+		n_chunks = (N + chunk_size - 1) // chunk_size
+		_last_progress_clock = perf_counter()
+
+		for ci in range(n_chunks):
+			if progress_callback is not None and perf_counter() - _last_progress_clock >= 0.15:
+				_last_progress_clock = perf_counter()
+				frac = float(ci) / float(max(n_chunks, 1))
+				progress_callback(
+					progress_fraction[0] + (progress_fraction[1] - progress_fraction[0]) * frac
+				)
+
+			cs = ci * chunk_size
+			ce = min(cs + chunk_size, N)
+			n  = ce - cs
+
+			ov = o_v[cs:ce]                         # (n, 3)
+			dv = d_v[cs:ce]                         # (n, 3)
+			ts = t_starts[cs:ce].astype(np.float64) # (n,)
+			te = t_ends[cs:ce].astype(np.float64)   # (n,)
+
+			# X-axis boundary crossings: tx[i,k] = (kx[k] - ov[i,0]) / dv[i,0]
+			# np.errstate suppresses harmless div-by-zero / NaN warnings that arise
+			# because np.where evaluates both branches before applying the mask.
+			dv_x = dv[:, 0:1]  # (n, 1)
+			with np.errstate(divide='ignore', invalid='ignore'):
+				tx = np.where(
+					np.abs(dv_x) > 1e-12,
+					(kx[np.newaxis, :] - ov[:, 0:1]) / dv_x,
+					_INF,
+				)  # (n, Nx+1)
+
+			# Y-axis boundary crossings
+			dv_y = dv[:, 1:2]
+			with np.errstate(divide='ignore', invalid='ignore'):
+				ty = np.where(
+					np.abs(dv_y) > 1e-12,
+					(ky[np.newaxis, :] - ov[:, 1:2]) / dv_y,
+					_INF,
+				)  # (n, Ny+1)
+
+			# Z-axis boundary crossings
+			dv_z = dv[:, 2:3]
+			with np.errstate(divide='ignore', invalid='ignore'):
+				tz = np.where(
+					np.abs(dv_z) > 1e-12,
+					(kz[np.newaxis, :] - ov[:, 2:3]) / dv_z,
+					_INF,
+				)  # (n, Nz+1)
+
+			# Merge all boundary t-values plus the ray entry and exit endpoints.
+			# Shape: (n, n_cross + 2)
+			t_all = np.concatenate(
+				[tx, ty, tz, ts[:, np.newaxis], te[:, np.newaxis]], axis=1
+			)
+
+			# Discard crossings outside the active ray segment → push to +INF.
+			ts_b = ts[:, np.newaxis]
+			te_b = te[:, np.newaxis]
+			t_all = np.where(
+				(t_all >= ts_b - _EPS) & (t_all <= te_b + _EPS), t_all, _INF
+			)
+
+			# Sort ascending; +INF values migrate to the right end.
+			t_all.sort(axis=1)
+
+			# Adjacent pairs define voxel chord segments.
+			t_left  = t_all[:, :-1]           # (n, n_cross+1)
+			t_right = t_all[:, 1:]            # (n, n_cross+1)
+			dl    = t_right - t_left          # chord lengths in world-mm
+			t_mid = 0.5 * (t_left + t_right)  # midpoint parameter
+
+			# Valid segment: positive chord length and not in the +INF tail.
+			seg_valid = (dl > 1e-10) & (t_mid < _INF * 0.5)
+
+			if not np.any(seg_valid):
+				continue
+
+			# Voxel indices at segment midpoints (in voxel-index space x,y,z).
+			pt_x = ov[:, 0:1] + t_mid * dv[:, 0:1]  # (n, n_cross+1)
+			pt_y = ov[:, 1:2] + t_mid * dv[:, 1:2]
+			pt_z = ov[:, 2:3] + t_mid * dv[:, 2:3]
+
+			# Floor + cast: +INF slots produce garbage int values but are masked
+			# by `seg_valid`; suppress the unavoidable invalid-cast warning.
+			with np.errstate(invalid='ignore'):
+				ix = np.floor(pt_x).astype(np.int32, casting='unsafe')
+				iy = np.floor(pt_y).astype(np.int32, casting='unsafe')
+				iz = np.floor(pt_z).astype(np.int32, casting='unsafe')
+
+			idx_valid = (
+				(ix >= 0) & (ix < Nx) &
+				(iy >= 0) & (iy < Ny) &
+				(iz >= 0) & (iz < Nz)
+			)
+			valid = seg_valid & idx_valid
+
+			if not np.any(valid):
+				continue
+
+			# Flat index in volume array: volume[iz, iy, ix]
+			# Use 0 for invalid positions (result masked out below).
+			lin_idx = np.where(valid, iz * NyNx + iy * Nx + ix, 0)  # (n, n_cross+1)
+
+			scalar_values = vol_flat[lin_idx].astype(np.float32)  # (n, n_cross+1)
+
+			if self.scalar_preprocessor is not None:
+				scalar_values = self.scalar_preprocessor.apply(scalar_values, self._scalar_stats)
+			scalar_values = scalar_values * self.scalar_scale + self.scalar_bias
+
+			mu = physics_model.scalar_to_mu(scalar_values) * self.attenuation_multiplier
+
+			# Integrate: accumulate mu * dl for valid segments.
+			mu_dl = np.where(valid, mu * dl.astype(np.float32), 0.0)
+			integrals[cs:ce] = mu_dl.sum(axis=1).astype(np.float32)
+
+		return integrals
+
+	def uses_direct_integral(self):
+		"""Return True only when the Siddon backend is active."""
+		return self.volume_backend == "siddon"
+
+	def ray_integral_world(
+		self, ray_origins, ray_directions, t_starts, t_ends, physics_model, step_mm,
+		progress_callback=None, progress_fraction=(0.0, 1.0),
+		geometry=None, reference_transform=None, hit_ray_indices=None, detector_shape_hw=None,
+	):
+		"""Return Siddon line integrals when the 'siddon' volume backend is active.
+
+		When ``volume_backend == 'sampling'`` this method returns ``None`` and
+		the projector falls back to the standard vectorised slab-marching loop.
+		"""
+		if self.volume_backend != "siddon":
+			return None
+		integrals = self._siddon_integral_vectorized(
+			ray_origins_world=ray_origins,
+			ray_directions_world=ray_directions,
+			t_starts=t_starts,
+			t_ends=t_ends,
+			physics_model=physics_model,
+			progress_callback=progress_callback,
+			progress_fraction=progress_fraction,
+		)
+		return integrals, int(ray_origins.shape[0])
 
 
 class MeshXRaySource(XRaySampleSource):
@@ -2059,6 +2307,10 @@ class MeshXRaySource(XRaySampleSource):
 			progress_callback(progress_end)
 		return stack
 
+	def uses_direct_integral(self):
+		"""Mesh sources always compute integrals analytically per ray."""
+		return True
+
 	def ray_integral_world(self, ray_origins, ray_directions, t_starts, t_ends, physics_model, step_mm,
 	                      progress_callback=None, progress_fraction=(0.0, 1.0),
 	                      geometry=None, reference_transform=None, hit_ray_indices=None, detector_shape_hw=None):
@@ -2501,7 +2753,7 @@ class XRayProjector:
 			marched_sources = []
 			direct_sources = []
 			for source in self.sample_sources:
-				if type(source).ray_integral_world is not XRaySampleSource.ray_integral_world:
+				if source.uses_direct_integral():
 					direct_sources.append(source)
 					continue
 				marched_sources.append(source)
@@ -2574,11 +2826,14 @@ class XRayProjector:
 			_phase_timings["direct_sources_total"] = float(perf_counter() - _t_direct_start)
 			_t_marching_start = perf_counter()
 			if marched_sources:
+				t_start_global = float(np.min(t_starts[hit_mask]))
 				t_global_max = float(np.max(t_ends[hit_mask]))
-				t_values = np.arange(0.0, t_global_max + step_mm * 0.5, step_mm, dtype=np.float64)
+				t_values = np.arange(t_start_global, t_global_max + step_mm * 0.5, step_mm, dtype=np.float64)
 				n_steps = len(t_values)
+				_last_progress_clock = perf_counter()
 				for i, t_k in enumerate(t_values):
-					if progress_callback is not None and i % 10 == 0:
+					if progress_callback is not None and perf_counter() - _last_progress_clock >= 0.15:
+						_last_progress_clock = perf_counter()
 						progress_callback(
 							marched_progress_fraction[0]
 							+ (marched_progress_fraction[1] - marched_progress_fraction[0]) * (i / max(n_steps, 1))

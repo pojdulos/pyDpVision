@@ -286,6 +286,7 @@ class VirtualXRay(Object):
 				scalar_scale=float(getattr(vol, "xray_scalar_scale", 1.0)),
 				scalar_bias=float(getattr(vol, "xray_scalar_bias", 0.0)),
 				attenuation_multiplier=float(getattr(vol, "xray_attenuation_multiplier", 1.0)),
+				volume_backend=str(getattr(vol, "xray_volume_backend", "sampling")).lower(),
 			)
 			for vol in self.collect_volumetrics()
 			if bool(getattr(vol, "xray_source_enabled", True))
@@ -318,6 +319,9 @@ class VirtualXRay(Object):
 			return XRayProjectionQualityProfile.draft()
 		if name == "high":
 			return XRayProjectionQualityProfile.high()
+		if name == "custom":
+			# preserve step_mm from geometry; only detector_downsample=1
+			return XRayProjectionQualityProfile(name="custom", step_mm=None, detector_downsample=1)
 		return XRayProjectionQualityProfile.normal()
 
 	def build_geometry(self):

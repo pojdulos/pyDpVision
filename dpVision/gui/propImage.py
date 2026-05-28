@@ -48,3 +48,15 @@ class PropImage(PropWidget):
             return
         from .mdiChild import MdiChild
         MdiChild.create_image_viewer(obj, AP.mainWin.mdiArea)
+
+    @pyqtSlot()
+    def on_save_png_button(self):
+        from PyQt5.QtWidgets import QFileDialog
+        obj = self.obj_ref()
+        if obj is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Zapisz obraz", "", "PNG (*.png)")
+        if path:
+            if not path.lower().endswith('.png'):
+                path += '.png'
+            obj.save(path)

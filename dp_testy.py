@@ -588,12 +588,14 @@ def create_real_xray_demo():
 	"""Create one `VirtualXRay` scene node with synthetic skull and jaw descendants."""
 
 	setup = VirtualXRay()
-	setup.detector_center_ref = np.array([0, 0, 300.0], dtype=np.float32)
-	setup.source_position_ref = np.array([0, 0, -1600.0], dtype=np.float32)
+	setup.source_position_ref = np.array([0, 0, 1600.0], dtype=np.float32)
+
 	setup.detector_shape_hw = [1024, 1024]
 	setup.detector_pixel_size_mm = [0.2, 0.2]
-	setup.step_mm = 0.5
-	setup.quality_profile_name = "normal"
+	setup.detector_center_ref = np.array([0, 0, -300.0], dtype=np.float32)
+	setup.detector_normal_ref = np.array([0, 0, 1.0], dtype=np.float32) # domyślnie w kierunku źródła
+	setup.step_mm = 0.1
+	setup.quality_profile_name = "custom"
 
 	AP.addObject(setup)
 
@@ -615,8 +617,8 @@ def create_real_xray_demo():
 
 		skull_transform = Transform()
 		#skull_transform.translate(-100, 45, 0)
-		skull_transform.rotate(90, [1,0,0])
-		skull_transform.rotate(90, [0,1,0])
+		skull_transform.rotate(-90, [1,0,0])
+		skull_transform.rotate(-90, [0,1,0])
 		skull_transform.addChild(skull)
 		setup.addChild(skull_transform)
 
@@ -648,14 +650,14 @@ def create_real_xray_demo():
 	# pathD = "d:/praca/dane/masks/dol/slice_000.dcm"
 
 	pathG = "d:/praca/dane/vols/gora1/filtered_194.dcm"
-	# pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
-	pathD = "d:/praca/dane/vols/jaw_poisson.ply"
+	pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
+	# pathD = "d:/praca/dane/vols/jaw_poisson.ply"
 	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
 	# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
 
-	# if os.path.isfile(pathG):
-	# 	AP.load(pathG, on_success=on_success)
-	# 	# AP.load(pathG, on_success=on_success)
+	if os.path.isfile(pathG):
+		AP.load(pathG, on_success=on_success)
+		# AP.load(pathG, on_success=on_success)
 	
 	if os.path.isfile(pathD):
 		AP.load(pathD, on_success=on_success)
@@ -1629,3 +1631,5 @@ if __name__ == '__main__':
 # print(result["png_path"])
 # print(result["tiff_path"])
 # print(result["dicom_path"])
+else:
+	create_real_xray_demo()

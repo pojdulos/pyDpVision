@@ -56,6 +56,7 @@ class PropVolumetric(PropWidget):
 			self.f6CheckBox, self.f6SpinMin, self.f6SpinMax,
 			self.xrayEnabledCheck, self.xrayScalarScaleSpin, self.xrayScalarBiasSpin,
 			self.xrayAttenuationSpin, self.xrayInterpolationCombo,
+			self.xrayVolumeBackendCombo,
 			self.xrayFillValueEnabledCheck, self.xrayFillValueSpin }:
 			w.blockSignals(b)
 
@@ -99,6 +100,12 @@ class PropVolumetric(PropWidget):
 		self.xrayAttenuationSpin.setSingleStep(0.05)
 		self.xrayInterpolationCombo = QComboBox()
 		self.xrayInterpolationCombo.addItems(["default", "nearest", "linear", "cubic"])
+		self.xrayVolumeBackendCombo = QComboBox()
+		self.xrayVolumeBackendCombo.addItems(["sampling", "siddon"])
+		self.xrayVolumeBackendCombo.setToolTip(
+			"sampling – uniform ray-marching (step_mm)\n"
+			"siddon  – exact voxel traversal (chord-length, step_mm independent)"
+		)
 		self.xrayFillValueEnabledCheck = QCheckBox("Use explicit fill value")
 		self.xrayFillValueSpin = QDoubleSpinBox()
 		self.xrayFillValueSpin.setRange(-1e9, 1e9)
@@ -110,6 +117,7 @@ class PropVolumetric(PropWidget):
 		xray_layout.addRow("Scalar bias:", self.xrayScalarBiasSpin)
 		xray_layout.addRow("Attenuation x:", self.xrayAttenuationSpin)
 		xray_layout.addRow("Interpolation:", self.xrayInterpolationCombo)
+		xray_layout.addRow("Volume backend:", self.xrayVolumeBackendCombo)
 		xray_layout.addRow("", self.xrayFillValueEnabledCheck)
 		xray_layout.addRow("Fill value:", self.xrayFillValueSpin)
 
@@ -124,6 +132,7 @@ class PropVolumetric(PropWidget):
 		self.xrayScalarBiasSpin.valueChanged.connect(self.on_xray_source_changed)
 		self.xrayAttenuationSpin.valueChanged.connect(self.on_xray_source_changed)
 		self.xrayInterpolationCombo.currentTextChanged.connect(self.on_xray_source_changed)
+		self.xrayVolumeBackendCombo.currentTextChanged.connect(self.on_xray_source_changed)
 		self.xrayFillValueEnabledCheck.toggled.connect(self.on_xray_source_changed)
 		self.xrayFillValueSpin.valueChanged.connect(self.on_xray_source_changed)
 
@@ -135,6 +144,7 @@ class PropVolumetric(PropWidget):
 		self.xrayScalarBiasSpin.setEnabled(enabled)
 		self.xrayAttenuationSpin.setEnabled(enabled)
 		self.xrayInterpolationCombo.setEnabled(enabled)
+		self.xrayVolumeBackendCombo.setEnabled(enabled)
 		self.xrayFillValueEnabledCheck.setEnabled(enabled)
 		self.xrayFillValueSpin.setEnabled(fill_enabled)
 
@@ -197,6 +207,7 @@ class PropVolumetric(PropWidget):
 		self.xrayScalarBiasSpin.setValue(float(obj.xray_scalar_bias))
 		self.xrayAttenuationSpin.setValue(float(obj.xray_attenuation_multiplier))
 		self.xrayInterpolationCombo.setCurrentText(str(obj.xray_interpolation_override))
+		self.xrayVolumeBackendCombo.setCurrentText(str(getattr(obj, "xray_volume_backend", "sampling")))
 		self.xrayFillValueEnabledCheck.setChecked(bool(obj.xray_fill_value_override_enabled))
 		self.xrayFillValueSpin.setValue(float(obj.xray_fill_value_override))
 		self._update_xray_visibility(obj)
@@ -454,6 +465,7 @@ class PropVolumetric(PropWidget):
 		obj.xray_scalar_bias = float(self.xrayScalarBiasSpin.value())
 		obj.xray_attenuation_multiplier = max(0.0, float(self.xrayAttenuationSpin.value()))
 		obj.xray_interpolation_override = str(self.xrayInterpolationCombo.currentText()).lower()
+		obj.xray_volume_backend = str(self.xrayVolumeBackendCombo.currentText()).lower()
 		obj.xray_fill_value_override_enabled = bool(self.xrayFillValueEnabledCheck.isChecked())
 		obj.xray_fill_value_override = float(self.xrayFillValueSpin.value())
 		self._update_xray_visibility(obj)

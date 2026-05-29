@@ -1159,6 +1159,13 @@ class XRayProjectionStats:
 			return 0.0
 		return float(self.total_sample_count) / float(self.elapsed_seconds)
 
+	@property
+	def rays_per_second(self):
+		"""Return the number of traced rays (pixels that hit the scene AABB) per second."""
+		if self.elapsed_seconds <= 1e-9:
+			return 0.0
+		return float(self.traced_pixels) / float(self.elapsed_seconds)
+
 	def format_report(self):
 		"""Return a formatted multi-line performance report suitable for building tables."""
 		lines = []

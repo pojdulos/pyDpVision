@@ -655,18 +655,161 @@ def create_real_xray_demo():
 	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
 	# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
 
-	if os.path.isfile(pathG):
-		AP.load(pathG, on_success=on_success)
-		# AP.load(pathG, on_success=on_success)
+	# if os.path.isfile(pathG):
+	# 	AP.load(pathG, on_success=on_success)
+	# 	# AP.load(pathG, on_success=on_success)
 	
-	if os.path.isfile(pathD):
-		AP.load(pathD, on_success=on_success)
-	# 	# AP.load(pathD, on_success=on_success)
+	# if os.path.isfile(pathD):
+	# 	AP.load(pathD, on_success=on_success)
+	# # 	# AP.load(pathD, on_success=on_success)
 
 	# if os.path.isfile(pathA):
 	# 	AP.load(pathA, on_success=on_success)
 
 	
+
+def save_difference_map(img_a, img_b, out_path, title="Sampling − Siddon", cmap="RdBu_r"):
+	"""Save a coloured signed-difference map between two raw projection images.
+
+	img_a, img_b : 2-D float32 arrays of equal shape (raw line-integral values).
+	The map shows  diff = img_a − img_b  with a diverging colormap so positive
+	differences (sampling > Siddon) appear in one hue and negative in the other.
+	A second panel shows the absolute difference with a sequential colormap.
+	"""
+	import matplotlib
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt
+	import matplotlib.colors as mcolors
+
+	diff = np.asarray(img_a, dtype=np.float64) - np.asarray(img_b, dtype=np.float64)
+	abs_diff = np.abs(diff)
+
+	vmax = float(np.percentile(np.abs(diff), 99.5))
+	if vmax < 1e-9:
+		vmax = 1.0
+
+	fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), dpi=150)
+	fig.suptitle(title, fontsize=11)
+
+	# Panel 1: sampling image
+	axes[0].imshow(img_a, cmap="gray", vmin=0, interpolation="nearest")
+	axes[0].set_title("Sampling", fontsize=9)
+	axes[0].axis("off")
+
+	# Panel 2: Siddon image
+	axes[1].imshow(img_b, cmap="gray", vmin=0, interpolation="nearest")
+	axes[1].set_title("Siddon", fontsize=9)
+	axes[1].axis("off")
+
+	# Panel 3: signed difference (diverging)
+	im = axes[2].imshow(diff, cmap=cmap, vmin=-vmax, vmax=vmax, interpolation="nearest")
+	axes[2].set_title("Sampling − Siddon", fontsize=9)
+	axes[2].axis("off")
+	cbar = fig.colorbar(im, ax=axes[2], fraction=0.046, pad=0.04)
+	cbar.set_label("Δ (line integral)", fontsize=7)
+	cbar.ax.tick_params(labelsize=6)
+
+	# Annotation: MAE and max abs diff
+	img_a_f = np.asarray(img_a, dtype=np.float64)
+	mae  = float(np.mean(abs_diff))
+	dmax = float(np.max(abs_diff))
+	ref  = float(np.mean(img_a_f[img_a_f > 0])) if np.any(img_a_f > 0) else 1.0
+	rel_mae = mae / ref
+	axes[2].set_xlabel(f"MAE={mae:.4f}  max|Δ|={dmax:.4f}  rel={100*rel_mae:.3f}%",
+	                   fontsize=7, labelpad=3)
+	axes[2].xaxis.set_label_position("bottom")
+
+	plt.tight_layout()
+	fig.savefig(out_path, bbox_inches="tight")
+	plt.close(fig)
+	print(f"  Difference map saved: {out_path}  (MAE={mae:.5f}, rel={100*rel_mae:.4f}%)")
+	return {"mae": mae, "max_abs": dmax, "rel_mae": rel_mae, "path": out_path}
+
+
+def generate_sample_siddon_figure(results, out_path, vol_name="small", profile="normal"):
+	"""Generate the publication-quality 3-panel comparison figure (sample_siddon.png).
+
+	Panels: (a) Sampling projection  |  (b) Siddon projection  |  (c) Signed difference
+	The difference panel uses a diverging RdBu_r colormap; the colorbar is symmetric
+	around zero so zero difference appears white.
+
+	Parameters
+	----------
+	results : list of dicts returned by benchmark_xray_performance()
+	out_path : str  path to save the PNG (e.g. .../sample_siddon.png)
+	vol_name : str  "small", "medium", or "large"
+	profile  : str  "draft", "normal", or "high"
+
+	Returns
+	-------
+	dict with keys mae, max_abs, rel_mae, path
+	"""
+	import matplotlib
+	matplotlib.use("Agg")
+	import matplotlib.pyplot as plt
+	from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+	by_sp = {(r["scene"], r["profile"]): r for r in results}
+	r_samp   = by_sp.get((f"vol_{vol_name}",        profile))
+	r_siddon = by_sp.get((f"vol_{vol_name}_siddon",  profile))
+	if r_samp is None or r_siddon is None:
+		raise ValueError(f"Results for vol_{vol_name} sampling/siddon profile={profile} not found.")
+
+	img_s = np.asarray(r_samp["raw_image"],   dtype=np.float64)
+	img_d = np.asarray(r_siddon["raw_image"], dtype=np.float64)
+
+	# Resize Siddon to sampling shape if detectors differ (draft vs normal/high)
+	if img_s.shape != img_d.shape:
+		from scipy.ndimage import zoom
+		zf = np.array(img_s.shape) / np.array(img_d.shape)
+		img_d = zoom(img_d, zf, order=1)
+
+	diff = img_s - img_d
+	abs_diff = np.abs(diff)
+	mae  = float(np.mean(abs_diff))
+	dmax = float(np.max(abs_diff))
+	ref  = float(np.mean(img_s[img_s > 0])) if np.any(img_s > 0) else 1.0
+	rel_mae = mae / ref
+
+	# Symmetric colorbar limit: 99.5th percentile of |diff|, at least 1e-6
+	vmax = max(float(np.percentile(abs_diff, 99.5)), 1e-6)
+
+	fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), dpi=180,
+	                         gridspec_kw={"wspace": 0.04})
+
+	gray_vmax = float(np.percentile(img_s, 99.5)) or 1.0
+
+	# (a) Sampling
+	axes[0].imshow(img_s, cmap="gray", vmin=0, vmax=gray_vmax, interpolation="nearest")
+	axes[0].set_title(r"(a) Sampling ($\Delta s = 1\,\mathrm{mm}$)", fontsize=8)
+	axes[0].axis("off")
+
+	# (b) Siddon
+	axes[1].imshow(img_d, cmap="gray", vmin=0, vmax=gray_vmax, interpolation="nearest")
+	axes[1].set_title(r"(b) Siddon (exact traversal)", fontsize=8)
+	axes[1].axis("off")
+
+	# (c) Signed difference with colorbar
+	im = axes[2].imshow(diff, cmap="RdBu_r", vmin=-vmax, vmax=vmax, interpolation="nearest")
+	axes[2].set_title(r"(c) Sampling $-$ Siddon", fontsize=8)
+	axes[2].axis("off")
+	divider = make_axes_locatable(axes[2])
+	cax = divider.append_axes("right", size="5%", pad=0.06)
+	cbar = fig.colorbar(im, cax=cax)
+	cbar.set_label(r"$\Delta\,\int\mu\,\mathrm{d}\ell$", fontsize=7)
+	cbar.ax.tick_params(labelsize=6)
+
+	fig.text(0.5, -0.02,
+	         f"vol\\,{vol_name}  |  profile: {profile}  |  "
+	         f"MAE = {mae:.5f}  |  max$|\\Delta|$ = {dmax:.5f}  |  "
+	         f"rel.\\,MAE = {100*rel_mae:.3f}\\%",
+	         ha="center", fontsize=7, style="italic")
+
+	fig.savefig(out_path, bbox_inches="tight", dpi=180)
+	plt.close(fig)
+	print(f"  sample_siddon figure saved: {out_path}  (MAE={mae:.5f}, rel={100*rel_mae:.4f}%)")
+	return {"mae": mae, "max_abs": dmax, "rel_mae": rel_mae, "path": out_path}
+
 
 def benchmark_xray_performance(output_dir=None, show_reports=True):
 	"""Run a series of X-ray projections and measure performance.
@@ -730,11 +873,16 @@ def benchmark_xray_performance(output_dir=None, show_reports=True):
 
 		for profile in profiles:
 			scene_variants = [
-				(f"vol_{vol_name}",             [VolumetricXRaySource(vol, interpolation="linear")]),
+				(f"vol_{vol_name}",             [VolumetricXRaySource(vol, interpolation="linear", volume_backend="sampling")]),
+				(f"vol_{vol_name}_siddon",       [VolumetricXRaySource(vol, interpolation="linear", volume_backend="siddon")]),
 				("mesh_only",                   [MeshXRaySource(implant_mesh, scalar_value=2200.0, mode="solid", backend="analytic_bvh")]),
 				("mesh_only_projected",         [MeshXRaySource(implant_mesh, scalar_value=2200.0, mode="solid", backend="projected_intersection_list")]),
 				(f"vol_{vol_name}+mesh",        [
-					VolumetricXRaySource(vol, interpolation="linear"),
+					VolumetricXRaySource(vol, interpolation="linear", volume_backend="sampling"),
+					MeshXRaySource(implant_mesh, scalar_value=2200.0, mode="solid", backend="analytic_bvh"),
+				]),
+				(f"vol_{vol_name}_siddon+mesh", [
+					VolumetricXRaySource(vol, interpolation="linear", volume_backend="siddon"),
 					MeshXRaySource(implant_mesh, scalar_value=2200.0, mode="solid", backend="analytic_bvh"),
 				]),
 			]
@@ -768,7 +916,9 @@ def benchmark_xray_performance(output_dir=None, show_reports=True):
 					"samples_per_s":   stats.samples_per_second,
 					"phase_ms":        {k: v * 1000.0 for k, v in stats.phase_timings.items()},
 					"per_source":      stats.per_source_stats,
+					"rays_per_s":      stats.rays_per_second,
 					"png_path":        _png_path,
+					"raw_image":       np.asarray(_img, dtype=np.float32),
 				}
 				results.append(row)
 
@@ -776,19 +926,55 @@ def benchmark_xray_performance(output_dir=None, show_reports=True):
 					print(f"\n[{scene_label}]  profile={profile.name}  step={stats.step_mm:.1f} mm")
 					stats.print_report()
 
-	print("\n" + "=" * 70)
-	print(f"{'scene':<24s} {'profile':<8s} {'step':>5s}  {'total_ms':>9s}  {'samples/s':>13s}")
-	print("-" * 70)
+	# ── Difference maps (sampling vs Siddon) ───────────────────────────────
+	by_sp_full = {}
+	for r in results:
+		by_sp_full[(r["scene"], r["profile"])] = r
+
+	diff_stats = {}  # keyed by (vol_name, profile)
+	for vol_name in [s for s, _ in volume_sizes]:
+		for prof in [p.name for p in profiles]:
+			r_samp   = by_sp_full.get((f"vol_{vol_name}",        prof))
+			r_siddon = by_sp_full.get((f"vol_{vol_name}_siddon", prof))
+			if r_samp is None or r_siddon is None:
+				continue
+			diff_path = os.path.join(
+				output_dir,
+				f"diff_vol_{vol_name}_sampling_vs_siddon__{prof}.png",
+			)
+			ds = save_difference_map(
+				r_samp["raw_image"],
+				r_siddon["raw_image"],
+				diff_path,
+				title=f"Sampling − Siddon  |  vol {vol_name}  |  {prof}",
+			)
+			diff_stats[(vol_name, prof)] = {**ds, "diff_png_path": diff_path}
+
+	# Publication-quality 3-panel figure for vol_small / normal
+	sample_siddon_path = os.path.join(output_dir, "sample_siddon.png")
+	try:
+		ss_info = generate_sample_siddon_figure(results, sample_siddon_path,
+		                                        vol_name="small", profile="normal")
+		diff_stats[("small", "normal")]["sample_siddon_path"] = sample_siddon_path
+		diff_stats[("small", "normal")]["rel_mae"] = ss_info["rel_mae"]
+	except Exception as _e:
+		print(f"  Warning: could not generate sample_siddon figure: {_e}")
+		ss_info = None
+
+	print("\n" + "=" * 85)
+	print(f"{'scene':<28s} {'profile':<8s} {'step':>5s}  {'total_ms':>9s}  {'samples/s':>13s}  {'rays/s':>10s}")
+	print("-" * 85)
 	for r in results:
 		print(
-			f"  {r['scene']:<22s} {r['profile']:<8s} {r['step_mm']:>4.1f}mm"
+			f"  {r['scene']:<26s} {r['profile']:<8s} {r['step_mm']:>4.1f}mm"
 			f"  {r['total_ms']:>8.1f} ms  {r['samples_per_s']:>12,.0f} samp/s"
+			f"  {r['rays_per_s']:>9,.0f} ray/s"
 		)
-	print("=" * 70)
-	return results
+	print("=" * 85)
+	return results, diff_stats
 
 
-def generate_latex_benchmark_report(results, tex_path=None, section_title="Examples and Use Cases"):
+def generate_latex_benchmark_report(results, tex_path=None, section_title="Examples and Use Cases", diff_stats=None):
 	"""Generate a standalone LaTeX performance report from benchmark_xray_performance() results.
 
 	Produces a .tex file whose top-level heading is \\section{section_title}.
@@ -818,10 +1004,13 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 		if k not in seen_sc:
 			seen_sc[k] = r
 	scenes_all = list(seen_sc.keys())
-	vol_only  = [s for s in scenes_all if s.startswith("vol_") and "+" not in s]
-	mesh_only = [s for s in scenes_all if s == "mesh_only"]
-	vol_mesh  = [s for s in scenes_all if "+" in s]
-	scenes_display = vol_only + vol_mesh + mesh_only   # projected variant excluded from main table
+	vol_only       = [s for s in scenes_all if s.startswith("vol_") and "+" not in s and "siddon" not in s]
+	vol_only_siddon= [s for s in scenes_all if s.startswith("vol_") and "+" not in s and "siddon" in s]
+	mesh_only      = [s for s in scenes_all if s == "mesh_only"]
+	vol_mesh       = [s for s in scenes_all if "+" in s and "siddon" not in s]
+	vol_mesh_siddon= [s for s in scenes_all if "+" in s and "siddon" in s]
+	# projected mesh variant excluded from main table; Siddon gets its own subsection
+	scenes_display = vol_only + vol_only_siddon + vol_mesh + vol_mesh_siddon + mesh_only
 
 	by_sp = {}
 	for r in results:
@@ -833,13 +1022,19 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 		return s.replace("_", r"\_").replace("^", r"\^{}").replace("+", r"\texttt{+}")
 
 	scene_row_labels = {
-		"vol_small":          r"vol\,small ($64^3$)",
-		"vol_medium":         r"vol\,medium ($96^3$)",
-		"vol_large":          r"vol\,large ($128^3$)",
-		"mesh_only":          r"mesh only",
-		"vol_small+mesh":     r"vol\,small + mesh",
-		"vol_medium+mesh":    r"vol\,medium + mesh",
-		"vol_large+mesh":     r"vol\,large + mesh",
+		"vol_small":               r"vol\,small ($64^3$) sampling",
+		"vol_medium":              r"vol\,medium ($96^3$) sampling",
+		"vol_large":               r"vol\,large ($128^3$) sampling",
+		"vol_small_siddon":        r"vol\,small ($64^3$) Siddon",
+		"vol_medium_siddon":       r"vol\,medium ($96^3$) Siddon",
+		"vol_large_siddon":        r"vol\,large ($128^3$) Siddon",
+		"mesh_only":               r"mesh only",
+		"vol_small+mesh":          r"vol\,small + mesh (sampling)",
+		"vol_medium+mesh":         r"vol\,medium + mesh (sampling)",
+		"vol_large+mesh":          r"vol\,large + mesh (sampling)",
+		"vol_small_siddon+mesh":   r"vol\,small + mesh (Siddon)",
+		"vol_medium_siddon+mesh":  r"vol\,medium + mesh (Siddon)",
+		"vol_large_siddon+mesh":   r"vol\,large + mesh (Siddon)",
 	}
 
 	def scene_row_label(s):
@@ -955,21 +1150,27 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 	ln(r"\begin{table}[!ht]")
 	ln(r"\centering")
 	ln(r"\caption{Total projection time and throughput per scene and quality profile.")
-	ln(r"  Time is given in ms (or s if~$\geq 1\,\mathrm{s}$); throughput in Msamp/s (k\,samp/s for mesh).}")
+	ln(r"  Time in ms (or s if~$\geq 1\,\mathrm{s}$).")
+	ln(r"  \emph{samp/s}: attenuation samples (interpolations) per second.")
+	ln(r"  \emph{rays/s}: traced rays per second --- for sampling this decreases")
+	ln(r"  with finer step~$\Delta s$ (more samples per ray, same ray count);")
+	ln(r"  for Siddon it is the primary throughput metric, independent of~$\Delta s$.}")
 	ln(r"\label{tab:main}")
 	ln(r"\small")
-	ln(r"\begin{tabular}{l rr rr rr}")
+	ln(r"\begin{tabular}{l rrr rrr rrr}")
 	ln(r"\toprule")
-	ln(r"  & \multicolumn{2}{c}{\textbf{draft} (2\,mm)}")
-	ln(r"  & \multicolumn{2}{c}{\textbf{normal} (1\,mm)}")
-	ln(r"  & \multicolumn{2}{c}{\textbf{high} (0.5\,mm)} \\")
-	ln(r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}")
-	ln(r"Scene & time & samp/s & time & samp/s & time & samp/s \\")
+	ln(r"  & \multicolumn{3}{c}{\textbf{draft} (2\,mm)}")
+	ln(r"  & \multicolumn{3}{c}{\textbf{normal} (1\,mm)}")
+	ln(r"  & \multicolumn{3}{c}{\textbf{high} (0.5\,mm)} \\")
+	ln(r"\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}")
+	ln(r"Scene & time & samp/s & rays/s & time & samp/s & rays/s & time & samp/s & rays/s \\")
 	ln(r"\midrule")
 
 	def scene_group(s):
-		if s.startswith("mesh_only"):  return "mesh"
-		if "+" in s:                   return "mixed"
+		if s.startswith("mesh_only"):       return "mesh"
+		if "+" in s and "siddon" in s:      return "mixed_siddon"
+		if "+" in s:                        return "mixed"
+		if "siddon" in s:                   return "vol_siddon"
 		return "vol"
 
 	prev_group = None
@@ -984,8 +1185,9 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 			if r:
 				row_cells.append(ms_cell(r["total_ms"]))
 				row_cells.append(sps_cell(r["samples_per_s"]))
+				row_cells.append(sps_cell(r.get("rays_per_s", 0)))
 			else:
-				row_cells += ["---", "---"]
+				row_cells += ["---", "---", "---"]
 		ln("  " + " & ".join(row_cells) + r" \\")
 
 	ln(r"\bottomrule")
@@ -1007,9 +1209,11 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 	]
 
 	for group_scenes, cap_suffix, label_suffix, tbl_pos in [
-		(vol_only,  "volumetric-only scenes", "vol",   r"[!ht]"),
-		(mesh_only, "mesh-only scene",        "mesh",  r"[!ht]"),
-		(vol_mesh,  "hybrid (vol + mesh) scenes", "mixed", r"[htbp]"),
+		(vol_only,        "volumetric-only scenes (sampling)",  "vol",          r"[!ht]"),
+		(vol_only_siddon, "volumetric-only scenes (Siddon)",    "vol_siddon",   r"[!ht]"),
+		(mesh_only,       "mesh-only scene",                    "mesh",         r"[!ht]"),
+		(vol_mesh,        "hybrid (vol + mesh, sampling) scenes", "mixed",      r"[htbp]"),
+		(vol_mesh_siddon, "hybrid (vol Siddon + mesh) scenes",  "mixed_siddon", r"[htbp]"),
 	]:
 		if not group_scenes:
 			continue
@@ -1044,7 +1248,64 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 		ln(r"\end{table}")
 		ln()
 
-	# ── Subsubsection: Backend comparison ─────────────────────────────────────
+	# ── Subsubsection: Siddon vs sampling comparison ─────────────────────────
+	has_siddon = any("siddon" in r["scene"] for r in results)
+	ln(r"\subsubsection{Volume backend comparison: sampling vs.~Siddon}\label{ssec:vol_backends}")
+	ln()
+	ln(r"The pipeline offers two integration backends for volumetric sources:")
+	ln(r"\begin{description}\setlength{\itemsep}{2pt}")
+	ln(r"  \item[\texttt{sampling}] Uniform ray-marching: the ray is discretised at")
+	ln(r"    equal intervals $\Delta s$ (\texttt{step\_mm}) and the local attenuation is")
+	ln(r"    reconstructed by trilinear interpolation at each sample point.")
+	ln(r"  \item[\texttt{siddon}] Exact voxel traversal: all voxel-boundary plane crossings")
+	ln(r"    are computed analytically and accumulated as $\mu_i \cdot \ell_i$. The result")
+	ln(r"    is independent of \texttt{step\_mm} and every traversed voxel is visited exactly once.")
+	ln(r"\end{description}")
+	ln()
+	if has_siddon:
+		ln(r"\begin{table}[htbp]")
+		ln(r"\centering")
+		ln(r"\caption{Volume-only projection time and throughput for both volume backends.")
+		ln(r"  Time in ms (or s).")
+		ln(r"  Sampling throughput in M\,samp/s (trilinear interpolations/s).")
+		ln(r"  Siddon throughput in k\,rays/s (fully-traversed rays/s).}")
+		ln(r"\label{tab:vol_backends}")
+		ln(r"\small")
+		ln(r"\begin{tabular}{l rrr rrr rrr}")
+		ln(r"\toprule")
+		ln(r"  & \multicolumn{3}{c}{\textbf{draft} (2\,mm)}")
+		ln(r"  & \multicolumn{3}{c}{\textbf{normal} (1\,mm)}")
+		ln(r"  & \multicolumn{3}{c}{\textbf{high} (0.5\,mm)} \\")
+		ln(r"\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}")
+		ln(r"Scene / backend & time & M\,samp/s & k\,rays/s & time & M\,samp/s & k\,rays/s & time & M\,samp/s & k\,rays/s \\")
+		ln(r"\midrule")
+		for vol_name in ["small", "medium", "large"]:
+			for sc, label, is_siddon in [
+				(f"vol_{vol_name}",        f"vol\\,{vol_name} sampling", False),
+				(f"vol_{vol_name}_siddon", f"vol\\,{vol_name} Siddon",   True),
+			]:
+				row_cells = [label]
+				for p in profiles:
+					r = by_sp.get((sc, p))
+					if r:
+						row_cells.append(ms_cell(r["total_ms"]))
+						row_cells.append(sps_cell(r["samples_per_s"]) if not is_siddon else "---")
+						rps = r.get("rays_per_s", 0)
+						row_cells.append(f"{rps / 1e3:.1f}" if is_siddon else "---")
+					else:
+						row_cells += ["---", "---", "---"]
+				ln("  " + " & ".join(row_cells) + r" \\")
+			ln(r"\midrule")
+		ln(r"\bottomrule")
+		ln(r"\end{tabular}")
+		ln(r"\end{table}")
+		ln()
+	else:
+		ln(r"Siddon comparison data not available in these results")
+		ln(r"(re-run \texttt{benchmark\_xray\_performance()} to generate it).")
+		ln()
+
+	# ── Subsubsection: Backend comparison (mesh) ──────────────────────────────
 	has_proj = any(r["scene"] == "mesh_only_projected" for r in results)
 	ln(r"\subsubsection{Backend comparison (mesh sources)}\label{ssec:backends}")
 	ln()
@@ -1150,9 +1411,14 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 	ln(r"\subsubsection{Key observations}")
 	ln()
 	ln(r"\begin{itemize}\setlength{\itemsep}{3pt}")
-	ln(r"  \item \textbf{Volumetric marching} dominates volume-only scenes ($>80\%$ of total time).")
+	ln(r"  \item \textbf{Volumetric marching (sampling)} dominates volume-only scenes ($>80\%$ of total time).")
 	ln(r"    Throughput is approximately constant at $11$--$17\,\mathrm{Msamp/s}$,")
 	ln(r"    confirming that cost scales linearly with sample count.")
+	ln(r"  \item \textbf{Siddon exact traversal} processes $O(N_x+N_y+N_z)$ boundary crossings per ray,")
+	ln(r"    independent of \texttt{step\_mm}. Its cost is dominated by the sorting step and")
+	ln(r"    scales with volume resolution rather than marching step density.")
+	ln(r"  \item For coarse steps ($\Delta s \geq $ voxel size) Siddon can be faster than sampling")
+	ln(r"    while guaranteeing that every traversed voxel is visited exactly once.")
 	ln(r"  \item \textbf{Mesh ray-intersection} (\texttt{analytic\_bvh}, Python loop)")
 	ln(r"    runs at $\approx 16$--$18\,\mathrm{k\,samp/s}$ ---")
 	ln(r"    several orders of magnitude below the volumetric path.")
@@ -1180,7 +1446,7 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 		ln(r"\begin{figure}[htbp]")
 		ln(r"\centering")
 		vol_sizes_order = ["small", "medium", "large"]
-		col_scene_types = ["vol_{v}", "mesh_only", "vol_{v}+mesh"]
+		col_scene_types = ["vol_{v}", "vol_{v}_siddon", "vol_{v}+mesh"]
 		for vi, vol_size in enumerate(vol_sizes_order):
 			for ci, sc_template in enumerate(col_scene_types):
 				sc = sc_template.replace("{v}", vol_size)
@@ -1208,10 +1474,85 @@ def generate_latex_benchmark_report(results, tex_path=None, section_title="Examp
 			ln()
 		ln(r"\caption{Synthetic cone-beam projections, normal profile")
 		ln(r"  ($512\times512$\,px, step\,$1.0\,\mathrm{mm}$).")
-		ln(r"  Columns: volume only / mesh only / volume\,+\,mesh.")
+		ln(r"  Columns: sampling / Siddon / sampling\,+\,mesh.")
 		ln(r"  Rows: small ($64^3$) / medium ($96^3$) / large ($128^3$) volume.}")
 		ln(r"\label{fig:proj_normal}")
 		ln(r"\end{figure}")
+		ln()
+
+	# ── Subsection: Sampling vs Siddon visual comparison ──────────────────────
+	ss_key   = ("small", "normal")
+	ss_stats = (diff_stats or {}).get(ss_key, {})
+	ss_fig   = ss_stats.get("sample_siddon_path") or ss_stats.get("path")
+	has_ss   = ss_fig is not None and os.path.isfile(ss_fig)
+
+	ln(r"\subsection{Visual Comparison: Sampling vs.\ Siddon}")
+	ln()
+	ln(r"Figure~\ref{fig:sample_siddon} illustrates the influence of the volumetric")
+	ln(r"integration backend on the synthetic cone-beam projection.")
+	ln(r"Identical projection scenarios were generated using Joseph-type sampling and")
+	ln(r"Siddon voxel-traversal backends while preserving the same scene geometry,")
+	ln(r"detector configuration, attenuation model, and acquisition parameters.")
+	ln(r"Consequently, the volumetric integration backend remained the only varying")
+	ln(r"component of the projection pipeline.")
+	ln()
+	ln(r"\begin{figure}[htbp]")
+	ln(r"\centering")
+	if has_ss:
+		try:
+			rel_ss = os.path.relpath(ss_fig, tex_dir).replace("\\", "/")
+		except ValueError:
+			rel_ss = ss_fig.replace("\\", "/")
+		ln(f"\\includegraphics[width=\\linewidth]{{{rel_ss}}}")
+	else:
+		ln(r"\fbox{\parbox{\linewidth}{\centering\rule{0pt}{5cm}")
+		ln(r"  \textit{sample\_siddon.png not found -- re-run benchmark}}")
+		ln(r"}")
+	ln(r"\caption{")
+	ln(r"  Visual comparison of synthetic cone-beam projection images generated using")
+	ln(r"  Joseph-type sampling ($\Delta s = 1\,\mathrm{mm}$) and Siddon exact voxel-traversal")
+	ln(r"  backends (vol\,small, $64^3$, normal profile, $512\times512$\,px).")
+	ln(r"  Panel~(a): sampling result.")
+	ln(r"  Panel~(b): Siddon result.")
+	ln(r"  Panel~(c): signed difference (sampling\,$-$\,Siddon), diverging \texttt{RdBu\_r}")
+	ln(r"  colormap symmetric about zero; red\,=\,sampling\,$>$\,Siddon,")
+	ln(r"  blue\,=\,sampling\,$<$\,Siddon.")
+	if ss_stats.get("mae") is not None:
+		mae_s    = f"{ss_stats['mae']:.5f}"
+		dmax_s   = f"{ss_stats['max_abs']:.5f}"
+		relmae_s = f"{100*ss_stats['rel_mae']:.3f}\\,\\%" if ss_stats.get("rel_mae") is not None else "n/a"
+		ln(f"  Numerical error: MAE\\,=\\,${mae_s}$, max$|\\Delta|$\\,=\\,${dmax_s}$,")
+		ln(f"  relative MAE\\,=\\,${relmae_s}$ of mean non-zero attenuation.")
+	ln(r"}")
+	ln(r"\label{fig:sample_siddon}")
+	ln(r"\end{figure}")
+	ln()
+
+	# ── Numerical difference table ─────────────────────────────────────────────
+	if diff_stats:
+		ln(r"\begin{table}[htbp]")
+		ln(r"\centering")
+		ln(r"\caption{Numerical difference (sampling\,$-$\,Siddon) for volume-only scenes.")
+		ln(r"  MAE and max$|\Delta|$ are computed on raw line-integral images")
+		ln(r"  (no presentation model applied).}")
+		ln(r"\label{tab:diff_stats}")
+		ln(r"\small")
+		ln(r"\begin{tabular}{llrrr}")
+		ln(r"\toprule")
+		ln(r"Volume & Profile & MAE & max$|\Delta|$ & rel.\,MAE (\%) \\")
+		ln(r"\midrule")
+		for vol_n in ["small", "medium", "large"]:
+			for prof_n in ["draft", "normal", "high"]:
+				ds = diff_stats.get((vol_n, prof_n))
+				if ds is None:
+					continue
+				mae_v    = f"{ds['mae']:.5f}"
+				dmax_v   = f"{ds['max_abs']:.5f}"
+				rel_v    = f"{100*ds['rel_mae']:.3f}" if ds.get("rel_mae") is not None else "---"
+				ln(f"  vol\\,{vol_n} & {prof_n} & ${mae_v}$ & ${dmax_v}$ & ${rel_v}$ \\\\")
+		ln(r"\bottomrule")
+		ln(r"\end{tabular}")
+		ln(r"\end{table}")
 		ln()
 
 	ln(r"\end{document}")
@@ -1624,8 +1965,8 @@ def test_uncertainty():
 #fastTest2()
 
 if __name__ == '__main__':
-	_bm_results = benchmark_xray_performance()
-	generate_latex_benchmark_report(_bm_results)
+	_bm_results, _diff_stats = benchmark_xray_performance()
+	generate_latex_benchmark_report(_bm_results, diff_stats=_diff_stats)
 # create_real_xray_demo()
 # result = demo_synthetic_xray_projection()
 # print(result["png_path"])

@@ -46,7 +46,7 @@ def ensure_xray_source_config(source_object):
 			"xray_scalar_scale": 1.0,
 			"xray_scalar_bias": 0.0,
 			"xray_attenuation_multiplier": 1.0,
-			"xray_mesh_backend": "analytic_bvh",
+			"xray_mesh_backend": "projected_intersection_list",
 			"xray_mesh_mode": "solid",
 			"xray_mesh_scalar_value": 1800.0,
 			"xray_mesh_shell_thickness_mm": 1.0,
@@ -2389,6 +2389,10 @@ class MeshXRaySource(XRaySampleSource):
 				t_hits = raw_t_hits[sort_order]
 				shell_gains = raw_shell_gains[sort_order]
 				tri_indices = raw_tri_indices[sort_order]
+				# Save full-ray sorted t-values and triangle indices (before depth clipping)
+				# for boundary parity detection when the slab window contains zero hits.
+				t_hits_full_sorted = t_hits
+				tri_indices_full_sorted = tri_indices
 				range_mask = (
 					(t_hits >= t_starts[local_ray_idx] - dedup_eps)
 					& (t_hits <= t_ends[local_ray_idx] + dedup_eps)
@@ -2418,7 +2422,41 @@ class MeshXRaySource(XRaySampleSource):
 					if t_hits.size > 0:
 						projected_max_shell_gain[local_ray_idx] = float(np.max(shell_gains))
 						projected_min_abs_cos[local_ray_idx] = float(np.min(abs_cos_hits))
+				# Pre-slab winding depth counter — reuses full-ray projected hits
+				# (before range_mask) to determine mesh-inside status at a t boundary.
+				# Returns net depth (> 0 = inside mesh).
+				def _preslab_depth(t_boundary):
+					_bm = t_hits_full_sorted < t_boundary - dedup_eps
+					_t_pre = t_hits_full_sorted[_bm]
+					_tri_pre = tri_indices_full_sorted[_bm]
+					if _t_pre.size == 0:
+						return 0
+					_fn = self._face_normals_world[_tri_pre]
+					_fd = np.einsum("ij,j->i", _fn, ray_dir_local).astype(np.float32, copy=False)
+					if self.projected_min_abs_cos > 0.0:
+						_gm = np.abs(_fd) >= self.projected_min_abs_cos
+						_t_pre = _t_pre[_gm]
+						_fd = _fd[_gm]
+					if _t_pre.size == 0:
+						return 0
+					_new_cl = np.empty(_t_pre.size, dtype=bool)
+					_new_cl[0] = True
+					if _t_pre.size > 1:
+						_new_cl[1:] = (_t_pre[1:] - _t_pre[:-1]) > dedup_eps
+					_cl_ids = np.cumsum(_new_cl, dtype=np.int32) - 1
+					_n_cl = int(_cl_ids[-1]) + 1
+					_cl_net = np.bincount(
+						_cl_ids, weights=np.sign(_fd), minlength=_n_cl
+					).astype(np.float32)
+					_valid = _cl_net[np.abs(_cl_net) > 1e-8]
+					return int(np.sum(np.where(_valid < 0, np.int32(1), np.int32(-1))))
+
 				if t_hits.size == 0:
+					if self.mode == "solid" and _preslab_depth(float(t_starts[local_ray_idx])) > 0:
+						# Entire slab segment is inside the mesh — no crossings in window.
+						integrals[local_ray_idx] = (
+							float(t_ends[local_ray_idx]) - float(t_starts[local_ray_idx])
+						) * mu_value
 					if analytic_merged_counts is not None:
 						self._ensure_bvh()
 						analytic_hits = _ray_triangle_intersections_bvh(
@@ -2501,6 +2539,21 @@ class MeshXRaySource(XRaySampleSource):
 					n_valid = 0
 					cluster_t_arr    = np.empty(0, dtype=np.float32)
 					cluster_sign_arr = np.empty(0, dtype=np.int8)
+
+				# Slab boundary correction using the same _preslab_depth helper defined
+				# above — validates injections so stray back-face hits don't fire them.
+				if n_valid > 0:
+					_t_lo = float(t_starts[local_ray_idx])
+					_t_hi = float(t_ends[local_ray_idx])
+					if cluster_sign_arr[0] > 0 and _preslab_depth(_t_lo) > 0:
+						cluster_t_arr    = np.r_[np.float32(_t_lo), cluster_t_arr]
+						cluster_sign_arr = np.r_[np.int8(-1), cluster_sign_arr]
+						n_valid += 1
+					if cluster_sign_arr[-1] < 0 and _preslab_depth(_t_hi) > 0:
+						cluster_t_arr    = np.r_[cluster_t_arr, np.float32(_t_hi)]
+						cluster_sign_arr = np.r_[cluster_sign_arr, np.int8(1)]
+						n_valid += 1
+
 				intersection_work_count += n_valid
 				if debug_export_enabled:
 					projected_merged_counts[local_ray_idx] = float(n_valid)
@@ -2582,31 +2635,51 @@ class MeshXRaySource(XRaySampleSource):
 		for ray_idx in range(n_rays):
 			if progress_callback is not None and (ray_idx % progress_stride == 0):
 				progress_callback(progress_start + progress_span * (float(ray_idx) / float(max(n_rays, 1))))
-			t_hits = _ray_triangle_intersections_bvh(
+			t_hits_raw = _ray_triangle_intersections_bvh(
 				ray_origin=ray_origins[ray_idx],
 				ray_direction=ray_directions[ray_idx],
 				triangles_world=self._triangles_world,
 				bvh_nodes=self._bvh_nodes,
 			)
-			if t_hits.size == 0:
+			if t_hits_raw.size == 0:
 				continue
 
-			t_hits = t_hits[(t_hits >= t_starts[ray_idx] - dedup_eps) & (t_hits <= t_ends[ray_idx] + dedup_eps)]
-			if t_hits.size == 0:
-				continue
+			# Dedup the full-ray hits before slab clipping so that parity counts
+			# at the slab boundaries are correct (shared-edge duplicates removed).
+			merged_all = [float(t_hits_raw[0])]
+			for t_val in t_hits_raw[1:]:
+				if abs(float(t_val) - merged_all[-1]) > dedup_eps:
+					merged_all.append(float(t_val))
+			t_hits_all = np.asarray(merged_all, dtype=np.float32)
 
-			# Merge nearly identical hits caused by neighbouring triangles sharing one
-			# edge or by grazing the mesh exactly at a vertex.
-			merged_hits = [float(t_hits[0])]
-			for t_value in t_hits[1:]:
-				if abs(float(t_value) - merged_hits[-1]) > dedup_eps:
-					merged_hits.append(float(t_value))
-			t_hits = np.asarray(merged_hits, dtype=np.float32)
+			t_lo = float(t_starts[ray_idx])
+			t_hi = float(t_ends[ray_idx])
+
+			# Count crossings strictly outside the slab window to determine whether
+			# the ray is already inside the mesh at each slab boundary.
+			n_before = int(np.sum(t_hits_all < t_lo - dedup_eps))
+			n_after  = int(np.sum(t_hits_all > t_hi + dedup_eps))
+
+			# Clip to the slab window.
+			t_hits = t_hits_all[
+				(t_hits_all >= t_lo - dedup_eps) & (t_hits_all <= t_hi + dedup_eps)
+			]
+			if t_hits.size == 0 and n_before % 2 == 0:
+				continue
 			intersection_work_count += int(t_hits.size)
 
 			if self.mode == "shell":
 				integrals[ray_idx] = float(t_hits.size) * self.shell_thickness_mm * mu_value
 				continue
+
+			# Solid mode: inject virtual boundary crossings where the slab plane
+			# cuts through the interior of the mesh.
+			# n_before odd  → ray was inside the mesh at t_lo → virtual entry at t_lo.
+			# n_after  odd  → ray is still inside the mesh at t_hi → virtual exit at t_hi.
+			if n_before % 2 == 1:
+				t_hits = np.r_[np.float32(t_lo), t_hits]
+			if n_after % 2 == 1:
+				t_hits = np.r_[t_hits, np.float32(t_hi)]
 
 			if t_hits.size >= 2:
 				if t_hits.size % 2 == 1:

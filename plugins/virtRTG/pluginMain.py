@@ -9,12 +9,17 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from dpVision import AP, PluginInterface
+from dpVision import AP, Transform, PluginInterface
+from dpVision import VirtualXRay
+
+import numpy as np
+import os
 
 class Plugin01(PluginInterface):
 	def __init__(self):
-		self.plugin_name = '(dp) Virtual RTG'
+		self.plugin_name = 'Virtual RTG'
 		self.panel = None
+		self.setup = None
 
 	def on_load(self):
 		print( "plugin "+self.plugin_name+" loaded.")
@@ -33,14 +38,25 @@ class Plugin01(PluginInterface):
 		if self.panel:
 			AP.mainWin.removeDockWidget(self.panel);    
 		print( "Bye bye")
-		
+
+
 	def add_menu(self):
 		nadrzedne_menu = self.add_plugins_menu()
 
-		self.menu = QMenu("Virtual RTG", AP.mainWin)
+		self.menu = QMenu(self.plugin_name, AP.mainWin)
 		
 		nadrzedne_menu.addMenu(self.menu)
 		
+		action = QAction("Create RTG", AP.mainWin)
+		self.menu.addAction(action)
+		action.triggered.connect(self.onAction_Create_RTG)
+
+		action = QAction("Create Demo", AP.mainWin)
+		self.menu.addAction(action)
+		action.triggered.connect(self.onAction_Create_Demo)
+
+		self.menu.addSeparator()
+
 		action = QAction("UnLoad", AP.mainWin)
 		self.menu.addAction(action)
 		action.triggered.connect(self.onAction_UnLoad)
@@ -57,7 +73,7 @@ class Plugin01(PluginInterface):
 			# Znajdź i usuń "Plugin01"
 			plugin_menu_action = None
 			for action in nadrzedne_menu.actions():
-				if action.text() == "Virtual RTG" and action.menu():
+				if action.text() == self.plugin_name and action.menu():
 					plugin_menu_action = action
 					break
 			
@@ -70,7 +86,93 @@ class Plugin01(PluginInterface):
 	def onAction_UnLoad(self):
 		print("Akcja manu: Wyładuj plugin")
 		AP.mainApp.unload_plugin(self)
+
+	def onAction_Create_RTG(self):
+		print("Akcja manu: Create RTG")
+		self.setup = VirtualXRay()
+		self.setup.source_position_ref = np.array([0, 0, 1600.0], dtype=np.float32)
+
+		self.setup.detector_shape_hw = [1024, 1024]
+		self.setup.detector_pixel_size_mm = [0.2, 0.2]
+		self.setup.detector_center_ref = np.array([0, 0, -300.0], dtype=np.float32)
+		self.setup.detector_normal_ref = np.array([0, 0, 1.0], dtype=np.float32) # domyślnie w kierunku źródła
+		self.setup.step_mm = 0.1
+		self.setup.quality_profile_name = "custom"
+
+		AP.addObject(self.setup)
+
+	def onAction_Create_Demo(self):
+		print("Akcja manu: Create Demo")
 		
+		if self.setup is None:
+			self.onAction_Create_RTG()
+
+		def on_success(skull):
+			if skull is None:
+				return
+
+			AP.removeObject(child=skull.parent)
+
+			# if isinstance(skull, Mesh):
+			# 	report_mesh_xray_topology(skull)
+
+				# skull, result = clean_mesh_for_xray(skull, 
+				# 			drop_nonmanifold_faces=True,
+				# 			drop_boundary_faces=False,)
+				# print(result)
+				# print(result["cleaned_report"])
+
+
+			skull_transform = Transform()
+			#skull_transform.translate(-100, 45, 0)
+			skull_transform.rotate(-90, [1,0,0])
+			skull_transform.rotate(-90, [0,1,0])
+			skull_transform.addChild(skull)
+			self.setup.addChild(skull_transform)
+
+			AP.updateAllViews()
+			AP.mainWin.dock["workspace"].rebuildTree()
+
+			skull.xray_mesh_backend = "projected_intersection_list"
+			# skull.xray_debug_export_dir = r"d:\temp\xray_debug"
+			# skull.xray_debug_compare_analytic = True
+			# skull.xray_projected_min_abs_cos = 0.25
+
+			#setup.debug_run_simulation_stop_after = "display"
+			#setup.debug_run_simulation_stop_after = "update_views"
+			#result = run_virtual_xray_headless(setup, r"d:/temp/vxray_test.png")
+
+		# path1 = "c:/Users/darek/Desktop/praca/dane/20210312_142843/DCT0000.dcm"
+		# path2 = "d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm"
+		# if os.path.isfile(path1):
+		# 	load_path = path1
+		# elif os.path.isfile(path2):
+		# 	load_path = path2
+		# else:
+		# 	print("Nie można znaleźć pliku DICOM do testu X-ray demo.")
+		# 	return
+		
+		# AP.load(load_path, on_success=on_success)
+
+		# pathG = "d:/praca/dane/masks/gora/slice_000.dcm"
+		# pathD = "d:/praca/dane/masks/dol/slice_000.dcm"
+
+		pathG = "d:/praca/dane/vols/gora1/filtered_194.dcm"
+		pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
+		# pathD = "d:/praca/dane/vols/jaw_poisson.ply"
+		# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
+		# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
+
+		if os.path.isfile(pathG):
+			AP.load(pathG, on_success=on_success)
+		
+		# if os.path.isfile(pathD):
+		# 	AP.load(pathD, on_success=on_success)
+		# # 	# AP.load(pathD, on_success=on_success)
+
+		# if os.path.isfile(pathA):
+		# 	AP.load(pathA, on_success=on_success)
+
 		
 	def perform_action(self):
 		print("Akcja wykonana przez "+self.plugin_name)

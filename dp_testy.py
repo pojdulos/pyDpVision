@@ -583,91 +583,6 @@ def create_virtual_xray_demo_object():
 	return setup
 
 
-def create_real_xray_demo():
-
-	"""Create one `VirtualXRay` scene node with synthetic skull and jaw descendants."""
-
-	setup = VirtualXRay()
-	setup.source_position_ref = np.array([0, 0, 1600.0], dtype=np.float32)
-
-	setup.detector_shape_hw = [1024, 1024]
-	setup.detector_pixel_size_mm = [0.2, 0.2]
-	setup.detector_center_ref = np.array([0, 0, -300.0], dtype=np.float32)
-	setup.detector_normal_ref = np.array([0, 0, 1.0], dtype=np.float32) # domyślnie w kierunku źródła
-	setup.step_mm = 0.1
-	setup.quality_profile_name = "custom"
-
-	AP.addObject(setup)
-
-	def on_success(skull):
-		if skull is None:
-			return
-
-		AP.removeObject(child=skull.parent)
-
-		# if isinstance(skull, Mesh):
-		# 	report_mesh_xray_topology(skull)
-
-			# skull, result = clean_mesh_for_xray(skull, 
-			# 			drop_nonmanifold_faces=True,
-    		# 			drop_boundary_faces=False,)
-			# print(result)
-			# print(result["cleaned_report"])
-
-
-		skull_transform = Transform()
-		#skull_transform.translate(-100, 45, 0)
-		skull_transform.rotate(-90, [1,0,0])
-		skull_transform.rotate(-90, [0,1,0])
-		skull_transform.addChild(skull)
-		setup.addChild(skull_transform)
-
-		AP.updateAllViews()
-		AP.mainWin.dock["workspace"].rebuildTree()
-
-		skull.xray_mesh_backend = "projected_intersection_list"
-		# skull.xray_debug_export_dir = r"d:\temp\xray_debug"
-		# skull.xray_debug_compare_analytic = True
-		# skull.xray_projected_min_abs_cos = 0.25
-
-		#setup.debug_run_simulation_stop_after = "display"
-		#setup.debug_run_simulation_stop_after = "update_views"
-		#result = run_virtual_xray_headless(setup, r"d:/temp/vxray_test.png")
-
-	# path1 = "c:/Users/darek/Desktop/praca/dane/20210312_142843/DCT0000.dcm"
-	# path2 = "d:/praca0/dpVisionProject/dane/20210312_142843/DCT0000.dcm"
-	# if os.path.isfile(path1):
-	# 	load_path = path1
-	# elif os.path.isfile(path2):
-	# 	load_path = path2
-	# else:
-	# 	print("Nie można znaleźć pliku DICOM do testu X-ray demo.")
-	# 	return
-	
-	# AP.load(load_path, on_success=on_success)
-
-	# pathG = "d:/praca/dane/masks/gora/slice_000.dcm"
-	# pathD = "d:/praca/dane/masks/dol/slice_000.dcm"
-
-	pathG = "d:/praca/dane/vols/gora1/filtered_194.dcm"
-	pathD = "d:/praca/dane/vols/dol/filtered_080.dcm"
-	# pathD = "d:/praca/dane/vols/jaw_poisson.ply"
-	# pathA = "d:/praca0/dpVisionProject/dane/20160501/filt/NDecom0000.dcm"
-	# pathA = "d:/praca/dane/vols/20140521/0000.dcm"
-
-	# if os.path.isfile(pathG):
-	# 	AP.load(pathG, on_success=on_success)
-	# 	# AP.load(pathG, on_success=on_success)
-	
-	# if os.path.isfile(pathD):
-	# 	AP.load(pathD, on_success=on_success)
-	# # 	# AP.load(pathD, on_success=on_success)
-
-	# if os.path.isfile(pathA):
-	# 	AP.load(pathA, on_success=on_success)
-
-	
-
 def save_difference_map(img_a, img_b, out_path, title="Sampling − Siddon", cmap="RdBu_r"):
 	"""Save a coloured signed-difference map between two raw projection images.
 
@@ -1967,10 +1882,3 @@ def test_uncertainty():
 if __name__ == '__main__':
 	_bm_results, _diff_stats = benchmark_xray_performance()
 	generate_latex_benchmark_report(_bm_results, diff_stats=_diff_stats)
-# create_real_xray_demo()
-# result = demo_synthetic_xray_projection()
-# print(result["png_path"])
-# print(result["tiff_path"])
-# print(result["dicom_path"])
-else:
-	create_real_xray_demo()

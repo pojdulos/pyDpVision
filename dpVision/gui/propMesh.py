@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Property panel for mesh objects, including per-object X-ray source tuning."""
+"""Property panel for mesh objects."""
 
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import (
-	QCheckBox,
 	QColorDialog,
-	QComboBox,
-	QDoubleSpinBox,
-	QFormLayout,
-	QGroupBox,
 	QLayout,
 	QSizePolicy,
 	QVBoxLayout,
@@ -16,24 +11,21 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QColor
 
-from .. import AP, ensure_xray_source_config
+from .. import AP
 from .propWidget import PropWidget
 from .propBaseObject import PropBaseObject
 import weakref
 
 
 class PropMesh(PropWidget):
-	"""Edit mesh appearance and per-object X-ray source settings."""
+	"""Edit mesh appearance."""
 
 	def __init__(self, _obj, parent=None):
-		"""Create the mesh property panel and append X-ray controls to the loaded UI."""
+		"""Create the mesh property panel."""
 		super(PropMesh, self).__init__(parent)
 		AP.loadUi('propMesh.ui', self)
 		self.obj_ref = weakref.ref(_obj)
-		ensure_xray_source_config(_obj)
 		self._relax_ui_constraints()
-		self._build_xray_group()
-		self._connect_xray_signals()
 
 	@staticmethod
 	def create(m, parent=0):
@@ -61,109 +53,13 @@ class PropMesh(PropWidget):
 			self._main_layout.addWidget(self.mesh)
 			root_layout.addWidget(self._main_container)
 
-	def _build_xray_group(self):
-		"""Append one readable X-ray configuration group below the existing mesh controls."""
-		self.xrayGroup = QGroupBox("XRay Source")
-		self.xrayLayout = QFormLayout(self.xrayGroup)
-		self.xrayLayout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-		self.xrayLayout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-		self.xrayLayout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
-		self.xrayEnabledCheck = QCheckBox("Enabled in VirtualXRay")
-		self.xrayBackendCombo = QComboBox()
-		self.xrayBackendCombo.addItems(["analytic_bvh", "projected_intersection_list"])
-		self.xrayModeCombo = QComboBox()
-		self.xrayModeCombo.addItems(["solid", "shell"])
-		self.xrayScalarValueSpin = QDoubleSpinBox()
-		self.xrayScalarValueSpin.setRange(-1e6, 1e6)
-		self.xrayScalarValueSpin.setDecimals(3)
-		self.xrayScalarValueSpin.setSingleStep(10.0)
-		self.xrayShellThicknessSpin = QDoubleSpinBox()
-		self.xrayShellThicknessSpin.setRange(0.001, 1e6)
-		self.xrayShellThicknessSpin.setDecimals(3)
-		self.xrayShellThicknessSpin.setSingleStep(0.1)
-		self.xrayScalarScaleSpin = QDoubleSpinBox()
-		self.xrayScalarScaleSpin.setRange(-1e3, 1e3)
-		self.xrayScalarScaleSpin.setDecimals(6)
-		self.xrayScalarScaleSpin.setSingleStep(0.05)
-		self.xrayScalarBiasSpin = QDoubleSpinBox()
-		self.xrayScalarBiasSpin.setRange(-1e6, 1e6)
-		self.xrayScalarBiasSpin.setDecimals(3)
-		self.xrayScalarBiasSpin.setSingleStep(10.0)
-		self.xrayAttenuationSpin = QDoubleSpinBox()
-		self.xrayAttenuationSpin.setRange(0.0, 1e6)
-		self.xrayAttenuationSpin.setDecimals(6)
-		self.xrayAttenuationSpin.setSingleStep(0.05)
-
-		self.xrayLayout.addRow("", self.xrayEnabledCheck)
-		self.xrayLayout.addRow("Backend:", self.xrayBackendCombo)
-		self.xrayLayout.addRow("Mode:", self.xrayModeCombo)
-		self.xrayLayout.addRow("Scalar value:", self.xrayScalarValueSpin)
-		self.xrayLayout.addRow("Shell [mm]:", self.xrayShellThicknessSpin)
-		self.xrayLayout.addRow("Scalar scale:", self.xrayScalarScaleSpin)
-		self.xrayLayout.addRow("Scalar bias:", self.xrayScalarBiasSpin)
-		self.xrayLayout.addRow("Attenuation x:", self.xrayAttenuationSpin)
-
-		main_layout = getattr(self, "_main_layout", None)
-		if isinstance(main_layout, QLayout):
-			main_layout.addWidget(self.xrayGroup)
-
-	def _connect_xray_signals(self):
-		"""Connect X-ray tuning widgets to the underlying mesh object."""
-		self.xrayEnabledCheck.toggled.connect(self.on_xray_changed)
-		self.xrayBackendCombo.currentTextChanged.connect(self.on_xray_changed)
-		self.xrayModeCombo.currentTextChanged.connect(self.on_xray_changed)
-		self.xrayScalarValueSpin.valueChanged.connect(self.on_xray_changed)
-		self.xrayShellThicknessSpin.valueChanged.connect(self.on_xray_changed)
-		self.xrayScalarScaleSpin.valueChanged.connect(self.on_xray_changed)
-		self.xrayScalarBiasSpin.valueChanged.connect(self.on_xray_changed)
-		self.xrayAttenuationSpin.valueChanged.connect(self.on_xray_changed)
-
-	def _block_xray_signals(self, blocked):
-		"""Block or unblock signals from the X-ray widgets during refresh."""
-		for widget in (
-			self.xrayEnabledCheck,
-			self.xrayBackendCombo,
-			self.xrayModeCombo,
-			self.xrayScalarValueSpin,
-			self.xrayShellThicknessSpin,
-			self.xrayScalarScaleSpin,
-			self.xrayScalarBiasSpin,
-			self.xrayAttenuationSpin,
-		):
-			widget.blockSignals(blocked)
-
-	def _update_xray_visibility(self, obj):
-		"""Enable only controls relevant to the current X-ray mesh mode."""
-		enabled = bool(obj.xray_source_enabled)
-		is_shell = str(obj.xray_mesh_mode).lower() == "shell"
-		self.xrayBackendCombo.setEnabled(enabled)
-		self.xrayModeCombo.setEnabled(enabled)
-		self.xrayScalarValueSpin.setEnabled(enabled)
-		self.xrayShellThicknessSpin.setEnabled(enabled and is_shell)
-		self.xrayScalarScaleSpin.setEnabled(enabled)
-		self.xrayScalarBiasSpin.setEnabled(enabled)
-		self.xrayAttenuationSpin.setEnabled(enabled)
-
 	def updateProperties(self):
 		"""Refresh the panel from the current mesh state."""
 		obj = self.obj_ref()
-		ensure_xray_source_config(obj)
 		col = obj.materials[obj.currentMaterial].diffuse + [obj.materials[obj.currentMaterial].alpha]
 		qc = QColor()
 		qc.setRgbF(col[0], col[1], col[2], col[3])
 		self.updateDefaultColorButton(qc)
-
-		self._block_xray_signals(True)
-		self.xrayEnabledCheck.setChecked(bool(obj.xray_source_enabled))
-		self.xrayBackendCombo.setCurrentText(str(getattr(obj, "xray_mesh_backend", "analytic_bvh")))
-		self.xrayModeCombo.setCurrentText(str(obj.xray_mesh_mode))
-		self.xrayScalarValueSpin.setValue(float(obj.xray_mesh_scalar_value))
-		self.xrayShellThicknessSpin.setValue(float(obj.xray_mesh_shell_thickness_mm))
-		self.xrayScalarScaleSpin.setValue(float(obj.xray_scalar_scale))
-		self.xrayScalarBiasSpin.setValue(float(obj.xray_scalar_bias))
-		self.xrayAttenuationSpin.setValue(float(obj.xray_attenuation_multiplier))
-		self._update_xray_visibility(obj)
-		self._block_xray_signals(False)
 
 	def updateDefaultColorButton(self, col):
 		"""Refresh the button preview for the mesh diffuse colour."""
@@ -184,19 +80,4 @@ class PropMesh(PropWidget):
 			self.updateDefaultColorButton(color)
 			AP.updateAllViews()
 
-	@pyqtSlot()
-	def on_xray_changed(self):
-		"""Store the mesh-specific X-ray source settings directly on the selected object."""
-		obj = self.obj_ref()
-		ensure_xray_source_config(obj)
-		obj.xray_source_enabled = bool(self.xrayEnabledCheck.isChecked())
-		obj.xray_mesh_backend = str(self.xrayBackendCombo.currentText()).lower()
-		obj.xray_mesh_mode = str(self.xrayModeCombo.currentText()).lower()
-		obj.xray_mesh_scalar_value = float(self.xrayScalarValueSpin.value())
-		obj.xray_mesh_shell_thickness_mm = max(1e-4, float(self.xrayShellThicknessSpin.value()))
-		obj.xray_scalar_scale = float(self.xrayScalarScaleSpin.value())
-		obj.xray_scalar_bias = float(self.xrayScalarBiasSpin.value())
-		obj.xray_attenuation_multiplier = max(0.0, float(self.xrayAttenuationSpin.value()))
-		self._update_xray_visibility(obj)
-		AP.updateProperties()
-		AP.updateAllViews()
+

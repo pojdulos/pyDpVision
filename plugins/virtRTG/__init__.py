@@ -6,7 +6,7 @@ Created on Thu Nov 23 08:54:32 2023
 """
 # __init__.py
 
-print("Inicjalizacja pakietu 'myPlugin01'.")
+print("Inicjalizacja pakietu 'virtRTG'.")
 
 # Inicjalizacja zmiennych, konfiguracji itd.
 #config = {"key": "value"}

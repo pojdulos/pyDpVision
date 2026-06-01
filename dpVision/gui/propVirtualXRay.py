@@ -17,8 +17,9 @@ from PyQt5.QtWidgets import (
 	QHBoxLayout,
 	QLabel,
 	QMessageBox,
-		QProgressBar,
+	QProgressBar,
 	QPushButton,
+	QScrollArea,
 	QSpinBox,
 	QTabWidget,
 	QVBoxLayout,
@@ -27,7 +28,7 @@ from PyQt5.QtWidgets import (
 	QSizePolicy,
 )
 
-from .. import AP, Image, VirtualXRay, normalize_projection_to_uint8
+from .. import AP, Image, Mesh, Volumetric, VirtualXRay, ensure_xray_source_config, normalize_projection_to_uint8
 from .multiSpinBox import MultiSpinBox
 from .propBaseObject import PropBaseObject
 from .propWidget import PropWidget
@@ -506,7 +507,238 @@ class PropVirtualXRay(PropWidget):
 		runTabLayout.addStretch(1)
 		self.tabs.addTab(runTab, "Run")
 
+		self._build_sources_tab()
+
 		layout.addStretch(1)
+
+	# ── Sources tab ──────────────────────────────────────────────────────────
+
+	def _build_sources_tab(self):
+		"""Build the Sources tab container — content is filled dynamically on each refresh."""
+		from PyQt5.QtWidgets import QStackedWidget
+		sourcesTab = QWidget()
+		sourcesTabLayout = QVBoxLayout(sourcesTab)
+		sourcesTabLayout.setContentsMargins(4, 4, 4, 4)
+		sourcesTabLayout.setSpacing(4)
+		sourcesTabLayout.setAlignment(Qt.AlignTop)
+
+		self._sourcesCombo = QComboBox()
+		self._sourcesCombo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+		sourcesTabLayout.addWidget(self._sourcesCombo)
+
+		scroll = QScrollArea()
+		scroll.setWidgetResizable(True)
+		scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+		self._sourcesStack = QStackedWidget()
+		scroll.setWidget(self._sourcesStack)
+		sourcesTabLayout.addWidget(scroll)
+
+		self._sourcesCombo.currentIndexChanged.connect(self._sourcesStack.setCurrentIndex)
+
+		self._sources_tab_index = self.tabs.insertTab(
+			self.tabs.count() - 1, sourcesTab, "Sources"
+		)
+
+	def _rebuild_sources_tab(self, obj: VirtualXRay):
+		"""Rebuild per-source controls to match the current scene tree."""
+		from PyQt5.QtWidgets import QStackedWidget
+		all_sources = obj.collect_volumetrics() + obj.collect_meshes()
+
+		# Build new labels list to compare with current combo state.
+		new_labels = [
+			f"[{'Vol' if isinstance(s, Volumetric) else 'Mesh'}]  {s.label}"
+			for s in all_sources
+		]
+		old_labels = [self._sourcesCombo.itemText(i) for i in range(self._sourcesCombo.count())]
+
+		# Preserve selected index across refreshes when the source list didn't change.
+		prev_index = self._sourcesCombo.currentIndex()
+
+		# Always rebuild to pick up any property value changes on the source objects.
+		self._sourcesCombo.blockSignals(True)
+
+		# Remove old stack pages.
+		while self._sourcesStack.count():
+			w = self._sourcesStack.widget(0)
+			self._sourcesStack.removeWidget(w)
+			w.deleteLater()
+		self._sourcesCombo.clear()
+
+		if not all_sources:
+			placeholder = QWidget()
+			pl_layout = QVBoxLayout(placeholder)
+			lbl = QLabel("No Mesh or Volumetric objects in this VirtualXRay subtree.")
+			lbl.setWordWrap(True)
+			pl_layout.addWidget(lbl)
+			self._sourcesStack.addWidget(placeholder)
+			self._sourcesCombo.addItem("—")
+			self._sourcesCombo.blockSignals(False)
+			return
+
+		for label, src in zip(new_labels, all_sources):
+			self._sourcesCombo.addItem(label)
+			self._sourcesStack.addWidget(self._make_source_group(src))
+
+		# Restore previous selection when possible.
+		if old_labels == new_labels and 0 <= prev_index < len(all_sources):
+			self._sourcesCombo.setCurrentIndex(prev_index)
+			self._sourcesStack.setCurrentIndex(prev_index)
+		else:
+			self._sourcesCombo.setCurrentIndex(0)
+			self._sourcesStack.setCurrentIndex(0)
+
+		self._sourcesCombo.blockSignals(False)
+
+	def _make_source_group(self, source_obj):
+		"""Return a QGroupBox with xray controls for one Mesh or Volumetric source object."""
+		src_ref = weakref.ref(source_obj)
+		src_type = "Vol" if isinstance(source_obj, Volumetric) else "Mesh"
+		group = QGroupBox(f"[{src_type}]  {source_obj.label}")
+		group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+		form = QFormLayout(group)
+		form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+		form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+		form.setContentsMargins(4, 4, 4, 4)
+
+		enabled_check = QCheckBox("Enabled")
+		enabled_check.setChecked(bool(source_obj.xray_source_enabled))
+		form.addRow("", enabled_check)
+
+		scale_spin = QDoubleSpinBox()
+		scale_spin.setRange(-1e3, 1e3)
+		scale_spin.setDecimals(6)
+		scale_spin.setSingleStep(0.05)
+		scale_spin.setValue(float(source_obj.xray_scalar_scale))
+		form.addRow("Scalar scale:", scale_spin)
+
+		bias_spin = QDoubleSpinBox()
+		bias_spin.setRange(-1e6, 1e6)
+		bias_spin.setDecimals(3)
+		bias_spin.setSingleStep(10.0)
+		bias_spin.setValue(float(source_obj.xray_scalar_bias))
+		form.addRow("Scalar bias:", bias_spin)
+
+		atten_spin = QDoubleSpinBox()
+		atten_spin.setRange(0.0, 1e6)
+		atten_spin.setDecimals(6)
+		atten_spin.setSingleStep(0.05)
+		atten_spin.setValue(float(source_obj.xray_attenuation_multiplier))
+		form.addRow("Attenuation x:", atten_spin)
+
+		if isinstance(source_obj, Volumetric):
+			interp_combo = QComboBox()
+			interp_combo.addItems(["default", "nearest", "linear", "cubic"])
+			interp_combo.setCurrentText(str(source_obj.xray_interpolation_override))
+			form.addRow("Interpolation:", interp_combo)
+
+			backend_combo = QComboBox()
+			backend_combo.addItems(["sampling", "siddon"])
+			backend_combo.setToolTip(
+				"sampling – uniform ray-marching (step_mm)\n"
+				"siddon  – exact voxel traversal (chord-length, step_mm independent)"
+			)
+			backend_combo.setCurrentText(str(getattr(source_obj, "xray_volume_backend", "sampling")))
+			form.addRow("Volume backend:", backend_combo)
+
+			fill_check = QCheckBox("Use explicit fill value")
+			fill_check.setChecked(bool(source_obj.xray_fill_value_override_enabled))
+			form.addRow("", fill_check)
+
+			fill_spin = QDoubleSpinBox()
+			fill_spin.setRange(-1e9, 1e9)
+			fill_spin.setDecimals(3)
+			fill_spin.setSingleStep(10.0)
+			fill_spin.setValue(float(source_obj.xray_fill_value_override))
+			fill_spin.setEnabled(bool(source_obj.xray_fill_value_override_enabled))
+			form.addRow("Fill value:", fill_spin)
+
+			def _on_vol_changed(
+				_ref=src_ref, _en=enabled_check, _sc=scale_spin, _bi=bias_spin,
+				_at=atten_spin, _ic=interp_combo, _bc=backend_combo,
+				_fc=fill_check, _fs=fill_spin
+			):
+				s = _ref()
+				if s is None:
+					return
+				s.xray_source_enabled = bool(_en.isChecked())
+				s.xray_scalar_scale = float(_sc.value())
+				s.xray_scalar_bias = float(_bi.value())
+				s.xray_attenuation_multiplier = max(0.0, float(_at.value()))
+				s.xray_interpolation_override = str(_ic.currentText()).lower()
+				s.xray_volume_backend = str(_bc.currentText()).lower()
+				s.xray_fill_value_override_enabled = bool(_fc.isChecked())
+				s.xray_fill_value_override = float(_fs.value())
+				_fs.setEnabled(s.xray_fill_value_override_enabled)
+				AP.updateAllViews()
+
+			for w in (enabled_check, scale_spin, bias_spin, atten_spin,
+			          interp_combo, backend_combo, fill_check, fill_spin):
+				if hasattr(w, "toggled"):
+					w.toggled.connect(lambda *_: _on_vol_changed())
+				elif hasattr(w, "currentTextChanged"):
+					w.currentTextChanged.connect(lambda *_: _on_vol_changed())
+				else:
+					w.valueChanged.connect(lambda *_: _on_vol_changed())
+
+		else:  # Mesh
+			backend_combo = QComboBox()
+			backend_combo.addItems(["analytic_bvh", "projected_intersection_list"])
+			backend_combo.setCurrentText(str(getattr(source_obj, "xray_mesh_backend", "analytic_bvh")))
+			form.addRow("Backend:", backend_combo)
+
+			mode_combo = QComboBox()
+			mode_combo.addItems(["solid", "shell"])
+			mode_combo.setCurrentText(str(source_obj.xray_mesh_mode))
+			form.addRow("Mode:", mode_combo)
+
+			scalar_val_spin = QDoubleSpinBox()
+			scalar_val_spin.setRange(-1e6, 1e6)
+			scalar_val_spin.setDecimals(3)
+			scalar_val_spin.setSingleStep(10.0)
+			scalar_val_spin.setValue(float(source_obj.xray_mesh_scalar_value))
+			form.addRow("Scalar value:", scalar_val_spin)
+
+			shell_spin = QDoubleSpinBox()
+			shell_spin.setRange(0.001, 1e6)
+			shell_spin.setDecimals(3)
+			shell_spin.setSingleStep(0.1)
+			shell_spin.setValue(float(source_obj.xray_mesh_shell_thickness_mm))
+			shell_spin.setEnabled(str(source_obj.xray_mesh_mode).lower() == "shell")
+			form.addRow("Shell [mm]:", shell_spin)
+
+			def _on_mesh_changed(
+				_ref=src_ref, _en=enabled_check, _sc=scale_spin, _bi=bias_spin,
+				_at=atten_spin, _bc=backend_combo, _mc=mode_combo,
+				_sv=scalar_val_spin, _sh=shell_spin
+			):
+				s = _ref()
+				if s is None:
+					return
+				s.xray_source_enabled = bool(_en.isChecked())
+				s.xray_mesh_backend = str(_bc.currentText()).lower()
+				s.xray_mesh_mode = str(_mc.currentText()).lower()
+				s.xray_mesh_scalar_value = float(_sv.value())
+				s.xray_mesh_shell_thickness_mm = max(1e-4, float(_sh.value()))
+				s.xray_scalar_scale = float(_sc.value())
+				s.xray_scalar_bias = float(_bi.value())
+				s.xray_attenuation_multiplier = max(0.0, float(_at.value()))
+				_sh.setEnabled(s.xray_mesh_mode == "shell")
+				AP.updateAllViews()
+
+			for w in (enabled_check, scale_spin, bias_spin, atten_spin,
+			          backend_combo, mode_combo, scalar_val_spin, shell_spin):
+				if hasattr(w, "toggled"):
+					w.toggled.connect(lambda *_: _on_mesh_changed())
+				elif hasattr(w, "currentTextChanged"):
+					w.currentTextChanged.connect(lambda *_: _on_mesh_changed())
+				else:
+					w.valueChanged.connect(lambda *_: _on_mesh_changed())
+
+		return group
+
+	# ─────────────────────────────────────────────────────────────────────────
 
 	def _configure_form_layout(self, layout):
 		"""Keep form labels and fields compact instead of stretching across the dock."""
@@ -769,6 +1001,7 @@ class PropVirtualXRay(PropWidget):
 		self._update_physics_visibility(obj)
 		self._update_advanced_source_visibility(obj)
 		self._update_presentation_visibility(obj)
+		self._rebuild_sources_tab(obj)
 		self.blockAll(False)
 
 	def _after_change(self, obj: VirtualXRay):

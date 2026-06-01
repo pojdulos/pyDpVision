@@ -1,3 +1,4 @@
+import os
 import sys
 import multiprocessing
 from PyQt5.QtCore import QSettings
@@ -39,7 +40,11 @@ if __name__ == '__main__':
     AP.mainWin = MainWindow()
 
     # ładowanie pluginów z określonego katalogu
-    AP.mainApp.load_plugins("./plugins")
+    if hasattr(sys, '_MEIPASS'):
+        _base_dir = os.path.dirname(sys.executable)
+    else:
+        _base_dir = os.path.dirname(os.path.abspath(__file__))
+    AP.mainApp.load_plugins(os.path.join(_base_dir, "plugins"))
     #from plugins import *
 
     if AP.settings.value("mainwindow/maximized", False, type=bool):

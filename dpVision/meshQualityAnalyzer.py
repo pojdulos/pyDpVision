@@ -252,6 +252,104 @@ class MeshQualityAnalyzer:
 
 
     # -----------------------------------------------------------
+    # TOPOLOGY / ORIENTATION REPORT
+    # -----------------------------------------------------------
+
+    def compute_xray_topology_report(self, area_epsilon=1e-12):
+        """Return one compact topology report useful for RTG mesh diagnostics.
+
+        The report focuses on defects that often break `solid` ray pairing:
+        open boundaries, non-manifold edges, duplicated faces and local
+        orientation conflicts between neighboring triangles.
+        """
+        faces = np.asarray(self.F, dtype=np.int64)
+        report = {
+            "vertex_count": int(self.N),
+            "face_count": int(self.M),
+            "degenerate_face_count": 0,
+            "duplicate_face_count": 0,
+            "boundary_edge_count": 0,
+            "nonmanifold_edge_count": 0,
+            "orientation_conflict_edge_count": 0,
+            "closed_edge_count": 0,
+            "boundary_vertex_count": 0,
+            "watertight_candidate": False,
+            "orientation_consistent_candidate": False,
+        }
+        if faces.size == 0:
+            report["watertight_candidate"] = True
+            report["orientation_consistent_candidate"] = True
+            return report
+
+        v0 = self.V[faces[:, 0]]
+        v1 = self.V[faces[:, 1]]
+        v2 = self.V[faces[:, 2]]
+        double_area = np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
+        report["degenerate_face_count"] = int(np.count_nonzero(double_area <= float(area_epsilon)))
+
+        normalized_faces = np.sort(faces, axis=1)
+        unique_faces, unique_counts = np.unique(normalized_faces, axis=0, return_counts=True)
+        del unique_faces
+        report["duplicate_face_count"] = int(np.sum(np.maximum(unique_counts - 1, 0)))
+
+        edge_to_faces = defaultdict(list)
+        for face_idx, (a, b, c) in enumerate(faces):
+            for start_idx, end_idx in ((a, b), (b, c), (c, a)):
+                undirected_edge = (int(min(start_idx, end_idx)), int(max(start_idx, end_idx)))
+                direction_sign = 1 if start_idx < end_idx else -1
+                edge_to_faces[undirected_edge].append((int(face_idx), direction_sign))
+
+        boundary_vertices = set()
+        boundary_edge_count = 0
+        nonmanifold_edge_count = 0
+        orientation_conflict_edge_count = 0
+        closed_edge_count = 0
+
+        for edge_key, edge_faces in edge_to_faces.items():
+            incident_count = len(edge_faces)
+            if incident_count == 1:
+                boundary_edge_count += 1
+                boundary_vertices.update(edge_key)
+                continue
+            if incident_count > 2:
+                nonmanifold_edge_count += 1
+                continue
+            closed_edge_count += 1
+            if edge_faces[0][1] == edge_faces[1][1]:
+                orientation_conflict_edge_count += 1
+
+        report["boundary_edge_count"] = int(boundary_edge_count)
+        report["nonmanifold_edge_count"] = int(nonmanifold_edge_count)
+        report["orientation_conflict_edge_count"] = int(orientation_conflict_edge_count)
+        report["closed_edge_count"] = int(closed_edge_count)
+        report["boundary_vertex_count"] = int(len(boundary_vertices))
+        report["watertight_candidate"] = (
+            report["boundary_edge_count"] == 0
+            and report["nonmanifold_edge_count"] == 0
+        )
+        report["orientation_consistent_candidate"] = (
+            report["orientation_conflict_edge_count"] == 0
+            and report["nonmanifold_edge_count"] == 0
+        )
+        return report
+
+    def summarize_xray_topology_report(self, area_epsilon=1e-12):
+        """Return one short human-readable summary for RTG mesh debugging."""
+        report = self.compute_xray_topology_report(area_epsilon=area_epsilon)
+        return (
+            "Mesh XRay topology report: "
+            f"V={report['vertex_count']}, F={report['face_count']}, "
+            f"degenerate={report['degenerate_face_count']}, "
+            f"duplicates={report['duplicate_face_count']}, "
+            f"boundary_edges={report['boundary_edge_count']}, "
+            f"nonmanifold_edges={report['nonmanifold_edge_count']}, "
+            f"orientation_conflicts={report['orientation_conflict_edge_count']}, "
+            f"watertight_candidate={report['watertight_candidate']}, "
+            f"orientation_consistent_candidate={report['orientation_consistent_candidate']}"
+        )
+
+
+    # -----------------------------------------------------------
     # GLOBAL ANALYSIS
     # -----------------------------------------------------------
 

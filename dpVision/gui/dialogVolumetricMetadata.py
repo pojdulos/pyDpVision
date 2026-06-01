@@ -96,6 +96,7 @@ class DialogVolumetricMetadata(QDialog):
 		return group2
 
 	def on_ok_button(self):
+		"""Apply edited origin and spacing values to all slices in the volume."""
 		posX = self.input1.value()
 		posY = self.input2.value()
 		posZ = self.input3.value()
@@ -116,6 +117,7 @@ class DialogVolumetricMetadata(QDialog):
 
 			self.volum.metadata[i].pixel_spacing[0] = vsizeX
 			self.volum.metadata[i].pixel_spacing[1] = vsizeY
+			self.volum.metadata[i].voxel_spacing = [vsizeX, vsizeY, vsizeZ]
 			self.volum.metadata[i].slice_distance = vsizeZ
 			self.volum.metadata[i].slice_thickness = vsizeZ
 	

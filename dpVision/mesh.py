@@ -25,6 +25,7 @@ class Mesh(PointCloud):
 			self.alpha = 1.0
 			self.shinines = 0.0
 			self.dTexFileName = ''
+			self.dTexImage = None
 			self.dTexture = None
 
 		def hasTexture(self):
@@ -47,6 +48,8 @@ class Mesh(PointCloud):
 		self.vao = None
 		self.shader_program = None
 		self.uniform_locs = {}  # Cache dla uniform locations
+		self.wboit_shader = None
+		self.wboit_uniform_locs = {}
 		self.vBuf = None
 		self.iBuf = None
 		self.cBuf = None
@@ -562,26 +565,186 @@ class Mesh(PointCloud):
 
 	# 	glUseProgram(0) # Wyłączenie programu shaderów
 
+	@property
+	def is_transparent(self):
+		alpha = self.materials[self.currentMaterial].alpha
+		result = self.gl_renderAs==GL_TRIANGLES and alpha < 0.999
+		# Debug: print tylko gdy się zmienia
+		if not hasattr(self, '_last_is_transparent') or self._last_is_transparent != result:
+			print(f"[MESH] '{self.label}' is_transparent changed: {getattr(self, '_last_is_transparent', None)} -> {result} (alpha={alpha:.3f})")
+			self._last_is_transparent = result
+		return result
+
+	def _compile_wboit_shader(self):
+		"""Kompiluje shader WBOIT dla tego mesha."""
+		print(f"[WBOIT] Kompilowanie WBOIT shader...")
+		try:
+			vs = load_and_compile_shader('mesh.vert', GL_VERTEX_SHADER)
+			fs = load_and_compile_shader('wboit_mesh.frag', GL_FRAGMENT_SHADER)
+			prog = glCreateProgram()
+			glAttachShader(prog, vs)
+			glAttachShader(prog, fs)
+			glLinkProgram(prog)
+			if not glGetProgramiv(prog, GL_LINK_STATUS):
+				print(glGetProgramInfoLog(prog))
+				glDeleteProgram(prog)
+				return
+			glDeleteShader(vs)
+			glDeleteShader(fs)
+			
+			# USUŃ stary shader jeśli istnieje
+			if self.wboit_shader is not None:
+				glDeleteProgram(self.wboit_shader)
+				
+			self.wboit_shader = prog
+			self.wboit_uniform_locs = {
+				'model':          glGetUniformLocation(prog, 'model'),
+				'view':           glGetUniformLocation(prog, 'view'),
+				'projection':     glGetUniformLocation(prog, 'projection'),
+				'myColor':        glGetUniformLocation(prog, 'myColor'),
+				'useVColors':     glGetUniformLocation(prog, 'useVColors'),
+				'useVNormals':    glGetUniformLocation(prog, 'useVNormals'),
+				'useTexture':     glGetUniformLocation(prog, 'useTexture'),
+				'useFlatShading': glGetUniformLocation(prog, 'useFlatShading'),
+				'texture1':       glGetUniformLocation(prog, 'texture1'),
+				'u_wboit_pass':   glGetUniformLocation(prog, 'u_wboit_pass'),
+				'u_cameraPos':    glGetUniformLocation(prog, 'u_cameraPos'),
+			}
+			print(f"[WBOIT] Shader skompilowany: program={prog}")
+		except Exception as e:
+			print(f"WBOIT mesh shader error: {e}")
+			self._shader_failed = True
+
+	def _apply_polygon_mode(self):
+		if self.gl_renderAs == GL_POINTS:
+			glPolygonMode(GL_FRONT, GL_POINT)
+			glPolygonMode(GL_BACK, GL_POINT)
+		elif self.gl_renderAs == GL_LINES:
+			glPolygonMode(GL_FRONT, GL_LINE)
+			glPolygonMode(GL_BACK, GL_LINE)
+		else:
+			glPolygonMode(GL_FRONT, GL_FILL)
+			glPolygonMode(GL_BACK, GL_FILL)
+
+	def render_wboit(self, pass_idx, cull_mode=None, camera_pos=None):
+		"""WBOIT rendering – tylko dla przezroczystych mesha (is_transparent=True).
+		Wywoływane gdy AP.wboit_pass >= 0.
+		"""
+		# Renderujemy wyłącznie przezroczyste meshe – nieprzezroczyste są obsługiwane
+		# w normalnym opaque pass z poprawnym depth testem.
+		if not self.is_transparent:
+			return
+		
+		if not len(self.m_faces):
+			return
+		
+		if getattr(self, '_shader_failed', False):
+			return
+		if self.wboit_shader is None:
+			self._compile_wboit_shader()
+		if self.wboit_shader is None:
+			return
+		# Ensure geometry is uploaded to GPU (may not have happened if mesh is always transparent)
+		if not self._gpu_uploaded:
+			glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE)
+			glDepthMask(GL_FALSE)
+			self.renderWithShaders2()
+			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)
+			# Przywróć WBOIT state - renderWithShaders2() może zmieniać GL state
+			glDepthMask(GL_FALSE)
+		if self.vao is None:
+			return
+
+		# Workspace ustawia stan OpenGL - mesh tylko używa
+		glUseProgram(self.wboit_shader)
+		glUniform1i(self.wboit_uniform_locs['u_wboit_pass'], pass_idx)
+
+		mat = self.materials[self.currentMaterial]
+		dC  = mat.diffuse + [mat.alpha]
+		glUniform4f(self.wboit_uniform_locs['myColor'], *dC)
+
+		drawC = self.cBuf is not None
+		drawN = self.nBuf is not None
+		drawT = (self.b_renderTexture and mat.hasTexture()
+		         and self.m_tindices.shape[0] == self.m_faces.shape[0])
+
+		glUniform1i(self.wboit_uniform_locs['useVColors'],    1 if drawC else 0)
+		glUniform1i(self.wboit_uniform_locs['useVNormals'],   1 if drawN else 0)
+		glUniform1i(self.wboit_uniform_locs['useFlatShading'], 0 if self.b_renderSmooth else 1)
+
+		if drawT:
+			glActiveTexture(GL_TEXTURE0)
+			glBindTexture(GL_TEXTURE_2D, mat.dTexture.textureId())
+			glUniform1i(self.wboit_uniform_locs['texture1'],  0)
+			glUniform1i(self.wboit_uniform_locs['useTexture'], 1)
+		else:
+			glUniform1i(self.wboit_uniform_locs['useTexture'], 0)
+
+		model      = np.empty((4, 4), dtype=np.float32)
+		projection = np.empty((4, 4), dtype=np.float32)
+		view       = np.identity(4,   dtype=np.float32)
+		glGetFloatv(GL_MODELVIEW_MATRIX,  model)
+		glGetFloatv(GL_PROJECTION_MATRIX, projection)
+		glUniformMatrix4fv(self.wboit_uniform_locs['model'],      1, GL_FALSE, model)
+		glUniformMatrix4fv(self.wboit_uniform_locs['view'],       1, GL_FALSE, view)
+		glUniformMatrix4fv(self.wboit_uniform_locs['projection'], 1, GL_FALSE, projection)
+		
+		# Przekaż pozycję kamery do weight function
+		if camera_pos is not None:
+			glUniform3f(self.wboit_uniform_locs['u_cameraPos'], *camera_pos)
+		else:
+			# Fallback - użyj (0, 0, 200) jako domyślna pozycja kamery
+			glUniform3f(self.wboit_uniform_locs['u_cameraPos'], 0.0, 0.0, 200.0)
+
+		glPolygonMode(GL_FRONT, GL_FILL)
+		glPolygonMode(GL_BACK, GL_FILL)
+		glBindVertexArray(self.vao)
+		
+		# Workspace ustawia culling - mesh tylko rysuje
+		# (Nie robimy tutaj włączania/wyłączania culling ani dwóch draw calls)
+		glDrawElements(GL_TRIANGLES, len(self.iBuf), GL_UNSIGNED_INT, None)
+		
+		glBindVertexArray(0)
+		glUseProgram(0)
+
 	def renderSelf(self):
+		from .globals import AP
+		
+		if AP.wboit_pass is not None:
+			if AP.wboit_pass >= 0:
+				# WBOIT passes (0=accum, 1=reveal): tylko przezroczyste meshe przez WBOIT shader.
+				# Nieprzezroczyste są już wyrenderowane w opaque pass – pomijamy je tutaj.
+				if self.is_transparent:
+					self.render_wboit(AP.wboit_pass)
+				return
+			else:
+				# AP.wboit_pass == -1: opaque-only pass.
+				# Pomijamy przezroczyste – zostaną wyrenderowane przez WBOIT.
+				if self.is_transparent:
+					return
+				# Nieprzezroczyste: przepadaj do normalnego renderowania poniżej.
+		
+		# Normalne renderowanie
 		if not len(self.m_faces):
 			PointCloud.renderSelf(self)
-		else:	
+		else:
 			glEnable(GL_COLOR_MATERIAL)
 			glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
+			self._apply_polygon_mode()
 
-			if self.gl_renderAs == 0:
-				glPolygonMode(GL_FRONT, GL_POINT)
-				glPolygonMode(GL_BACK, GL_POINT)
-				#glEnable(GL_POINT_SMOOTH)
-				#glPointSize(1)
-			elif self.gl_renderAs == 1:
-				glPolygonMode(GL_FRONT, GL_LINE)
-				glPolygonMode(GL_BACK, GL_LINE)
+			if self.is_transparent:
+				# Dwuprzebiegowy render dla przezroczystych zamkniętych siatek:
+				# 1. tylne ścianki (back faces) – rysowane pierwsze (dalej od kamery)
+				# 2. przednie ścianki (front faces) – rysowane drugie (bliżej kamery)
+				# Gwarantuje poprawny back-to-front bez sortowania trójkątów.
+				glEnable(GL_CULL_FACE)
+				glCullFace(GL_FRONT)
+				self.renderWithShaders2()
+				glCullFace(GL_BACK)
+				self.renderWithShaders2()
+				glDisable(GL_CULL_FACE)
 			else:
-				glPolygonMode(GL_FRONT, GL_FILL)
-				glPolygonMode(GL_BACK, GL_FILL)
-
-			self.renderWithShaders2()
+				self.renderWithShaders2()
 
 			glDisable(GL_COLOR_MATERIAL)
 

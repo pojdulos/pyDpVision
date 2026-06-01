@@ -13,8 +13,9 @@ out vec4 FragColor;
 
 void main()
 {
-    vec3 lightPos = vec3(0, 100, 600);  // Pozycja światła
+    //vec3 lightPos = vec3(0, 100, 600);  // Pozycja światła
     vec3 viewPos = vec3(0, 0, 200);  // Pozycja obserwatora/kamery
+    vec3 lightPos = viewPos;
     vec3 lightColor = vec3(1.0, 1.0, 1.0);  // Kolor światła
     float ambientStrength = 0.6;
     float specularStrength = 0.5;  // Siła światła spekularnego
@@ -34,13 +35,13 @@ void main()
 
     vec3 result = (ambientStrength * lightColor + diffuse + specular) * vertexColor.rgb;
 
-    if (useTexture)
-    {
+  if (useTexture)
+  {
 		vec4 texColor = texture(texture1, TexCoord);  // Odczytanie koloru z tekstury
 		FragColor = vec4(result, 1.0) * texColor;  // Mieszanie koloru tekstury z oświetleniem
-	  }
-    else
-    {
+	}
+  else
+  {
 		FragColor = vec4(result, vertexColor.a);
 	}
 }

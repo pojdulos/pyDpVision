@@ -18,6 +18,12 @@
                 }
             ]
         }
-    ]
+    ],
+    "cursorpyright.analysis.typeCheckingMode": "off"
     
+    "latex-workshop.latex.outDir": "%DIR%/.output_local",
+    "latex-workshop.latex.autoBuild.run": "onSave",
+    "ltex.enabled": true,
+    "ltex.language": "en-US",
+    "ltex.additionalRules.motherTongue": "pl-PL",
 }

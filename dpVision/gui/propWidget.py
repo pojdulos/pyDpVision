@@ -31,20 +31,22 @@ class PropWidget(QWidget):
 
 	@staticmethod
 	def build(content, parent=None):
+		"""Build one composite property widget that can expand with the dock width."""
 		widget = PropWidget(parent)
 		#widget = QStackedWidget(parent)
 		layout = QVBoxLayout(widget)
 		# QFormLayout* layout = new QFormLayout(widget);
+		layout.setContentsMargins(0, 0, 0, 0)
 
 		for subwidget in content:
 			subwidget.object_updated.connect(widget.on_object_updated_by_subwidget)
 			layout.addWidget( subwidget )
 	
-		widget.resize(layout.sizeHint())
-		widget.setMinimumSize(layout.sizeHint())
-		widget.setMaximumSize(layout.sizeHint())
+		widget.adjustSize()
+		widget.setMinimumWidth(0)
+		widget.setMaximumWidth(16777215)
+		widget.setMaximumHeight(16777215)
 	
-		widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+		widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 	
 		return widget
-

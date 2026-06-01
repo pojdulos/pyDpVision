@@ -8,13 +8,19 @@ Konwersje między typami obiektów:
 import numpy as np
 
 
-def verts_to_grid25D(verts, lateral_tol=1e-3, completeness_threshold=0.5):
+def _ensure_running(is_running):
+    if is_running is not None and not is_running():
+        raise RuntimeError("Przerwano")
+
+
+def verts_to_grid25D(verts, lateral_tol=1e-3, completeness_threshold=0.5, is_running=None):
     """
     Konwertuje tablicę wierzchołków (N, 3) float na GridData64.
     Zwraca GridData64 lub None jeśli dane nie tworzą regularnego gridu 2.5D.
     """
     from .gridData64 import GridData64
 
+    _ensure_running(is_running)
     verts = np.asarray(verts, dtype=np.float64)
     xs_u = np.unique(np.round(verts[:, 0], 6))
     ys_u = np.unique(np.round(verts[:, 1], 6))
@@ -25,6 +31,7 @@ def verts_to_grid25D(verts, lateral_tol=1e-3, completeness_threshold=0.5):
 
     dx = np.diff(xs_u)
     dy = np.diff(ys_u)
+    _ensure_running(is_running)
     stepX = float(np.median(dx))
     stepY = float(np.median(dy))
 
@@ -42,6 +49,7 @@ def verts_to_grid25D(verts, lateral_tol=1e-3, completeness_threshold=0.5):
         print(f"[verts→grid] wypełnienie {completeness:.2f} < {completeness_threshold}")
         return None
 
+    _ensure_running(is_running)
     print(f"[verts→grid] grid {nx}×{ny}, stepX={stepX:.6f}, stepY={stepY:.6f}, "
           f"wypełnienie={completeness:.2f}")
 
@@ -63,19 +71,21 @@ def verts_to_grid25D(verts, lateral_tol=1e-3, completeness_threshold=0.5):
     grid_flat[valid] = sums[valid] / cnts[valid]
     grid = grid_flat.reshape(ny, nx)
 
+    _ensure_running(is_running)
     g = GridData64(grid, stepX=stepX, stepY=stepY,
                    offsetX=float(xs_u[0]), offsetY=float(ys_u[0]))
     return g
 
 
-def mesh_to_grid25D(mesh, lateral_tol=1e-3, completeness_threshold=0.5):
+def mesh_to_grid25D(mesh, lateral_tol=1e-3, completeness_threshold=0.5, is_running=None):
     """
     Próbuje przekonwertować Mesh na GridData64.
     Zwraca GridData64 lub None jeśli dane nie są gridem 2.5D.
     """
     verts = np.asarray(mesh.m_vertices, dtype=np.float64)
     g = verts_to_grid25D(verts, lateral_tol=lateral_tol,
-                         completeness_threshold=completeness_threshold)
+                         completeness_threshold=completeness_threshold,
+                         is_running=is_running)
     if g is not None:
         g.label = getattr(mesh, 'label', 'grid')
     return g

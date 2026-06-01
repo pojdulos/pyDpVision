@@ -1,4 +1,5 @@
 import sys, os
+from PyQt5.QtCore import QTimer
 
 class Globals:
 	_instance = None
@@ -11,6 +12,7 @@ class Globals:
 			cls._instance.settings = None
 			#cls._instance.docksettings = None
 			cls._instance.mouse_key_pressed = False
+		cls._instance.wboit_pass = None  # None = normalny render, -1 = opaque-only pass, 0 = WBOIT accum, 1 = WBOIT reveal
 		return cls._instance
 
 	# def updateGlobals(self):
@@ -41,6 +43,7 @@ class Globals:
 		else:
 			self.mainWin.workspace.m_data.remove(child)
 		self.mainWin.dock["workspace"].removeItem(child)
+		self.mainWin.dock["properties"].selectionChanged(None)
 
 	def updateProperties(self):
 		self.mainWin.dock["properties"].updateProperties()
@@ -48,6 +51,7 @@ class Globals:
 	def updateAllViews(self):
 		for v in self.mainWin.allGLViewers():
 			v.update()
+			QTimer.singleShot(0, v.update)
 
 	def not_implemented(self):
 		from PyQt5.QtWidgets import QMessageBox

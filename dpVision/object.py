@@ -7,23 +7,23 @@ Created on Sat Nov 25 13:15:53 2023
 
 from .baseObject import BaseObject
 
+
 class Object(BaseObject):
 	def __init__(self, parent=None):
-		super( Object, self ).__init__( parent )
+		super(Object, self).__init__(parent)
 		self.m_data = []
 		self._dirty = True
 		self._cached_bb = None
 		self._cached_midpoint = None
 
-
 	def children(self):
 		return self.m_data
 	
 	def types_to_tuple(self, types):
-		# Jeśli to pojedynczy typ (np. GridData64)
+		# Jeżeli to pojedynczy typ (np. GridData64)
 		if isinstance(types, type):
 			types = (types,)
-		# Jeśli to list/set/numpy array itp. → rzutuj na tuple
+		# Jeżeli to list/set/numpy array itp. -> rzutuj na tuple
 		elif not isinstance(types, tuple):
 			try:
 				types = tuple(types)
@@ -45,17 +45,14 @@ class Object(BaseObject):
 			if kid_label == label:
 				results.append(kid)
 
-			# if issubclass(type(kid), Object) or isinstance(kid, Object):
 			if isinstance(kid, Object):
-				# Rekurencyjne przeszukiwanie dzieci
-				results.extend( kid.children_by_label(label, case_sensitive, types) )
+				results.extend(kid.children_by_label(label, case_sensitive, types))
 
 		if types:
 			types = self.types_to_tuple(types)
 			results = [kid for kid in results if isinstance(kid, types)]
 
 		return results
-
 
 	def addChild(self, d):
 		if d is None or not issubclass(type(d), BaseObject):
@@ -64,7 +61,7 @@ class Object(BaseObject):
 		if d.parent is not None:
 			d.parent.removeChild(d)
 		d.parent = self
-		self.m_data.append( d )
+		self.m_data.append(d)
 		self.invalidate_bb()
 		return True
 
@@ -85,39 +82,54 @@ class Object(BaseObject):
 		self._dirty = True
 		self._cached_bb = None
 		self._cached_midpoint = None
-		super().invalidate_bb()  # propagacja w górę
+		super().invalidate_bb()
 
-	def getBB(self):
-		# return False, None, None
+	@staticmethod
+	def _merge_bb(current, other):
+		if other is None:
+			return current
+
+		other_b, other_min, other_max = other
+		if not other_b or other_min is None or other_max is None:
+			return current
+
+		if current is None:
+			return True, list(other_min), list(other_max)
+
+		_, current_min, current_max = current
+		merged_min = [min(m1, m2) for m1, m2 in zip(current_min, other_min)]
+		merged_max = [max(m1, m2) for m1, m2 in zip(current_max, other_max)]
+		return True, merged_min, merged_max
+
+	def getLocalBB(self):
+		return False, None, None
+
+	def getHierarchyBB(self):
 		if not self._dirty and self._cached_bb is not None:
 			return self._cached_bb
 
-		_b = False
-		_min, _max = None, None
+		bb = self._merge_bb(None, self.getLocalBB())
 
 		for kid in self.m_data:
-			kid_bb = kid.getBB()
-			if kid_bb is not None:
-				kid_b, kid_min, kid_max = kid_bb
-				if kid_b:
-					if _min is None:
-						_min, _max = kid_min, kid_max
-					else:
-						_min = [min(m1, m2) for m1, m2 in zip(_min, kid_min)]
-						_max = [max(m1, m2) for m1, m2 in zip(_max, kid_max)]
-					_b = True
+			bb = self._merge_bb(bb, kid.getHierarchyBBInParentSpace())
 
-		self._cached_bb = (_b, _min, _max)
+		if bb is None:
+			bb = (False, None, None)
+
+		self._cached_bb = bb
 		self._dirty = False
 		return self._cached_bb
+
+	# def getBB(self):
+	# 	return self.getHierarchyBB()
 
 	def getMidpoint(self):
 		if not self._dirty and self._cached_midpoint is not None:
 			return self._cached_midpoint
 
-		_b, _min, _max = self.getBB()
+		_b, _min, _max = self.getHierarchyBB()
 		if not _b:
-			return [0.0,0.0,0.0]
+			return [0.0, 0.0, 0.0]
 
 		ctr = [(m1 + m2) / 2 for m1, m2 in zip(_min, _max)]
 		self._cached_midpoint = ctr

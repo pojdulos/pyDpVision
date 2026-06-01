@@ -84,6 +84,78 @@ def _build_objects_from_npz(npz_path):
     return root
 
 
+def _iter_sphere_grids(node):
+    if node is None:
+        return
+    if isinstance(node, SphereGrid):
+        yield node
+    for child in node.children():
+        yield from _iter_sphere_grids(child)
+
+
+def _sphere_grid_to_e57_scan(grid):
+    rows, cols = grid.shape
+    row_idx, col_idx = np.where(grid.mask)
+    if len(row_idx) == 0:
+        return None
+
+    ranges = np.asarray(grid.range_map[row_idx, col_idx], dtype=np.float64)
+
+    if getattr(grid, '_az_per_col', None) is not None:
+        az_deg = np.asarray(grid._az_per_col, dtype=np.float64)[col_idx]
+    else:
+        az_deg = grid.azimuth_range[0] + (col_idx.astype(np.float64) + 0.5) * (
+            (grid.azimuth_range[1] - grid.azimuth_range[0]) / cols
+        )
+
+    if getattr(grid, '_el_per_row', None) is not None:
+        el_deg = np.asarray(grid._el_per_row, dtype=np.float64)[row_idx]
+    else:
+        el_deg = grid.elevation_range[0] + (row_idx.astype(np.float64) + 0.5) * (
+            (grid.elevation_range[1] - grid.elevation_range[0]) / rows
+        )
+
+    az = np.deg2rad(az_deg)
+    el = np.deg2rad(el_deg)
+    cos_el = np.cos(el)
+    origin = np.asarray(grid.origin, dtype=np.float64)
+
+    x = ranges * cos_el * np.cos(az) + origin[0]
+    y = ranges * cos_el * np.sin(az) + origin[1]
+    z = ranges * np.sin(el) + origin[2]
+
+    scan = {
+        'name': getattr(grid, 'label', 'SphereGrid'),
+        'cartesianX': x.astype(np.float64),
+        'cartesianY': y.astype(np.float64),
+        'cartesianZ': z.astype(np.float64),
+        'rowIndex': row_idx.astype(np.uint16),
+        'columnIndex': col_idx.astype(np.uint16),
+    }
+
+    if grid.intensity is not None:
+        intensity = np.asarray(grid.intensity[row_idx, col_idx], dtype=np.float32)
+        scan['intensity'] = intensity.astype(np.float32)
+
+    if grid.rgb is not None:
+        rgb = np.asarray(grid.rgb)
+        if rgb.shape[:2] == grid.shape:
+            rgb_valid = rgb[row_idx, col_idx]
+        elif rgb.shape[0] == rows - 1 and rgb.shape[1] == cols - 1:
+            rr = np.clip(row_idx, 0, rgb.shape[0] - 1)
+            cc = np.clip(col_idx, 0, rgb.shape[1] - 1)
+            rgb_valid = rgb[rr, cc]
+        else:
+            rgb_valid = None
+
+        if rgb_valid is not None:
+            scan['colorRed'] = np.asarray(rgb_valid[:, 0], dtype=np.uint8)
+            scan['colorGreen'] = np.asarray(rgb_valid[:, 1], dtype=np.uint8)
+            scan['colorBlue'] = np.asarray(rgb_valid[:, 2], dtype=np.uint8)
+
+    return scan
+
+
 # ---------------------------------------------------------------------------
 # Worker (subprocess w osobnym Python thread)
 # ---------------------------------------------------------------------------
@@ -179,6 +251,7 @@ class ParserE57(Parser):
 
     descr     = 'E57 3D scan files'
     load_exts = ['.e57']
+    save_exts = ['.e57']
 
     def __init__(self, path):
         super().__init__()
@@ -189,24 +262,31 @@ class ParserE57(Parser):
     def is_not_static(cls):
         return True
 
+    @classmethod
+    def canSaveObject(cls, obj):
+        return any(True for _ in _iter_sphere_grids(obj))
+
     def _on_finished(self, obj):
+        self._emit_progress_finished()
         self.loadingFinished.emit(obj)
 
     def _on_error(self, msg):
+        self._emit_progress_finished()
         print(f"B\u0142\u0105d wczytywania E57: {msg}", flush=True)
         self.errorOccurred.emit()
 
     def on_stop_loading(self):
         if self._worker:
             self._worker.stop()
+        self._emit_progress_finished()
 
     def load_async(self, progressBar=None):
         print(f"parserE57.load_async() dla '{self.path}'", flush=True)
         self._worker = E57LoaderWorker(self.path)
+        self._emit_progress_started(0, 100, 0, "Wczytywanie pliku E57")
+        self._connect_worker_progress(self._worker)
         self._worker.loadingFinished.connect(self._on_finished)
         self._worker.errorOccurred.connect(self._on_error)
-        if progressBar is not None:
-            self._worker.progressChanged.connect(progressBar.setValue)
         self._worker.start()
 
     @staticmethod
@@ -225,6 +305,54 @@ class ParserE57(Parser):
         except Exception as e:
             import traceback; traceback.print_exc()
             return None
+        finally:
+            try:
+                os.unlink(npz_path)
+            except Exception:
+                pass
+
+    @staticmethod
+    def save(obj, path):
+        scans = []
+        for grid in _iter_sphere_grids(obj):
+            scan = _sphere_grid_to_e57_scan(grid)
+            if scan is not None:
+                scans.append(scan)
+
+        if not scans:
+            print("ParserE57.save: brak SphereGrid do zapisu")
+            return False
+
+        npz_fd, npz_path = tempfile.mkstemp(suffix='.npz')
+        os.close(npz_fd)
+        try:
+            arrays = {
+                'meta': np.array(json.dumps({
+                    'label': getattr(obj, 'label', os.path.basename(path)),
+                    'scans': [{'name': scan['name']} for scan in scans],
+                }), dtype=object)
+            }
+            for idx, scan in enumerate(scans):
+                prefix = f'scan_{idx}'
+                for key, value in scan.items():
+                    if key == 'name':
+                        continue
+                    arrays[f'{prefix}_{key}'] = value
+
+            np.savez_compressed(npz_path, **arrays)
+
+            cmd = [sys.executable, _WORKER_SCRIPT, '--write', npz_path, path]
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            if result.returncode != 0:
+                print(result.stdout, flush=True)
+                print(result.stderr, flush=True)
+                return False
+            return True
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"ParserE57.save: {e}", flush=True)
+            return False
         finally:
             try:
                 os.unlink(npz_path)

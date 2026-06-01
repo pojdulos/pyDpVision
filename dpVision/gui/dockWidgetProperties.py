@@ -15,15 +15,19 @@ from .propWidget import PropWidget
 from .propViewer import PropViewer
 from .propBaseObject import PropBaseObject
 from .propMesh import PropMesh
+from .propPointCloud import PropPointCloud
 from .propNDimCloud import PropNDimCloud
 from .propTransform import PropTransform
+from .propVirtualXRay import PropVirtualXRay
 from .propAnnotation import PropAnnotation
+from .propAnnotationElipsoide import PropAnnotationElipsoide
 from .propAnnotationPlane import PropAnnotationPlane
 from .propAnnotationPoint import PropAnnotationPoint
 from .propAnnotationSphere import PropAnnotationSphere
 from .propGridData64 import PropGridData64
 from .propSphereGrid import PropSphereGrid
 from .propDHJoint import PropDHJoint
+from .propImage import PropImage
 
 from .. import BaseObject, Object, Annotation, AP
 
@@ -54,15 +58,18 @@ class DockWidgetProperties(QDockWidget):
 				'Transform': PropTransform,
 				'DHJoint': PropDHJoint,
 				'Mesh' : PropMesh,
-				#'PointCloud' : PropMesh,
+				'PointCloud' : PropPointCloud,
 				'GridData64' : PropGridData64,
 				'SphereGrid' : PropSphereGrid,
 				'NDimCloud': PropNDimCloud,
+				'Image': PropImage,
 				'Motion': PropMotion,
 				'Volumetric': PropVolumetric,
+				'VirtualXRay': PropVirtualXRay,
 				'default': PropBaseObject,
 			},
 			Annotation: {
+				'AnnotationElipsoide': PropAnnotationElipsoide,
 				'AnnotationPlane': PropAnnotationPlane,
 				'AnnotationPoint': PropAnnotationPoint,
 				'AnnotationSphere': PropAnnotationSphere,
@@ -77,6 +84,11 @@ class DockWidgetProperties(QDockWidget):
 	
 	@pyqtSlot(QObject)	
 	def selectionChanged( self, obj ):
+		if obj is None:
+			self.m_widget = PropWidget()
+			self.m_widget.object_updated.connect(self.on_object_updated_by_widget)
+			self.addWidgetToScrollArea(self.m_widget)
+			return
 		name = obj.__class__.__name__
 		#print(name+" selected")
 
@@ -110,10 +122,11 @@ class DockWidgetProperties(QDockWidget):
 		self.update()
 
 	def addWidgetToScrollArea(self, widget):
+		"""Install one property widget into the scroll area without vertically squashing it."""
 		if not widget is None:
-			widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-			adjustSize = widget.size()
-			widget.setMinimumSize(adjustSize)
+			widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+			widget.setMinimumWidth(0)
+			widget.adjustSize()
 	
 		self.m_scroll.setWidgetResizable(True)
 		self.m_scroll.setWidget(widget)

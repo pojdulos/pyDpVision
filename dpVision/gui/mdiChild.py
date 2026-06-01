@@ -9,7 +9,24 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout
 from enum import Enum
 
 from .gLViewer import GLViewer
-# class syntax
+from .imageViewer import ImageViewer
+
+
+class ImageViewerChild(QWidget):
+    """MDI child widget that wraps an ImageViewer.
+    m_widget points back to the source Image object so that the properties
+    dock shows PropImage when this sub-window is activated."""
+
+    def __init__(self, image_obj, parent=None):
+        super().__init__(parent)
+        self.m_widget = image_obj  # keeps properties dock in sync
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._viewer = ImageViewer(image_obj, self)
+        layout.addWidget(self._viewer)
 
 
 class MdiChild(QWidget):
@@ -69,4 +86,26 @@ class MdiChild(QWidget):
 
         return subWindow
 
-        
+    @staticmethod
+    def create_image_viewer(image_obj, mdiArea, show=None):
+        """Open a flat image viewer sub-window for *image_obj* (an Image instance)."""
+        if show is None:
+            show = MdiChild.Show.Normal
+
+        child = ImageViewerChild(image_obj, mdiArea)
+        child.setMinimumSize(400, 300)
+
+        subWindow = mdiArea.addSubWindow(child)
+        label = getattr(image_obj, 'label', 'Image')
+        subWindow.setWindowTitle(f"Image: {label}")
+
+        match show:
+            case MdiChild.Show.Minimized:
+                subWindow.showMinimized()
+            case MdiChild.Show.Maximized:
+                subWindow.showMaximized()
+            case MdiChild.Show.Normal:
+                subWindow.showNormal()
+
+        subWindow.update()
+        return subWindow

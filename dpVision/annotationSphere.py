@@ -7,118 +7,172 @@ Created on Sat Nov 25 13:15:53 2023
 
 from .annotation import Annotation
 from .sphere import Sphere
-import math
+from .mesh import Mesh
 
 import numpy as np
 import OpenGL.GL as gl
 
 class AnnotationSphere(Annotation, Sphere):
-    def __init__(self, parent=None):
-        Annotation.__init__(self, parent)
-        Sphere.__init__(self)
+    def __init__(self, parent=None,
+                    position=[0.0, 0.0, 0.0],
+                    radius=1.0,
+                    color=[0,255,255,128],
+                    selcolor=[255,0,0,128]):
 
-        # Parametry sfery
+        Annotation.__init__(self, parent, color, selcolor)
+        Sphere.__init__(self, position, radius)
+
         self.m_lats = 32
         self.m_longs = 32
 
-        # VBO
-        self.vertex_vbo = None
-#        self.color_vbo = None
-        self.vertex_data = []
-#        self.color_data = []
-
-        # Flaga wskazująca, czy VBO zostało zainicjalizowane
+        self._mesh_cache = None
         self._is_initialized = False
 
-    def generateSphereData(self):
-        self.vertex_data.clear()
+    # --- nadpisanie setterów Sphere aby invalidować geometrię ---
+
+    @Sphere.radius.setter
+    def radius(self, value):
+        Sphere.radius.fset(self, value)
+        self._mark_geometry_dirty()
+
+    # --- cache geometrii ---
+
+    def _mark_geometry_dirty(self):
+        self._is_initialized = False
+        self._mesh_cache = None
+
+    def _build_mesh_geometry(self):
+        vertices = []
+        faces = []
+
+        for i in range(self.m_lats + 1):
+            lat = np.pi * (-0.5 + float(i) / self.m_lats)
+            z = np.sin(lat) * self._radius
+            zr = np.cos(lat) * self._radius
+
+            for j in range(self.m_longs):
+                lng = 2.0 * np.pi * float(j) / self.m_longs
+                x = np.cos(lng) * zr
+                y = np.sin(lng) * zr
+                vertices.append([x, y, z])
+
+        def vertex_index(lat_idx, long_idx):
+            return lat_idx * self.m_longs + (long_idx % self.m_longs)
+
         for i in range(self.m_lats):
-            lat0 = np.pi * (-0.5 + float(i) / self.m_lats)
-            z0 = np.sin(lat0)
-            zr0 = np.cos(lat0)
+            for j in range(self.m_longs):
+                i0 = vertex_index(i, j)
+                i1 = vertex_index(i + 1, j)
+                i2 = vertex_index(i + 1, j + 1)
+                i3 = vertex_index(i, j + 1)
 
-            lat1 = np.pi * (-0.5 + float(i + 1) / self.m_lats)
-            z1 = np.sin(lat1)
-            zr1 = np.cos(lat1)
+                if i != 0:
+                    faces.append([i0, i1, i3])
+                if i != self.m_lats - 1:
+                    faces.append([i1, i2, i3])
 
-            for j in range(self.m_longs + 1):
-                lng = 2 * np.pi * float(j) / self.m_longs
-                x = np.cos(lng)
-                y = np.sin(lng)
+        mesh = Mesh.create(vertices=vertices, faces=faces)
+        mesh.label = getattr(self, 'label', 'AnnotationSphere')
+        mesh.description = getattr(self, 'description', '')
+        mesh.b_renderSmooth = True
+        mesh.gl_renderAs = gl.GL_TRIANGLES
+        return mesh
 
-                # Wierzchołki bez przesunięcia — sfera wokół (0,0,0)
-                self.vertex_data.extend([
-                    self._radius * x * zr0,
-                    self._radius * y * zr0,
-                    self._radius * z0
-                ])
-                self.vertex_data.extend([
-                    self._radius * x * zr1,
-                    self._radius * y * zr1,
-                    self._radius * z1
-                ])
+    def _ensure_geometry(self):
+        if not self._is_initialized:
+            self._mesh_cache = self._build_mesh_geometry()
+            self._is_initialized = True
 
-    def initVBO(self):
-        # Konwertowanie listy na tablicę numpy
-        vertex_array = np.array(self.vertex_data, dtype=np.float32)
-#        color_array = np.array(self.color_data, dtype=np.float32)
+    def _sync_mesh_material(self):
+        self._ensure_geometry()
+        qcolor = self._active_qcolor()
+        material = self._mesh_cache.materials[self._mesh_cache.currentMaterial]
+        material.diffuse = [qcolor.redF(), qcolor.greenF(), qcolor.blueF()]
+        material.alpha = qcolor.alphaF()
 
-        # Tworzenie VBO dla wierzchołków
-        self.vertex_vbo = gl.glGenBuffers(1)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vertex_vbo)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, vertex_array.nbytes, vertex_array, gl.GL_STATIC_DRAW)
+    # --- rendering ---
 
-        # Tworzenie VBO dla kolorów
-#        self.color_vbo = gl.glGenBuffers(1)
-#        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_vbo)
-#        gl.glBufferData(gl.GL_ARRAY_BUFFER, color_array.nbytes, color_array, gl.GL_STATIC_DRAW)
+    def _render_wireframe(self):
+        n_lat = 8
+        n_lon = 8
+        n_seg = 64
+        r = self._radius
 
-        # Flaga inicjalizacji ustawiona na True
-        self._is_initialized = True
-
-    def drawSphere(self):
-        # Włączenie tablicy wierzchołków
-        gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vertex_vbo)
-        gl.glVertexPointer(3, gl.GL_FLOAT, 0, None)
-
-        # Włączenie tablicy kolorów
-#        gl.glEnableClientState(gl.GL_COLOR_ARRAY)
-#        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.color_vbo)
-#        gl.glColorPointer(3, gl.GL_FLOAT, 0, None)
-
-        # Rysowanie sfery jako GL_QUAD_STRIP
-        for i in range(self.m_lats):
-            gl.glDrawArrays(gl.GL_QUAD_STRIP, i * (self.m_longs + 1) * 2, (self.m_longs + 1) * 2)
-
-        # Wyłączenie tablic
-        gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
-#        gl.glDisableClientState(gl.GL_COLOR_ARRAY)
-
-    def renderSelf(self):
         gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
-
         gl.glDisable(gl.GL_TEXTURE_2D)
-        gl.glEnable(gl.GL_COLOR_MATERIAL)
-        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
-
-        gl.glEnable(gl.GL_CULL_FACE)
-        gl.glCullFace(gl.GL_FRONT)
-
-        if self.checked:
-            gl.glColor4ub(self.m_selcolor.red(), self.m_selcolor.green(), self.m_selcolor.blue(), self.m_selcolor.alpha())
-        else:
-            gl.glColor4ub(self.m_color.red(), self.m_color.green(), self.m_color.blue(), self.m_color.alpha())
-
-        # --- tutaj kluczowe przesunięcie ---
+        gl.glDisable(gl.GL_LIGHTING)
+        gl.glLineWidth(1.0)
+        gl.glColor4f(*self._active_outline_rgba())
         gl.glTranslatef(self.position[0], self.position[1], self.position[2])
 
-        if not self._is_initialized:
-            self.generateSphereData()
-            self.initVBO()
+        for i in range(1, n_lat + 1):
+            lat = np.pi * (-0.5 + float(i) / (n_lat + 1))
+            z = r * np.sin(lat)
+            rz = r * np.cos(lat)
+            gl.glBegin(gl.GL_LINE_LOOP)
+            for j in range(n_seg):
+                lng = 2.0 * np.pi * j / n_seg
+                gl.glVertex3f(rz * np.cos(lng), rz * np.sin(lng), z)
+            gl.glEnd()
 
-        self.drawSphere()
+        for i in range(n_lon):
+            lng = 2.0 * np.pi * i / n_lon
+            gl.glBegin(gl.GL_LINE_STRIP)
+            for j in range(n_seg + 1):
+                lat = np.pi * (-0.5 + float(j) / n_seg)
+                z = r * np.sin(lat)
+                rz = r * np.cos(lat)
+                gl.glVertex3f(rz * np.cos(lng), rz * np.sin(lng), z)
+            gl.glEnd()
 
+        gl.glPopAttrib()
+        gl.glPopMatrix()
+
+    def render_wboit(self, pass_idx):
+        self._sync_mesh_material()
+        gl.glPushMatrix()
+        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+        self._mesh_cache.render_wboit(pass_idx)
+        gl.glPopMatrix()
+
+    def renderSelf(self):
+        from .globals import AP
+
+        if AP.wboit_pass is not None:
+            if AP.wboit_pass >= 0:
+                if self.is_transparent:
+                    self.render_wboit(AP.wboit_pass)
+                return
+            if self.is_transparent:
+                if self.transparent_outline_enabled():
+                    self.render_outline()
+                if self.m_showWireframe:
+                    self._render_wireframe()
+                return
+
+        self._sync_mesh_material()
+
+        gl.glPushMatrix()
+        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+        self._mesh_cache.renderSelf()
+        gl.glPopMatrix()
+
+        if self.is_transparent and self.transparent_outline_enabled():
+            self.render_outline()
+
+        if self.m_showWireframe:
+            self._render_wireframe()
+
+    def render_outline(self):
+        self._ensure_geometry()
+
+        gl.glPushMatrix()
+        gl.glPushAttrib(gl.GL_ALL_ATTRIB_BITS)
+        gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE)
+        gl.glLineWidth(1.5)
+        gl.glColor4f(*self._active_outline_rgba())
+        gl.glTranslatef(self.position[0], self.position[1], self.position[2])
+        self._mesh_cache.renderSelf()
         gl.glPopAttrib()
         gl.glPopMatrix()

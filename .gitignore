@@ -4,3 +4,8 @@ build/
 dist/
 plugins/*/quantum
 .venv/
+.aider*
+generated/
+.output_local/
+nasze/
+latex_virtRTG/

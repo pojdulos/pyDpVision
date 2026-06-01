@@ -116,6 +116,23 @@
      </widget>
     </item>
     <item>
+     <widget class="QCheckBox" name="splatTransparentCheckBox">
+      <property name="text">
+       <string>transparent splats (WBOIT)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QCheckBox" name="splatHQSortCheckBox">
+      <property name="text">
+       <string>HQ sorted splats (slow)</string>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="QCheckBox" name="splatAdditiveCheckBox">
       <property name="text">
        <string>additive blend</string>
@@ -1039,6 +1056,38 @@
    </hints>
   </connection>
   <connection>
+   <sender>splatHQSortCheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_splat_hq_sort_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>93</x>
+     <y>168</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>splatTransparentCheckBox</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>propVolTK</receiver>
+   <slot>on_splat_transparent_checkbox(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>93</x>
+     <y>150</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>99</x>
+     <y>294</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
    <sender>splatScaleSpin</sender>
    <signal>valueChanged(double)</signal>
    <receiver>propVolTK</receiver>
@@ -1600,5 +1649,7 @@
   <slot>on_f0_checkbox(bool)</slot>
   <slot>on_f0_min_changed(double)</slot>
   <slot>on_f0_max_changed(double)</slot>
+  <slot>on_splat_hq_sort_checkbox(bool)</slot>
+  <slot>on_splat_transparent_checkbox(bool)</slot>
  </slots>
 </ui>

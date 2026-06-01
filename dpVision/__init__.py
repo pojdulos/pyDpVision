@@ -2,6 +2,7 @@
 
 from .annotation import Annotation
 #from .annotationEdge import AnnotationEdge
+from .annotationElipsoide import AnnotationElipsoide
 from .annotationPath import AnnotationPath
 from .annotationPlane import AnnotationPlane
 from .annotationPoint import AnnotationPoint
@@ -22,19 +23,45 @@ from .mesh import Face, Mesh
 from .motion import Motion
 from .object import Object
 from .parser import Parser
+from .parser import ThreadedParser
 from .pluginInterface import PluginInterface
 from .pointCloud import Vertex, PointCloud
 from .prosta import Prosta, Prosta3D, intersection_point, intersection_point2
 from .shaders import load_and_compile_shader, compile_shader
 from .sphere import Sphere
 from .transform import Transform
+from .virtualXRay import VirtualXRay
 from .volumetric import Volumetric, SliceMetadata
 from .workspace import Workspace
+from .xrayProjection import (
+	XRayProjectionGeometry,
+	XRayPhysicsModel,
+	XRayProjectionQualityProfile,
+	XRayProjectionConfig,
+	XRayProjectionStats,
+	ProjectedTrianglePixelStack,
+	XRayScalarPreprocessor,
+	XRayPresentationModel,
+	RawPresentationModel,
+	FilmLikePresentationModel,
+	DigitalRadiographyPresentationModel,
+	ensure_xray_source_config,
+	XRaySampleSource,
+	MeshXRaySource,
+	VolumetricXRaySource,
+	XRayProjector,
+	XRayScene,
+	normalize_projection_to_uint8,
+	normalize_projection_to_uint16,
+	save_projection_png,
+	save_projection_tiff,
+	save_projection_dicom,
+)
 
 
 __all__ = [
 			"Annotation", #"AnnotationEdge",
-			"AnnotationPath", "AnnotationPlane", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
+			"AnnotationElipsoide", "AnnotationPath", "AnnotationPlane", "AnnotationPoint", "AnnotationSphere", "AnnotationTriangle",
 		    "BaseObject",
 			"mesh_to_grid25D", "grid_to_mesh",
 			"DHJoint", "DHModel", "DHLink",
@@ -45,13 +72,20 @@ __all__ = [
 			"Face", "Mesh",
 			"Motion", "NDimCloud", "Object",
 			"Parser",
+			"ThreadedParser",
 			"PluginInterface",
 			"Vertex", "PointCloud",
 			"Prosta", "Prosta3D", "intersection_point", "intersection_point2",
 			"load_and_compile_shader", "load_shader", "compile_shader",
 			"Sphere",
 			"Transform",
+			"VirtualXRay",
 			"Volumetric", "SliceMetadata",
-			"Workspace" 
+			"Workspace",
+			"XRayProjectionGeometry", "XRayPhysicsModel", "XRayProjectionQualityProfile", "XRayProjectionConfig", "XRayProjectionStats", "ProjectedTrianglePixelStack",
+			"XRayScalarPreprocessor", "ensure_xray_source_config",
+			"XRayPresentationModel", "RawPresentationModel", "FilmLikePresentationModel", "DigitalRadiographyPresentationModel",
+			"XRaySampleSource", "MeshXRaySource", "VolumetricXRaySource", "XRayProjector", "XRayScene",
+			"normalize_projection_to_uint8", "normalize_projection_to_uint16",
+			"save_projection_png", "save_projection_tiff", "save_projection_dicom",
 		]
-

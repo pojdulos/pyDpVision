@@ -11,7 +11,7 @@ import weakref
 
 import numpy as np
 from PyQt5.QtCore import Qt, QEventLoop, pyqtSlot
-from PyQt5.QtGui import QImage
+from PyQt5.QtGui import QColor, QImage, QPainter, QPen
 from PyQt5.QtWidgets import (
 	QApplication,
 	QCheckBox,
@@ -470,6 +470,11 @@ class PropVirtualXRay(PropWidget):
 		self.presentationWindowWidthSpin.setDecimals(3)
 		self.presentationWindowWidthSpin.setSingleStep(0.1)
 		self._set_compact_field(self.presentationWindowWidthSpin)
+		self.presentationOverlayAnnotationsCheck = QCheckBox("Overlay projected annotations")
+		self.presentationOverlayLabelsCheck = QCheckBox("Show labels")
+		self.presentationOverlayCrossSizeSpin = QSpinBox()
+		self.presentationOverlayCrossSizeSpin.setRange(1, 64)
+		self._set_compact_field(self.presentationOverlayCrossSizeSpin)
 		presentation_layout.addRow("Preset:", self.presentationPresetWidget)
 		presentation_layout.addRow("Mode:", self.presentationModeCombo)
 		presentation_layout.addRow("", self.presentationInvertCheck)
@@ -478,6 +483,9 @@ class PropVirtualXRay(PropWidget):
 		presentation_layout.addRow("Robust [%]:", self.presentationPercentileSpin)
 		presentation_layout.addRow("Window center:", self.presentationWindowCenterSpin)
 		presentation_layout.addRow("Window width:", self.presentationWindowWidthSpin)
+		presentation_layout.addRow("", self.presentationOverlayAnnotationsCheck)
+		presentation_layout.addRow("", self.presentationOverlayLabelsCheck)
+		presentation_layout.addRow("Cross size [px]:", self.presentationOverlayCrossSizeSpin)
 		presentationTabLayout.addWidget(presentationGroup)
 		presentationTabLayout.addStretch(1)
 		self.tabs.addTab(presentationTab, "Presentation")
@@ -799,6 +807,9 @@ class PropVirtualXRay(PropWidget):
 		self.presentationPercentileSpin.valueChanged.connect(self.on_presentation_percentile_changed)
 		self.presentationWindowCenterSpin.valueChanged.connect(self.on_presentation_window_changed)
 		self.presentationWindowWidthSpin.valueChanged.connect(self.on_presentation_window_changed)
+		self.presentationOverlayAnnotationsCheck.toggled.connect(self.on_presentation_overlay_annotations_changed)
+		self.presentationOverlayLabelsCheck.toggled.connect(self.on_presentation_overlay_labels_changed)
+		self.presentationOverlayCrossSizeSpin.valueChanged.connect(self.on_presentation_overlay_cross_size_changed)
 		self.applyPresentationPresetButton.clicked.connect(self.on_apply_presentation_preset)
 		self.physicsMuAirSpin.valueChanged.connect(self.on_advanced_physics_changed)
 		self.physicsMuWaterSpin.valueChanged.connect(self.on_advanced_physics_changed)
@@ -865,6 +876,9 @@ class PropVirtualXRay(PropWidget):
 			self.presentationPercentileSpin,
 			self.presentationWindowCenterSpin,
 			self.presentationWindowWidthSpin,
+			self.presentationOverlayAnnotationsCheck,
+			self.presentationOverlayLabelsCheck,
+			self.presentationOverlayCrossSizeSpin,
 			self.physicsMuAirSpin,
 			self.physicsMuWaterSpin,
 			self.physicsHounsfieldAirSpin,
@@ -917,6 +931,9 @@ class PropVirtualXRay(PropWidget):
 		self.presentationPercentileSpin.setEnabled(not is_raw)
 		self.presentationWindowCenterSpin.setEnabled(is_digital)
 		self.presentationWindowWidthSpin.setEnabled(is_digital)
+		overlay_enabled = bool(getattr(obj, "presentation_overlay_annotations", False))
+		self.presentationOverlayLabelsCheck.setEnabled(overlay_enabled)
+		self.presentationOverlayCrossSizeSpin.setEnabled(overlay_enabled)
 
 	def _update_physics_visibility(self, obj: VirtualXRay):
 		"""Enable only physics controls relevant to the selected material window mode."""
@@ -982,6 +999,9 @@ class PropVirtualXRay(PropWidget):
 		self.presentationPercentileSpin.setValue(float(obj.presentation_robust_percentile))
 		self.presentationWindowCenterSpin.setValue(0.0 if obj.presentation_window_center is None else float(obj.presentation_window_center))
 		self.presentationWindowWidthSpin.setValue(0.0 if obj.presentation_window_width is None else float(obj.presentation_window_width))
+		self.presentationOverlayAnnotationsCheck.setChecked(bool(getattr(obj, "presentation_overlay_annotations", False)))
+		self.presentationOverlayLabelsCheck.setChecked(bool(getattr(obj, "presentation_overlay_labels", False)))
+		self.presentationOverlayCrossSizeSpin.setValue(int(getattr(obj, "presentation_overlay_cross_size_px", 6)))
 		self.physicsMuAirSpin.setValue(float(obj.physics_mu_air))
 		self.physicsMuWaterSpin.setValue(float(obj.physics_mu_water))
 		self.physicsHounsfieldAirSpin.setValue(float(obj.physics_hounsfield_air))
@@ -1253,6 +1273,27 @@ class PropVirtualXRay(PropWidget):
 		obj.presentation_window_width = width if width > 0.0 else None
 		self._after_change(obj)
 
+	@pyqtSlot(bool)
+	def on_presentation_overlay_annotations_changed(self, value):
+		"""Store whether projected annotations should be overlaid on the display image."""
+		obj = self.obj_ref()
+		obj.presentation_overlay_annotations = bool(value)
+		self._after_change(obj)
+
+	@pyqtSlot(bool)
+	def on_presentation_overlay_labels_changed(self, value):
+		"""Store whether projected annotation labels should be painted on the display image."""
+		obj = self.obj_ref()
+		obj.presentation_overlay_labels = bool(value)
+		self._after_change(obj)
+
+	@pyqtSlot(int)
+	def on_presentation_overlay_cross_size_changed(self, value):
+		"""Store the marker size used when projected annotations are overlaid on the display image."""
+		obj = self.obj_ref()
+		obj.presentation_overlay_cross_size_px = max(1, int(value))
+		self._after_change(obj)
+
 	@pyqtSlot()
 	def on_apply_presentation_preset(self):
 		"""Apply one predefined presentation preset for quick visual comparison."""
@@ -1318,14 +1359,25 @@ class PropVirtualXRay(PropWidget):
 				invert=False,
 			)
 		image_u8 = np.ascontiguousarray(np.flipud(image_u8))
-		height, width = image_u8.shape
-		qimage = QImage(
-			image_u8.data,
-			width,
-			height,
-			image_u8.strides[0],
-			QImage.Format_Grayscale8,
-		).copy()
+		image_u8 = obj.overlay_projected_annotations_on_display_uint8(image_u8)
+		height, width = image_u8.shape[:2]
+		if image_u8.ndim == 2:
+			qimage = QImage(
+				image_u8.data,
+				width,
+				height,
+				image_u8.strides[0],
+				QImage.Format_Grayscale8,
+			).copy()
+		else:
+			qimage = QImage(
+				image_u8.data,
+				width,
+				height,
+				image_u8.strides[0],
+				QImage.Format_RGB888,
+			).copy()
+		self._paint_projected_annotation_labels(qimage, obj)
 		image_obj = getattr(obj, "last_projection_image", None)
 		if isinstance(image_obj, Image) and self._is_image_in_workspace(image_obj):
 			image_obj.setImage(qimage)
@@ -1346,6 +1398,40 @@ class PropVirtualXRay(PropWidget):
 		if image_obj.parent is not None:
 			return True
 		return any(item is image_obj for item in AP.mainWin.workspace.m_data)
+
+	def _paint_projected_annotation_labels(self, qimage, obj):
+		"""Paint projected annotation labels on the final display image using Qt text rendering."""
+		if qimage is None or not bool(getattr(obj, "presentation_overlay_annotations", False)):
+			return
+		if not bool(getattr(obj, "presentation_overlay_labels", False)):
+			return
+
+		annotation_set = getattr(obj, "last_projected_annotations", None)
+		if annotation_set is None or not getattr(annotation_set, "items", None):
+			return
+
+		painter = QPainter(qimage)
+		try:
+			painter.setRenderHint(QPainter.TextAntialiasing, True)
+			for item in annotation_set.items:
+				if not item.visible or not item.in_bounds or item.detector_pixel_uv is None:
+					continue
+				label_text = str(item.label).strip()
+				if not label_text:
+					continue
+
+				x_coord = int(round(item.detector_pixel_uv[0])) + max(4, int(getattr(obj, "presentation_overlay_cross_size_px", 6))) + 2
+				y_coord = qimage.height() - 1 - int(round(item.detector_pixel_uv[1])) - 4
+				text_color = QColor(*item.color_rgba)
+
+				painter.setPen(QPen(QColor(0, 0, 0, 220)))
+				for dx_offset, dy_offset in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+					painter.drawText(x_coord + dx_offset, y_coord + dy_offset, label_text)
+
+				painter.setPen(QPen(text_color))
+				painter.drawText(x_coord, y_coord, label_text)
+		finally:
+			painter.end()
 
 	def _freeze_gl_viewers(self):
 		"""Temporarily disable GL viewer updates while image objects are inserted into the workspace."""
@@ -1396,8 +1482,11 @@ class PropVirtualXRay(PropWidget):
 				return
 			self._display_image_array(obj, display_image)
 			self.updateDisplayButton.setEnabled(True)
+			projected_annotations = getattr(getattr(obj, "last_projected_annotations", None), "items", [])
+			projected_on_detector = len([item for item in projected_annotations if item.in_bounds])
 			self.renderInfoLabel.setText(
-				f"{stats.elapsed_seconds:.2f}s, traced={stats.traced_pixels}, avgS={stats.average_samples_per_traced_pixel:.1f}"
+				f"{stats.elapsed_seconds:.2f}s, traced={stats.traced_pixels}, "
+				f"avgS={stats.average_samples_per_traced_pixel:.1f}, ann={projected_on_detector}"
 			)
 		finally:
 			QApplication.restoreOverrideCursor()

@@ -10,6 +10,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 from dpVision import AP, Object, Transform, PluginInterface
+from dpVision.annotationPoint import AnnotationPoint
 from .virtualXRay import VirtualXRay
 from .propVirtualXRay import PropVirtualXRay
 
@@ -139,6 +140,26 @@ class VirtualRTG(PluginInterface):
 			skull_transform.rotate(-90, [0,1,0])
 			skull_transform.addChild(skull)
 			self.setup.addChild(skull_transform)
+
+			p = [-78.18, -74.30, -21.59]
+			s = [147.456, 147.456, 86.976]
+
+			points = {
+				'A': [p[0],     p[1],     p[2]],
+				'B': [p[0],     p[1],     p[2]+s[2]],
+				'C': [p[0],     p[1]+s[1],p[2]],
+				'D': [p[0],     p[1]+s[1],p[2]+s[2]],
+				'E': [p[0]+s[0],p[1],     p[2]],
+				'F': [p[0]+s[0],p[1],     p[2]+s[2]],
+				'G': [p[0]+s[0],p[1]+s[1],p[2]],
+				'H': [p[0]+s[0],p[1]+s[1],p[2]+s[2]],
+			}
+
+			for label, pos in points.items():
+				point = AnnotationPoint(point = pos)
+				point.label = label
+				#point.setColor(r=255, g=0, b=0, a=255)
+				skull.addChild(point)
 
 			AP.updateAllViews()
 			AP.mainWin.dock["workspace"].rebuildTree()

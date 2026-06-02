@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
 import OpenGL.GL as gl
 import numpy as np
 
-from dpVision import Mesh, Object, Volumetric
+from dpVision import AnnotationPoint, Mesh, Object, Volumetric
 from dpVision.marchingCubes import mc_estimate_threshold, mc_gradient
 
 from .xrayPresentation import (
@@ -32,6 +33,30 @@ from .xrayProjection import (
 	XRayScalarPreprocessor,
 	XRayScene,
 )
+
+
+@dataclass
+class XRayProjectedAnnotation:
+	"""Describe one scene annotation projected into detector coordinates."""
+
+	kind: str
+	label: str
+	source_point_ref: np.ndarray
+	detector_point_ref: np.ndarray | None
+	detector_pixel_uv: tuple[float, float] | None
+	color_rgba: tuple[int, int, int, int]
+	visible: bool
+	in_bounds: bool
+	status: str
+	metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class XRayProjectedAnnotationSet:
+	"""Cache projected annotations associated with one detector image."""
+
+	detector_shape_hw: tuple[int, int]
+	items: list[XRayProjectedAnnotation] = field(default_factory=list)
 
 
 class VirtualXRay(Object):
@@ -158,6 +183,7 @@ class VirtualXRay(Object):
 		self.depth_window_origin_ref = np.array([0.0, 0.0, 0.0], dtype=np.float32)
 		self.depth_window_axis_ref = np.array([0.0, 0.0, 1.0], dtype=np.float32)
 		self.last_raw_projection = None
+		self.last_projected_annotations = None
 		self.last_projection_image = None
 
 		self.quality_profile_name = "normal"
@@ -199,6 +225,9 @@ class VirtualXRay(Object):
 		self.presentation_robust_percentile = 99.5
 		self.presentation_window_center = None
 		self.presentation_window_width = None
+		self.presentation_overlay_annotations = False
+		self.presentation_overlay_labels = False
+		self.presentation_overlay_cross_size_px = 6
 
 		self.detector_fill_color = (0.18, 0.55, 0.62)
 		self.detector_edge_color = (0.42, 0.90, 0.95)
@@ -251,6 +280,17 @@ class VirtualXRay(Object):
 		if not hasattr(self, "physics_source_distance_power"):
 			self.physics_source_distance_power = 2.0
 
+	def _ensure_annotation_projection_defaults(self):
+		"""Backfill runtime annotation-projection attributes for older serialized objects."""
+		if not hasattr(self, "last_projected_annotations"):
+			self.last_projected_annotations = None
+		if not hasattr(self, "presentation_overlay_annotations"):
+			self.presentation_overlay_annotations = False
+		if not hasattr(self, "presentation_overlay_labels"):
+			self.presentation_overlay_labels = False
+		if not hasattr(self, "presentation_overlay_cross_size_px"):
+			self.presentation_overlay_cross_size_px = 6
+
 	def child_transform_relative_to_self(self, child):
 		"""Return one descendant transform expressed in the local frame of this X-ray object."""
 		self_global = self.reference_transform()
@@ -273,6 +313,10 @@ class VirtualXRay(Object):
 	def collect_meshes(self):
 		"""Return mesh descendants that should participate in this X-ray scene."""
 		return [ensure_xray_source_config(node) for node in self._iter_descendants() if isinstance(node, Mesh)]
+
+	def collect_annotation_points(self):
+		"""Return point annotations that can be projected onto the detector."""
+		return [node for node in self._iter_descendants() if isinstance(node, AnnotationPoint)]
 
 	def collect_xray_objects(self):
 		"""Return X-ray-capable descendants that are currently enabled."""
@@ -496,6 +540,116 @@ class VirtualXRay(Object):
 			quality_profile=self.quality_profile(),
 		)
 
+	def _annotation_point_reference_position(self, annotation_point):
+		"""Return one annotation point expressed in the local reference frame of this X-ray object."""
+		local_point = np.asarray(annotation_point.getPoint(), dtype=np.float32)
+		local_point_h = np.append(local_point, 1.0).astype(np.float32)
+		global_transform = np.asarray(annotation_point.getGlobalTransformation(), dtype=np.float32)
+		global_point_h = global_transform @ local_point_h
+		reference_transform_inv = np.linalg.inv(self.reference_transform())
+		return (reference_transform_inv @ global_point_h)[:3].astype(np.float32)
+
+	def _project_reference_point_to_detector(self, point_ref, geometry):
+		"""Project one reference-space point to detector coordinates without modifying the RTG image."""
+		point_ref = np.asarray(point_ref, dtype=np.float32)
+		detector_origin = np.asarray(geometry.detector_origin_ref, dtype=np.float32)
+		detector_u = np.asarray(geometry.detector_u_ref, dtype=np.float32)
+		detector_v = np.asarray(geometry.detector_v_ref, dtype=np.float32)
+		detector_normal = np.asarray(geometry.detector_normal_ref_vector(), dtype=np.float32)
+		epsilon = 1e-8
+
+		if geometry.is_cone_beam():
+			ray_origin = np.asarray(geometry.source_position_ref, dtype=np.float32)
+			ray_direction = point_ref - ray_origin
+			if float(np.linalg.norm(ray_direction)) <= epsilon:
+				return {
+					"status": "at_source",
+					"detector_point_ref": None,
+					"detector_pixel_uv": None,
+					"visible": False,
+					"in_bounds": False,
+				}
+		else:
+			ray_origin = point_ref
+			ray_direction = np.asarray(geometry.ray_direction_ref, dtype=np.float32)
+			if float(np.linalg.norm(ray_direction)) <= epsilon:
+				return {
+					"status": "invalid_direction",
+					"detector_point_ref": None,
+					"detector_pixel_uv": None,
+					"visible": False,
+					"in_bounds": False,
+				}
+
+		denominator = float(np.dot(ray_direction, detector_normal))
+		if abs(denominator) <= epsilon:
+			return {
+				"status": "parallel_to_detector",
+				"detector_point_ref": None,
+				"detector_pixel_uv": None,
+				"visible": False,
+				"in_bounds": False,
+			}
+
+		ray_parameter = float(np.dot(detector_origin - ray_origin, detector_normal) / denominator)
+		if ray_parameter < 0.0:
+			return {
+				"status": "behind_ray_origin",
+				"detector_point_ref": None,
+				"detector_pixel_uv": None,
+				"visible": False,
+				"in_bounds": False,
+			}
+
+		detector_point_ref = ray_origin + ray_direction * ray_parameter
+		detector_delta = detector_point_ref - detector_origin
+		u_denominator = max(float(np.dot(detector_u, detector_u)), epsilon)
+		v_denominator = max(float(np.dot(detector_v, detector_v)), epsilon)
+		u_coord = float(np.dot(detector_delta, detector_u) / u_denominator)
+		v_coord = float(np.dot(detector_delta, detector_v) / v_denominator)
+		height = int(geometry.detector_shape_hw[0])
+		width = int(geometry.detector_shape_hw[1])
+		in_bounds = 0.0 <= u_coord <= float(width - 1) and 0.0 <= v_coord <= float(height - 1)
+		return {
+			"status": "projected",
+			"detector_point_ref": detector_point_ref.astype(np.float32),
+			"detector_pixel_uv": (u_coord, v_coord),
+			"visible": True,
+			"in_bounds": in_bounds,
+		}
+
+	def project_scene_annotations(self):
+		"""Project supported scene annotations and keep them separate from the detector image."""
+		self._ensure_annotation_projection_defaults()
+		geometry = self.build_projection_config().effective_geometry()
+		projected_items = []
+		for annotation_point in self.collect_annotation_points():
+			point_ref = self._annotation_point_reference_position(annotation_point)
+			projection = self._project_reference_point_to_detector(point_ref, geometry)
+			color = annotation_point.getSelColor() if annotation_point.checked else annotation_point.getColor()
+			projected_items.append(
+				XRayProjectedAnnotation(
+					kind="AnnotationPoint",
+					label=str(annotation_point.label),
+					source_point_ref=point_ref,
+					detector_point_ref=projection["detector_point_ref"],
+					detector_pixel_uv=projection["detector_pixel_uv"],
+					color_rgba=(color.red(), color.green(), color.blue(), color.alpha()),
+					visible=bool(projection["visible"]),
+					in_bounds=bool(projection["in_bounds"]),
+					status=str(projection["status"]),
+					metadata={
+						"show_vector": bool(getattr(annotation_point, "m_showVector", False)),
+						"vector": None if annotation_point.getVector() is None else tuple(annotation_point.getVector()),
+					},
+				)
+			)
+		self.last_projected_annotations = XRayProjectedAnnotationSet(
+			detector_shape_hw=(int(geometry.detector_shape_hw[0]), int(geometry.detector_shape_hw[1])),
+			items=projected_items,
+		)
+		return self.last_projected_annotations
+
 	def estimate_bone_threshold(self, threshold_min=300.0, max_sample_voxels=4_000_000):
 		"""Estimate one bone HU threshold from descendant volumetrics.
 
@@ -570,12 +724,15 @@ class VirtualXRay(Object):
 
 	def project_and_cache(self, return_stats=False, progress_callback=None):
 		"""Project the scene, store the raw result in `last_raw_projection`, and return it."""
+		self._ensure_annotation_projection_defaults()
 		if return_stats:
 			raw, stats = self.build_scene().project(self.build_projection_config(), return_stats=True, progress_callback=progress_callback)
 			self.last_raw_projection = np.asarray(raw, dtype=np.float32)
+			self.project_scene_annotations()
 			return self.last_raw_projection, stats
 		raw = self.build_scene().project(self.build_projection_config(), return_stats=False, progress_callback=progress_callback)
 		self.last_raw_projection = np.asarray(raw, dtype=np.float32)
+		self.project_scene_annotations()
 		return self.last_raw_projection
 
 	def apply_presentation(self):
@@ -586,6 +743,45 @@ class VirtualXRay(Object):
 		if self.last_raw_projection is None:
 			return None
 		return self.build_presentation_model().apply(self.last_raw_projection)
+
+	def overlay_projected_annotations_on_display_uint8(self, image_u8):
+		"""Return one display image with optional annotation crosses drawn on top.
+
+		The raw RTG projection remains untouched. The overlay is composed only for
+		presentation or future save/export paths.
+		"""
+		self._ensure_annotation_projection_defaults()
+		if not bool(self.presentation_overlay_annotations):
+			return image_u8
+
+		annotation_set = self.last_projected_annotations
+		if annotation_set is None or not annotation_set.items:
+			return image_u8
+
+		image_u8 = np.asarray(image_u8)
+		if image_u8.ndim == 2:
+			overlay = np.repeat(image_u8[:, :, None], 3, axis=2)
+		else:
+			overlay = image_u8.copy()
+
+		height, width = overlay.shape[:2]
+		cross_radius = max(1, int(self.presentation_overlay_cross_size_px))
+
+		def _draw_pixel(x_coord, y_coord, color_rgb):
+			if 0 <= x_coord < width and 0 <= y_coord < height:
+				overlay[y_coord, x_coord, :3] = color_rgb
+
+		for item in annotation_set.items:
+			if not item.visible or not item.in_bounds or item.detector_pixel_uv is None:
+				continue
+			x_coord = int(round(item.detector_pixel_uv[0]))
+			y_coord = height - 1 - int(round(item.detector_pixel_uv[1]))
+			color_rgb = np.asarray(item.color_rgba[:3], dtype=np.uint8)
+			for offset in range(-cross_radius, cross_radius + 1):
+				_draw_pixel(x_coord + offset, y_coord, color_rgb)
+				_draw_pixel(x_coord, y_coord + offset, color_rgb)
+
+		return np.ascontiguousarray(overlay)
 
 	def detector_corners_ref(self):
 		"""Return detector corners in local reference coordinates for gizmo drawing and bounding box computation."""
@@ -869,14 +1065,16 @@ class VirtualXRay(Object):
 	def info(self):
 		"""Return a compact textual summary for debugging and quick inspection."""
 		self._ensure_depth_window_defaults()
+		self._ensure_annotation_projection_defaults()
 		volumes = len([obj for obj in self.collect_volumetrics() if bool(getattr(obj, "xray_source_enabled", True))])
 		meshes = len([obj for obj in self.collect_meshes() if bool(getattr(obj, "xray_source_enabled", True))])
+		annotations = len(self.collect_annotation_points())
 		depth_mode = str(self.depth_window_mode).strip().lower()
 		if depth_mode in {"", "none", "off"}:
 			depth_summary = "off"
 		else:
 			depth_summary = f"{depth_mode}:{float(self.depth_window_mm[0]):.1f}->{float(self.depth_window_mm[1]):.1f}"
 		return (
-			f"VirtualXRay(mode={self.projection_mode}, volumes={volumes}, meshes={meshes}, "
+			f"VirtualXRay(mode={self.projection_mode}, volumes={volumes}, meshes={meshes}, annotations={annotations}, "
 			f"detector_shape={self.detector_shape_hw}, step_mm={self.step_mm}, depth={depth_summary})"
 		)

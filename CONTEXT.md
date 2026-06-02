@@ -42,7 +42,7 @@ dpVision/                # główny pakiet
   marchingCubes.py       # algorytm marching cubes
   gui/                   # warstwa UI (Qt5 MDI)
   parsers/               # parsery formatów plików
-plugins/                 # pluginy zewnętrzne (frasta/, disabled/)
+plugins/                 # pluginy zewnętrzne (m.in. frasta/, virtRTG/, disabled/)
 dev/                     # skrypty testowe deweloperskie (nie produkcja)
 docs/                    # dokumentacja (LaTeX)
 sample_data/             # dane przykładowe (.atmdl, .mtl)
@@ -108,7 +108,7 @@ Pomocnicze kontrolki:
 - Panele w `DockWidgetProperties` powinny opierac rozmiar na `sizeHint`/`minimumSizeHint` i normalnym relayoutcie Qt; nie nalezy zamrazac ich wysokosci jednorazowym `setMinimumHeight(...)`, bo psuje to rozwijane sekcje i przewijanie `QScrollArea`.
 - W panelach opartych o `QFormLayout` pola edycyjne powinny zwykle zostawac przy `sizeHint()` (`FieldsStayAtSizeHint` + kompaktowy `QSizePolicy`), zamiast rozciagac sie na cala szerokosc docka.
 - Jesli panel ma pozostac kompaktowy, takze zwykle `QGroupBox` w kartach powinny miec uklad wyrównany do lewej i polityke rozmiaru oparta o zawartosc, zamiast wymuszac pelna szerokosc kontenera.
-- W `propVirtualXRay` naglowki sekcji rozwijanych sa kompaktowe, a akcje w zakladce `Run` sa ukladane pionowo; etykiety statusu powinny miec wlaczone zawijanie linii.
+- W `plugins/virtRTG/propVirtualXRay.py` naglowki sekcji rozwijanych sa kompaktowe, a akcje w zakladce `Run` sa ukladane pionowo; etykiety statusu powinny miec wlaczone zawijanie linii.
 
 ---
 
@@ -118,6 +118,8 @@ Pomocnicze kontrolki:
 - **Interfejs:** klasa dziedziczy `PluginInterface(ABC)`, wymagane: `on_load()`, `on_unload()`, `perform_action()`
 - **Aktywny plugin:** `AP.mainApp.activePlugin`
 - **Dołączony plugin:** `plugins/frasta/` — analiza powierzchni frędzlowej, własne doki i kontroler
+- **Dołączony plugin:** `plugins/virtRTG/` — cala logika symulacji RTG, obiekt `VirtualXRay`, panel wlasciwosci, backend projekcji, prezentacja i helpery eksportu
+- **Granica odpowiedzialnosci:** po wydzieleniu RTG do `plugins/virtRTG/` pakiet `dpVision/` trzyma tylko rdzen sceny, GUI, obiekty `Mesh`/`Volumetric` oraz punkty integracji wykorzystywane przez plugin
 - `plugins/disabled/` — nie jest auto-ładowany
 
 ---
@@ -192,6 +194,7 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Wolumen ma osobny dialog 2D do przegladania przekrojow `XY`, `YZ` i `ZX`.
 - Punkt wejscia w GUI: menu kontekstowe obiektu `Volumetric` -> `volumetric...` -> `slice preview`.
 - Logika pobierania przekrojow i projekcji siedzi w `dpVision/volumetric.py`, a sam dialog w `dpVision/gui/dialogVolumetricPreview.py`.
+- Ten preview RTG w `Volumetric` jest lekka projekcja 2D do szybkiego podgladu i nie jest tym samym backendem co pelna symulacja z pluginu `plugins/virtRTG/`.
 - Aktualna wersja dialogu `slice preview` jest tri-planar: trzy widoki sa zsynchronizowane wspolnym crosshairem oraz klikaniem w panelach.
 - Dialog ma tez panel `OBLIQUE`, liczony wokol aktualnego crosshaira na podstawie katow `yaw/pitch`.
 - `OBLIQUE` probkuje teraz wolumen w przestrzeni `world/patient`, wykorzystujac osie i spacing zachowane w `SliceMetadata`, a nie tylko indeksy tablicy.
@@ -209,13 +212,13 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Jest tez wariant `resample_like_global(...)`, ktory uwzglednia `getGlobalTransformation()` obu wolumenow i pozwala przepisac jeden wolumen dokladnie do siatki drugiego.
 - Backend ma tez metody laczenia wolumenow po wspolnym resamplingu: `merge_to_grid_global(...)` oraz `merge_like_global(...)`. Obsluguja polityki konfliktow `max`, `min`, `mean`, `sum`, `overwrite` i `first_non_empty`, korzystajac z mask waznosci probek zamiast zgadywania po samym `fill_value`.
 - Dla pracy na wielu tomografiach backend umie tez wyznaczyc wspolna siatke: `compute_common_grid_global(...)` obsluguje polityki `reference`, `finest`, `coarsest` i `manual`, a `merge_to_common_grid_global(...)` scala wolumeny po automatycznym doborze takiej siatki.
-- Osobny backend RTG jest wydzielany do `dpVision/xrayProjection.py`. Na start zawiera klasy `XRayProjectionGeometry`, `XRayPhysicsModel`, `XRaySampleSource`, `VolumetricXRaySource` i `XRayProjector`, zeby rozwijac geometrie i fizyke projekcji niezaleznie od klasy `Volumetric`.
+- Osobny backend RTG jest wydzielony do `plugins/virtRTG/xrayProjection.py`. Zawiera klasy `XRayProjectionGeometry`, `XRayPhysicsModel`, `XRaySampleSource`, `VolumetricXRaySource` i `XRayProjector`, zeby rozwijac geometrie i fizyke projekcji niezaleznie od klasy `Volumetric`.
 - Backend RTG ma teraz tez wyzszy poziom API: `XRayProjectionGeometry.from_detector_pose(...)` do wygodniejszego budowania geometrii, `XRayProjectionQualityProfile` z presetami `draft/normal/high`, `XRayProjectionConfig` do spinania geometrii, fizyki i prezentacji oraz `XRayScene` jako kontener zrodel i wygodny punkt wejscia do projekcji.
 - Nad surowym wynikiem projekcji jest tez osobna warstwa prezentacji: `XRayPresentationModel`, `RawPresentationModel`, `FilmLikePresentationModel` i `DigitalRadiographyPresentationModel`. Pozwala to rozwijac wyglad obrazu RTG bez ruszania samego projektora.
 - `XRayProjector.project(..., return_stats=True)` potrafi teraz zwrocic tez `XRayProjectionStats`, czyli podstawowe statystyki czasu, liczby promieni i liczby probek.
-- Integracja z drzewem sceny zaczyna sie od nowego obiektu `VirtualXRay` w `dpVision/virtualXRay.py`. To zwykly `Object`, ktory rysuje gizmo zrodla i detektora, zbiera potomne wolumeny z istniejacej hierarchii sceny i buduje z nich `XRayScene` oraz `XRayProjectionConfig`.
+- Integracja z drzewem sceny zaczyna sie od obiektu `VirtualXRay` w `plugins/virtRTG/virtualXRay.py`. To zwykly `Object`, ktory rysuje gizmo zrodla i detektora, zbiera potomne wolumeny z istniejacej hierarchii sceny i buduje z nich `XRayScene` oraz `XRayProjectionConfig`.
 - `VirtualXRay` pracuje w lokalnym ukladzie odniesienia zwiazanym z samym obiektem: geometria zrodla i detektora jest opisana lokalnie, a potomne wolumeny sa przekladane do tego ukladu przez transformacje wzgledne wobec `VirtualXRay`, nie przez absolutne wspolrzedne globalne.
-- `VirtualXRay` ma juz tez prosty panel wlasciwosci w `dpVision/gui/propVirtualXRay.py`, podpiety w `DockWidgetProperties`. Pozwala edytowac tryb `cone/parallel`, pozycje i orientacje detektora, pozycje zrodla lub kierunek promieni, rozdzielczosc detektora, wielkosc piksela, `step_mm` i profil jakosci.
+- `VirtualXRay` ma juz tez prosty panel wlasciwosci w `plugins/virtRTG/propVirtualXRay.py`, podpiety dynamicznie do `DockWidgetProperties` przez `plugins/virtRTG/pluginMain.py`. Pozwala edytowac tryb `cone/parallel`, pozycje i orientacje detektora, pozycje zrodla lub kierunek promieni, rozdzielczosc detektora, wielkosc piksela, `step_mm` i profil jakosci.
 - Z tego samego panelu mozna tez uruchomic symulacje przez przycisk `Run Simulation`: projekcja jest liczona z bieżących ustawien `VirtualXRay`, a wynik trafia do workspace jako zwykly obiekt `Image`. Panel pokazuje tez podstawowe statystyki czasu i liczby probek.
 - Panel `VirtualXRay` jest teraz podzielony na zakladki `Scene`, `Detector`, `Source`, `Sampling` i `Run`, zeby nie pokazywac wszystkich parametrow naraz.
 - Panel `VirtualXRay` ma tez osobna zakladke `Presentation`, gdzie da sie stroic sposob generowania obrazu koncowego (`digital / film / raw`, `invert`, `gamma`, `contrast`, `robust percentile`, opcjonalne `window center/width`). Dla trybow prezentacyjnych wynik jest przy zamianie na `Image` mapowany w stalym zakresie `0..1`, zeby unikac dodatkowego prześwietlania przez wtorny auto-stretch.
@@ -261,10 +264,13 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Sekcja `Depth window` ma teraz tez dwa szybkie przyciski robocze: `Align axis` oraz `Origin = detector`, zeby latwo zsynchronizowac odpowiednio kierunek lub punkt odniesienia bez wymuszania obu zmian naraz.
 - `XRayPhysicsModel` obsluguje teraz tez dwa dodatkowe efekty nizszego poziomu: heurystyczne skalowanie oslabienia przez `source_energy_kev` wzgledem `reference_energy_kev` oraz opcjonalny zanik sygnalu z odlegloscia od zrodla (`source_distance_falloff_mode = inverse_square`) dla geometrii `cone`.
 - Panel `VirtualXRay -> Physics -> Advanced` wystawia te parametry jako `source_energy_kev`, `reference_energy_kev`, `energy_exponent`, `distance_falloff`, `distance_ref [mm]` i `distance_power`.
-- Presety geometrii `VirtualXRay` sa teraz ladowane z pliku `dpVision/presets/xray_geometry_presets.json`, a definicje zaszyte w `virtualXRay.py` zostaly tylko jako fallback awaryjny. Zakladka `Geometry` nadal ma szybki wybor `Preset` + `Apply`, ale nowe modele geometrii mozna dodawac bez zmiany kodu.
+- Presety geometrii `VirtualXRay` sa teraz ladowane z pliku `plugins/virtRTG/presets/xray_geometry_presets.json`, a definicje zaszyte w `virtualXRay.py` zostaly tylko jako fallback awaryjny. Zakladka `Geometry` nadal ma szybki wybor `Preset` + `Apply`, ale nowe modele geometrii mozna dodawac bez zmiany kodu.
 - `VirtualXRay` przechowuje `last_raw_projection` i udostepnia:
 - `project_and_cache(...)`: liczy surowa projekcje i zapisuje ja do cache.
 - `apply_presentation()`: stosuje biezacy model prezentacji do cache bez ponownego ray-marchingu.
+- `VirtualXRay` przechowuje teraz rowniez osobny cache `last_projected_annotations`, na start dla potomnych `AnnotationPoint`. Te adnotacje sa rzutowane na detektor do osobnej struktury metadanych i nie sa mieszane z surowym obrazem projekcji.
+- Zakladka `Presentation` ma opcjonalny overlay `Overlay projected annotations`, ktory sklada takie rzutowane adnotacje dopiero na etapie prezentacji lub przyszlego eksportu. Dla `AnnotationPoint` overlay rysuje obecnie kolorowe krzyzyki w miejscu projekcji.
+- Ten sam overlay ma tez opcje `Show labels`; etykiety sa rysowane dopiero na finalnym `QImage` przez `QPainter`, a nie w surowym buforze projekcji, zeby latwo rozszerzac to o dalsze typy adnotacji i tekst.
 - `build_geometry()` przekazuje do `XRayProjectionGeometry` tylko aktywny parametr geometrii: `source_position_ref` dla `cone` albo `ray_direction_ref` dla `parallel`.
 - `VirtualXRay` nadal pracuje w lokalnym ukladzie odniesienia obiektu i zbiera potomne `Volumetric` przez istniejace mechanizmy drzewa sceny, przeliczajac transformacje wzgledem siebie.
 - `VirtualXRay` zbiera teraz takze potomne `Mesh`. Dla meshy backend RTG uzywa uproszczonego modelu: promien przecina trojkaty, a wynik jest liczony jako stala absorpcja materialu dla zamknietego mesha (`solid`) albo cienkiej powloki (`shell`).

@@ -18,7 +18,7 @@ from .propMesh import PropMesh
 from .propPointCloud import PropPointCloud
 from .propNDimCloud import PropNDimCloud
 from .propTransform import PropTransform
-from .propVirtualXRay import PropVirtualXRay
+# from .propVirtualXRay import PropVirtualXRay
 from .propAnnotation import PropAnnotation
 from .propAnnotationElipsoide import PropAnnotationElipsoide
 from .propAnnotationPlane import PropAnnotationPlane
@@ -65,7 +65,7 @@ class DockWidgetProperties(QDockWidget):
 				'Image': PropImage,
 				'Motion': PropMotion,
 				'Volumetric': PropVolumetric,
-				'VirtualXRay': PropVirtualXRay,
+				# 'VirtualXRay': PropVirtualXRay,
 				'default': PropBaseObject,
 			},
 			Annotation: {

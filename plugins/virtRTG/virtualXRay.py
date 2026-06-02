@@ -9,23 +9,28 @@ from pathlib import Path
 import OpenGL.GL as gl
 import numpy as np
 
-from .marchingCubes import mc_estimate_threshold, mc_gradient
-from .mesh import Mesh
-from .object import Object
-from .volumetric import Volumetric
-from .xrayProjection import (
-	DigitalRadiographyPresentationModel,
-	FilmLikePresentationModel,
-	MeshXRaySource,
+from dpVision import Mesh, Object, Volumetric
+from dpVision.marchingCubes import mc_estimate_threshold, mc_gradient
+
+from .xrayPresentation import (
 	RawPresentationModel,
+	FilmLikePresentationModel,
+	DigitalRadiographyPresentationModel
+)
+
+from .xraySource import (
+	MeshXRaySource,
 	VolumetricXRaySource,
+	ensure_xray_source_config
+)
+
+from .xrayProjection import (
 	XRayPhysicsModel,
 	XRayProjectionConfig,
 	XRayProjectionGeometry,
 	XRayProjectionQualityProfile,
 	XRayScalarPreprocessor,
 	XRayScene,
-	ensure_xray_source_config,
 )
 
 
@@ -425,6 +430,7 @@ class VirtualXRay(Object):
 		"""Load geometry presets from JSON and fall back to built-in defaults when needed."""
 		preset_file = Path(cls.GEOMETRY_PRESET_FILE)
 		if not preset_file.exists():
+			print(f"Warning: Geometry preset file not found at {preset_file}. Using built-in defaults.")
 			return dict(cls.DEFAULT_GEOMETRY_PRESETS)
 
 		try:

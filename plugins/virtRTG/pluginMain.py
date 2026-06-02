@@ -9,17 +9,21 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
-from dpVision import AP, Transform, PluginInterface
-from dpVision import VirtualXRay
+from dpVision import AP, Object, Transform, PluginInterface
+from .virtualXRay import VirtualXRay
+from .propVirtualXRay import PropVirtualXRay
 
 import numpy as np
 import os
 
-class Plugin01(PluginInterface):
+class VirtualRTG(PluginInterface):
 	def __init__(self):
 		self.plugin_name = 'Virtual RTG'
 		self.panel = None
 		self.setup = None
+		AP.mainWin.dock["properties"].properties_map[Object]['VirtualXRay'] = PropVirtualXRay
+		#AP.mainWin.dock["properties"].properties_map[BaseObject]['Graph'] = PropGraph
+
 
 	def on_load(self):
 		print( "plugin "+self.plugin_name+" loaded.")
@@ -57,6 +61,12 @@ class Plugin01(PluginInterface):
 
 		self.menu.addSeparator()
 
+		action = QAction("Benchmark", AP.mainWin)
+		self.menu.addAction(action)
+		action.triggered.connect(self.onAction_Benchmark)
+
+		self.menu.addSeparator()
+
 		action = QAction("UnLoad", AP.mainWin)
 		self.menu.addAction(action)
 		action.triggered.connect(self.onAction_UnLoad)
@@ -84,11 +94,11 @@ class Plugin01(PluginInterface):
 		
 
 	def onAction_UnLoad(self):
-		print("Akcja manu: Wyładuj plugin")
+		print("Akcja menu: Wyładuj plugin")
 		AP.mainApp.unload_plugin(self)
 
 	def onAction_Create_RTG(self):
-		print("Akcja manu: Create RTG")
+		print("Akcja menu: Create RTG")
 		self.setup = VirtualXRay()
 		self.setup.source_position_ref = np.array([0, 0, 1600.0], dtype=np.float32)
 
@@ -96,13 +106,13 @@ class Plugin01(PluginInterface):
 		self.setup.detector_pixel_size_mm = [0.2, 0.2]
 		self.setup.detector_center_ref = np.array([0, 0, -300.0], dtype=np.float32)
 		self.setup.detector_normal_ref = np.array([0, 0, 1.0], dtype=np.float32) # domyślnie w kierunku źródła
-		self.setup.step_mm = 0.1
+		self.setup.step_mm = 0.5
 		self.setup.quality_profile_name = "custom"
 
 		AP.addObject(self.setup)
 
 	def onAction_Create_Demo(self):
-		print("Akcja manu: Create Demo")
+		print("Akcja menu: Create Demo")
 		
 		if self.setup is None:
 			self.onAction_Create_RTG()
@@ -173,7 +183,14 @@ class Plugin01(PluginInterface):
 		# if os.path.isfile(pathA):
 		# 	AP.load(pathA, on_success=on_success)
 
-		
+
+	def onAction_Benchmark(self):
+		print("Akcja menu: Benchmark")
+		from .benchmark import benchmark_xray_performance, generate_latex_benchmark_report
+		_bm_results, _diff_stats = benchmark_xray_performance()
+		generate_latex_benchmark_report(_bm_results, diff_stats=_diff_stats)
+
+
 	def perform_action(self):
 		print("Akcja wykonana przez "+self.plugin_name)
 

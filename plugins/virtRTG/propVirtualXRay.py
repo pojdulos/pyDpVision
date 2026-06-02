@@ -28,11 +28,12 @@ from PyQt5.QtWidgets import (
 	QSizePolicy,
 )
 
-from .. import AP, Image, Mesh, Volumetric, VirtualXRay, ensure_xray_source_config, normalize_projection_to_uint8
-from .multiSpinBox import MultiSpinBox
-from .propBaseObject import PropBaseObject
-from .propWidget import PropWidget
-
+from dpVision import AP, Image, Mesh, Volumetric
+from dpVision.gui.multiSpinBox import MultiSpinBox
+from dpVision.gui.propBaseObject import PropBaseObject
+from dpVision.gui.propWidget import PropWidget
+from .virtualXRay import VirtualXRay
+from .xraySource import normalize_projection_to_uint8, ensure_xray_source_config
 
 class _CollapsibleGroup(QWidget):
 	"""Simple collapsible section: a toggle button + a hidden/shown body widget."""
@@ -104,7 +105,7 @@ class PropVirtualXRay(PropWidget):
 
 		self.tabs = QTabWidget()
 		self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-		layout.addWidget(self.tabs)
+		# layout.addWidget(self.tabs)
 
 		# ── Geometry tab: Scene + Detector + Source + Sampling + Advanced source ──
 		geomTab = QWidget()
@@ -484,7 +485,7 @@ class PropVirtualXRay(PropWidget):
 
 		actionsWidget = QWidget()
 		actionsWidget.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-		actions_layout = QVBoxLayout(actionsWidget)
+		actions_layout = QHBoxLayout(actionsWidget)
 		actions_layout.setContentsMargins(0, 0, 0, 0)
 		actions_layout.setSpacing(4)
 		self.refreshButton = QPushButton("Refresh")
@@ -494,9 +495,9 @@ class PropVirtualXRay(PropWidget):
 		self.renderInfoLabel = QLabel("")
 		self.renderInfoLabel.setWordWrap(True)
 		self.renderInfoLabel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-		actions_layout.addWidget(self.refreshButton)
 		actions_layout.addWidget(self.runSimulationButton)
 		actions_layout.addWidget(self.updateDisplayButton)
+		actions_layout.addWidget(self.refreshButton)
 		runTabLayout.addWidget(actionsWidget)
 		self.progressBar = QProgressBar()
 		self.progressBar.setRange(0, 100)
@@ -505,7 +506,10 @@ class PropVirtualXRay(PropWidget):
 		runTabLayout.addWidget(self.progressBar)
 		runTabLayout.addWidget(self.renderInfoLabel)
 		runTabLayout.addStretch(1)
-		self.tabs.addTab(runTab, "Run")
+		# self.tabs.addTab(runTab, "Run")
+
+		layout.addWidget(runTab)
+		layout.addWidget(self.tabs)
 
 		self._build_sources_tab()
 
@@ -537,7 +541,8 @@ class PropVirtualXRay(PropWidget):
 		self._sourcesCombo.currentIndexChanged.connect(self._sourcesStack.setCurrentIndex)
 
 		self._sources_tab_index = self.tabs.insertTab(
-			self.tabs.count() - 1, sourcesTab, "Sources"
+			# self.tabs.count() - 1, sourcesTab, "Sources"
+			0, sourcesTab, "Sources"
 		)
 
 	def _rebuild_sources_tab(self, obj: VirtualXRay):

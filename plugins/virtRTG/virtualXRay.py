@@ -44,6 +44,18 @@ class VirtualXRay(Object):
 	GEOMETRY_PRESET_FILE = Path(__file__).resolve().parent / "presets" / "xray_geometry_presets.json"
 
 	DEFAULT_GEOMETRY_PRESETS = {
+		"orthoralix": {
+			"projection_mode": "cone",
+			"detector_center_ref": [150.0, 0.0, 0.0],
+			"detector_normal_ref": [-1.0, 0.0, 0.0],
+			"detector_up_ref": [0.0, 0.0, 1.0],
+			"detector_shape_hw": [800, 1000],
+			"detector_pixel_size_mm": [0.30, 0.30],
+			"source_position_ref": [-1350.0, 0.0, 0.0],
+			"ray_direction_ref": [1.0, 0.0, 0.0],
+			"step_mm": 0.5,
+			"quality_profile_name": "normal",
+		},
 		"ceph_lateral": {
 			"projection_mode": "cone",
 			"detector_center_ref": [400.0, 0.0, 0.0],
@@ -222,9 +234,9 @@ class VirtualXRay(Object):
 			(0.30, 0.82, 0.42),
 			(0.34, 0.54, 0.95),
 		)
-		self.detector_fill_alpha = 0.10
+		self.detector_fill_alpha = 0.20
 		self.frustum_alpha = 0.28
-		self.depth_window_fill_alpha = 0.10
+		self.depth_window_fill_alpha = 0.30
 		self.depth_window_link_alpha = 0.24
 		self.source_gizmo_size_mm = 4.0
 		self.axis_gizmo_length_mm = 18.0

@@ -1,4 +1,16 @@
 {
+  "orthoralix": {
+    "projection_mode": "cone",
+    "detector_center_ref": [0.0, 0.0, -150.0],
+    "detector_normal_ref": [0.0, 0.0, 1.0],
+    "detector_up_ref": [0.0, 1.0, 0.0],
+    "detector_shape_hw": [1000, 800],
+    "detector_pixel_size_mm": [0.30, 0.30],
+    "source_position_ref": [0.0, 0.0, 1350.0],
+    "ray_direction_ref": [0.0, 0.0, 1.0],
+    "step_mm": 0.5,
+    "quality_profile_name": "custom"
+  },
   "ceph_lateral": {
     "projection_mode": "cone",
     "detector_center_ref": [400.0, 0.0, 0.0],

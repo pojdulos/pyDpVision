@@ -101,23 +101,20 @@ class VirtualRTG(PluginInterface):
 
 	def onAction_Create_RTG(self):
 		print("Akcja menu: Create RTG")
-		self.setup = VirtualXRay()
-		self.setup.source_position_ref = np.array([0, 0, 1600.0], dtype=np.float32)
 
-		self.setup.detector_shape_hw = [1024, 1024]
-		self.setup.detector_pixel_size_mm = [0.2, 0.2]
-		self.setup.detector_center_ref = np.array([0, 0, -300.0], dtype=np.float32)
-		self.setup.detector_normal_ref = np.array([0, 0, 1.0], dtype=np.float32) # domyślnie w kierunku źródła
-		self.setup.step_mm = 0.5
-		self.setup.quality_profile_name = "custom"
+		if self.setup is None:
+			self.setup = VirtualXRay()
 
-		AP.addObject(self.setup)
+		if self.setup.parent is None and self.setup not in AP.mainWin.workspace.m_data:
+			AP.addObject(self.setup)
+
+		self.setup.apply_geometry_preset("orthoralix")
+
 
 	def onAction_Create_Demo(self):
 		print("Akcja menu: Create Demo")
 		
-		if self.setup is None:
-			self.onAction_Create_RTG()
+		self.onAction_Create_RTG()
 
 		def on_success(skull):
 			if skull is None:
@@ -138,7 +135,7 @@ class VirtualRTG(PluginInterface):
 			skull_transform = Transform()
 			#skull_transform.translate(-100, 45, 0)
 			skull_transform.rotate(-90, [1,0,0])
-			skull_transform.rotate(-90, [0,1,0])
+			skull_transform.rotate(90, [0,1,0])
 			skull_transform.addChild(skull)
 			self.setup.addChild(skull_transform)
 
@@ -163,10 +160,14 @@ class VirtualRTG(PluginInterface):
 				skull.addChild(point)
 
 			path = AnnotationPath()
-			path.addPoint(points['A'])
-			path.addPoint(points['H'])
-			skull.addChild(path)
+			path.addPoint([v+30 for v in points['A']])
+			path.addPoint([v-30 for v in points['H']])
+			path.addPoint([0,0,0])
 			
+			path.setColor(name="red")
+			path.label = "random line"
+			skull.addChild(path)
+
 			AP.updateAllViews()
 			AP.mainWin.dock["workspace"].rebuildTree()
 

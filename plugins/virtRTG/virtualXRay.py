@@ -91,6 +91,15 @@ class VirtualXRay(Object):
 	}
 
 	PRESENTATION_PRESETS = {
+		"default": {
+			"presentation_mode": "digital",
+			"presentation_invert": False,
+			"presentation_gamma": 0.7,
+			"presentation_contrast": 1.2,
+			"presentation_robust_percentile": 99.5,
+			"presentation_window_center": None,
+			"presentation_window_width": None,
+		},
 		"balanced": {
 			"presentation_mode": "digital",
 			"presentation_invert": False,

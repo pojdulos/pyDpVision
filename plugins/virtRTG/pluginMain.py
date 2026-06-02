@@ -10,6 +10,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 
 from dpVision import AP, Object, Transform, PluginInterface
+from dpVision.annotationPath import AnnotationPath
 from dpVision.annotationPoint import AnnotationPoint
 from .virtualXRay import VirtualXRay
 from .propVirtualXRay import PropVirtualXRay
@@ -161,6 +162,11 @@ class VirtualRTG(PluginInterface):
 				#point.setColor(r=255, g=0, b=0, a=255)
 				skull.addChild(point)
 
+			path = AnnotationPath()
+			path.addPoint(points['A'])
+			path.addPoint(points['H'])
+			skull.addChild(path)
+			
 			AP.updateAllViews()
 			AP.mainWin.dock["workspace"].rebuildTree()
 

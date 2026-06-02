@@ -37,6 +37,7 @@ from dpVision.gui.multiSpinBox import MultiSpinBox
 from dpVision.gui.propBaseObject import PropBaseObject
 from dpVision.gui.propWidget import PropWidget
 from .virtualXRay import VirtualXRay
+from .xrayAnnotationOverlay import XRayOverlayCross, XRayOverlayPolyline
 from .xraySource import normalize_projection_to_uint8, ensure_xray_source_config
 
 class _CollapsibleGroup(QWidget):
@@ -1358,10 +1359,10 @@ class PropVirtualXRay(PropWidget):
 				fixed_range=(0.0, 1.0),
 				invert=False,
 			)
+		overlay_enabled = bool(getattr(obj, "presentation_overlay_annotations", False))
 		image_u8 = np.ascontiguousarray(np.flipud(image_u8))
-		image_u8 = obj.overlay_projected_annotations_on_display_uint8(image_u8)
 		height, width = image_u8.shape[:2]
-		if image_u8.ndim == 2:
+		if image_u8.ndim == 2 and not overlay_enabled:
 			qimage = QImage(
 				image_u8.data,
 				width,
@@ -1370,6 +1371,8 @@ class PropVirtualXRay(PropWidget):
 				QImage.Format_Grayscale8,
 			).copy()
 		else:
+			if image_u8.ndim == 2:
+				image_u8 = np.ascontiguousarray(np.repeat(image_u8[:, :, None], 3, axis=2))
 			qimage = QImage(
 				image_u8.data,
 				width,
@@ -1377,7 +1380,7 @@ class PropVirtualXRay(PropWidget):
 				image_u8.strides[0],
 				QImage.Format_RGB888,
 			).copy()
-		self._paint_projected_annotation_labels(qimage, obj)
+		self._paint_projected_overlays(qimage, obj)
 		image_obj = getattr(obj, "last_projection_image", None)
 		if isinstance(image_obj, Image) and self._is_image_in_workspace(image_obj):
 			image_obj.setImage(qimage)
@@ -1399,11 +1402,9 @@ class PropVirtualXRay(PropWidget):
 			return True
 		return any(item is image_obj for item in AP.mainWin.workspace.m_data)
 
-	def _paint_projected_annotation_labels(self, qimage, obj):
-		"""Paint projected annotation labels on the final display image using Qt text rendering."""
+	def _paint_projected_overlays(self, qimage, obj):
+		"""Paint generic projected overlay primitives on the final display image."""
 		if qimage is None or not bool(getattr(obj, "presentation_overlay_annotations", False)):
-			return
-		if not bool(getattr(obj, "presentation_overlay_labels", False)):
 			return
 
 		annotation_set = getattr(obj, "last_projected_annotations", None)
@@ -1412,26 +1413,76 @@ class PropVirtualXRay(PropWidget):
 
 		painter = QPainter(qimage)
 		try:
+			painter.setRenderHint(QPainter.Antialiasing, True)
 			painter.setRenderHint(QPainter.TextAntialiasing, True)
 			for item in annotation_set.items:
-				if not item.visible or not item.in_bounds or item.detector_pixel_uv is None:
+				if not item.visible:
 					continue
-				label_text = str(item.label).strip()
-				if not label_text:
-					continue
-
-				x_coord = int(round(item.detector_pixel_uv[0])) + max(4, int(getattr(obj, "presentation_overlay_cross_size_px", 6))) + 2
-				y_coord = qimage.height() - 1 - int(round(item.detector_pixel_uv[1])) - 4
-				text_color = QColor(*item.color_rgba)
-
-				painter.setPen(QPen(QColor(0, 0, 0, 220)))
-				for dx_offset, dy_offset in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-					painter.drawText(x_coord + dx_offset, y_coord + dy_offset, label_text)
-
-				painter.setPen(QPen(text_color))
-				painter.drawText(x_coord, y_coord, label_text)
+				self._paint_overlay_item(painter, qimage, obj, item)
 		finally:
 			painter.end()
+
+	def _paint_overlay_item(self, painter, qimage, obj, item):
+		"""Paint one generic overlay item and its optional label."""
+		if isinstance(item, XRayOverlayCross):
+			self._paint_overlay_cross(painter, qimage, item)
+			self._paint_overlay_label(painter, qimage, obj, item, item.pixel_uv, item.style.marker_size_px if item.style else 6)
+			return
+		if isinstance(item, XRayOverlayPolyline):
+			self._paint_overlay_polyline(painter, qimage, item)
+			anchor_uv = item.pixel_uvs[0] if item.pixel_uvs else None
+			self._paint_overlay_label(painter, qimage, obj, item, anchor_uv, item.style.marker_size_px if item.style else 6)
+
+	def _paint_overlay_cross(self, painter, qimage, item: XRayOverlayCross):
+		"""Paint one cross overlay item on the projection image."""
+		if item.pixel_uv is None or not item.in_bounds:
+			return
+		style = item.style
+		color = QColor(*(style.color_rgba if style is not None else (255, 0, 0, 255)))
+		size_px = max(1, int(style.marker_size_px if style is not None else 6))
+		line_width_px = max(1, int(style.line_width_px if style is not None else 1))
+		x_coord = int(round(item.pixel_uv[0]))
+		y_coord = qimage.height() - 1 - int(round(item.pixel_uv[1]))
+		painter.setPen(QPen(color, line_width_px))
+		painter.drawLine(x_coord - size_px, y_coord, x_coord + size_px, y_coord)
+		painter.drawLine(x_coord, y_coord - size_px, x_coord, y_coord + size_px)
+
+	def _paint_overlay_polyline(self, painter, qimage, item: XRayOverlayPolyline):
+		"""Paint one detector-space polyline overlay."""
+		if not item.pixel_uvs:
+			return
+		style = item.style
+		color = QColor(*(style.color_rgba if style is not None else (255, 0, 0, 255)))
+		line_width_px = max(1, int(style.line_width_px if style is not None else 1))
+		painter.setPen(QPen(color, line_width_px))
+		points_xy = [
+			(int(round(pixel_uv[0])), qimage.height() - 1 - int(round(pixel_uv[1])))
+			for pixel_uv in item.pixel_uvs
+		]
+		for point_a, point_b in zip(points_xy, points_xy[1:]):
+			painter.drawLine(point_a[0], point_a[1], point_b[0], point_b[1])
+		if item.closed and len(points_xy) > 2:
+			painter.drawLine(points_xy[-1][0], points_xy[-1][1], points_xy[0][0], points_xy[0][1])
+
+	def _paint_overlay_label(self, painter, qimage, obj, item, anchor_uv, marker_size_px):
+		"""Paint one optional overlay label next to the supplied anchor point."""
+		if not bool(getattr(obj, "presentation_overlay_labels", False)):
+			return
+		if anchor_uv is None or not item.in_bounds:
+			return
+		label_text = str(getattr(item, "label", "")).strip()
+		if not label_text:
+			return
+		style = getattr(item, "style", None)
+		color_rgba = style.color_rgba if style is not None else (255, 0, 0, 255)
+		text_color = QColor(*color_rgba)
+		x_coord = int(round(anchor_uv[0])) + max(4, int(marker_size_px)) + 2
+		y_coord = qimage.height() - 1 - int(round(anchor_uv[1])) - 4
+		painter.setPen(QPen(QColor(0, 0, 0, 220)))
+		for dx_offset, dy_offset in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+			painter.drawText(x_coord + dx_offset, y_coord + dy_offset, label_text)
+		painter.setPen(QPen(text_color))
+		painter.drawText(x_coord, y_coord, label_text)
 
 	def _freeze_gl_viewers(self):
 		"""Temporarily disable GL viewer updates while image objects are inserted into the workspace."""

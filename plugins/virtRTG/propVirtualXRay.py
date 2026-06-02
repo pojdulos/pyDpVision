@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+import logging
+_log = logging.getLogger(__name__)
+
 import weakref
 
 import numpy as np
@@ -1381,6 +1385,7 @@ class PropVirtualXRay(PropWidget):
 			self.progressBar.setValue(int(fraction * 100))
 			QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
 
+		_t_integ = perf_counter()
 		QApplication.setOverrideCursor(Qt.WaitCursor)
 		try:
 			try:
@@ -1396,11 +1401,17 @@ class PropVirtualXRay(PropWidget):
 			)
 		finally:
 			QApplication.restoreOverrideCursor()
+			_t_integ_end = perf_counter()
+			_log.info(
+				"Simulation done in %.3f s",
+				_t_integ_end - _t_integ,
+			)
 			for v in gl_viewers:
 				v.setUpdatesEnabled(True)
 			AP.updateAllViews()
 			self.progressBar.setVisible(False)
 			self.runSimulationButton.setEnabled(True)
+
 
 	def on_update_display(self):
 		"""Re-apply the current presentation model to the cached raw projection without re-projecting."""

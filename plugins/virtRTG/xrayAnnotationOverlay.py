@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from typing import Iterable
 
 import numpy as np
 
 from dpVision import AnnotationPath, AnnotationPoint
 
+_log = logging.getLogger(__name__)
 
 @dataclass
 class XRayOverlayStyle:
@@ -232,10 +234,13 @@ def build_overlay_projection_set(descendants: Iterable[object], context: XRayAnn
 	projectors = tuple(DEFAULT_PROJECTORS if projectors is None else projectors)
 	projected_items: list[XRayOverlayItem] = []
 	for scene_object in descendants:
-		for projector in projectors:
-			if isinstance(scene_object, projector.scene_type):
-				projected_items.extend(projector.project(scene_object, context))
-				break
+		if scene_object.visible:
+			for projector in projectors:
+				if isinstance(scene_object, projector.scene_type):
+					projected_items.extend(projector.project(scene_object, context))
+					break
+		else:
+			_log.debug(f"Skipping invisible object {scene_object.label} during overlay projection.")
 	return XRayOverlayProjectionSet(
 		detector_shape_hw=(int(context.geometry.detector_shape_hw[0]), int(context.geometry.detector_shape_hw[1])),
 		items=projected_items,

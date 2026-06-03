@@ -1,7 +1,43 @@
 {
-  "orthoralix": {
+  "orthoralix_PA": {
     "projection_mode": "cone",
-    "detector_center_ref": [0.0, 0.0, -150.0],
+    "detector_center_ref": [-150.0, 30.0, 0.0],
+    "detector_normal_ref": [1.0, 0.0, 0.0],
+    "detector_up_ref": [0.0, 1.0, 0.0],
+    "detector_shape_hw": [1000, 800],
+    "detector_pixel_size_mm": [0.30, 0.30],
+    "source_position_ref": [1350.0, 0.0, 0.0],
+    "ray_direction_ref": [1.0, 0.0, 0.0],
+    "step_mm": 0.5,
+    "quality_profile_name": "custom"
+  },
+  "orthoralix_LL_V": {
+    "projection_mode": "cone",
+    "detector_center_ref": [30.0, 0.0, -150.0],
+    "detector_normal_ref": [0.0, 0.0, 1.0],
+    "detector_up_ref": [0.0, 1.0, 0.0],
+    "detector_shape_hw": [800, 600],
+    "detector_pixel_size_mm": [0.30, 0.30],
+    "source_position_ref": [0.0, 0.0, 1350.0],
+    "ray_direction_ref": [0.0, 0.0, 1.0],
+    "step_mm": 0.5,
+    "quality_profile_name": "custom"
+  },
+  "orthoralix_LL_H": {
+    "projection_mode": "cone",
+    "detector_center_ref": [0.0, -30.0, -150.0],
+    "detector_normal_ref": [0.0, 0.0, 1.0],
+    "detector_up_ref": [0.0, 1.0, 0.0],
+    "detector_shape_hw": [600, 800],
+    "detector_pixel_size_mm": [0.30, 0.30],
+    "source_position_ref": [0.0, 0.0, 1350.0],
+    "ray_direction_ref": [0.0, 0.0, 1.0],
+    "step_mm": 0.5,
+    "quality_profile_name": "custom"
+  },
+  "orthoralix_PA(LL)": {
+    "projection_mode": "cone",
+    "detector_center_ref": [0.0, 30.0, -150.0],
     "detector_normal_ref": [0.0, 0.0, 1.0],
     "detector_up_ref": [0.0, 1.0, 0.0],
     "detector_shape_hw": [1000, 800],

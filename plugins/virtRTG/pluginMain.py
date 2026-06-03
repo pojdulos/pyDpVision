@@ -108,7 +108,7 @@ class VirtualRTG(PluginInterface):
 		if self.setup.parent is None and self.setup not in AP.mainWin.workspace.m_data:
 			AP.addObject(self.setup)
 
-		self.setup.apply_geometry_preset("orthoralix")
+		self.setup.apply_geometry_preset("orthoralix_PA")
 
 
 	def onAction_Create_Demo(self):

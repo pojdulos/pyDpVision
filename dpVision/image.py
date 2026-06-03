@@ -97,7 +97,7 @@ class Image(Object, QImage):
 
     def renderSelf(self):
         """Upload the image lazily as an OpenGL texture and render one textured quad."""
-        if not self.m_showSelf or self.image_data is None:
+        if self.hidden or self.image_data is None:
             return
 
         if self.texture_id is None:

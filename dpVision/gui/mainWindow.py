@@ -85,8 +85,8 @@ class MainWindow(QMainWindow):
 	# 	uic.loadUi(ui_path, self)
 
 	def closeEvent(self, event):
-		reply = QMessageBox.question(self, 'No, please...',
-									  "Do you really want tu close me?",
+		reply = QMessageBox.question(self, 'Exit confirmation...',
+									  "Are you sure you want to quit?",
 									  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
 		if reply == QMessageBox.Yes:

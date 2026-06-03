@@ -81,6 +81,23 @@ class BaseObject(QObject):
 		self._locked = b
 
 	@property
+	def visible(self):
+		return self.m_showSelf
+
+	@visible.setter
+	def visible(self, b:bool):
+		self.m_showSelf = b
+
+	@property
+	def hidden(self):
+		return not self.m_showSelf
+
+	@hidden.setter
+	def hidden(self, b:bool):
+		self.m_showSelf = not b
+
+
+	@property
 	def modified(self):
 		return self._modified
 	
@@ -108,10 +125,10 @@ class BaseObject(QObject):
 		# AP.updateAllViews()
 
 	def setSelfVisibility(self, b):
-		self.m_showSelf = b
+		self.visible = b
 
 	def getSelfVisibility(self):
-		return self.m_showSelf
+		return self.visible
 
 	def setKidsVisibility(self, b):
 		self.m_showKids = b
@@ -244,7 +261,7 @@ class BaseObject(QObject):
 
 	def render(self):
 		gl.glPushMatrix()
-		if (self.m_showSelf):
+		if self.visible:
 			self.renderSelf()
 		if (self.m_showKids):
 			self.renderKids()

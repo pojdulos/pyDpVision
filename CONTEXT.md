@@ -133,6 +133,7 @@ Pomocnicze kontrolki:
 - **Aktywny plugin:** `AP.mainApp.activePlugin`
 - **Dołączony plugin:** `plugins/frasta/` — analiza powierzchni frędzlowej, własne doki i kontroler
 - **Dołączony plugin:** `plugins/virtRTG/` — logika symulacji RTG, z top-level integracja pluginu (`pluginMain.py`, `virtualXRay.py`, `benchmark.py`) oraz wydzielonymi podkatalogami `gui/`, `xray/`, `presets/` i `docs/`
+- **README virtRTG:** `plugins/virtRTG/README.md` jest utrzymywany bardziej jak publiczny README potencjalnego osobnego repozytorium wtyczki: opisuje cel, funkcje, workflow, ograniczenia i testy, a nie tylko wewnetrzny layout kodu.
 - **Atrybucje virtRTG:** `plugins/virtRTG/docs/THIRD_PARTY_ATTRIBUTION.md` zbiera przeglad zapozyczen algorytmicznych i wskazuje, ze aktualnie nie ma potwierdzonego bezposredniego copy-paste z obcych projektow, ale nalezy jawnie wymieniac m.in. Beer-Lambert, Siddon i Moller-Trumbore.
 - **Testy virtRTG:** `plugins/virtRTG/tests/` zawiera plugin-local szkielet `pytest` dla backendu `xray/`; aktualnie obejmuje lekkie testy geometrii, fizyki i prezentacji oraz osobny szkic dalszych testow dla `xraySource`.
 - **Granica odpowiedzialnosci:** po wydzieleniu RTG do `plugins/virtRTG/` pakiet `dpVision/` trzyma tylko rdzen sceny, GUI, obiekty `Mesh`/`Volumetric` oraz punkty integracji wykorzystywane przez plugin

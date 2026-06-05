@@ -36,9 +36,9 @@ from dpVision import AP, Image, Mesh, Volumetric
 from dpVision.gui.multiSpinBox import MultiSpinBox
 from dpVision.gui.propBaseObject import PropBaseObject
 from dpVision.gui.propWidget import PropWidget
-from .virtualXRay import VirtualXRay
-from .xrayAnnotationOverlay import XRayOverlayCross, XRayOverlayPolyline
-from .xraySource import normalize_projection_to_uint8, ensure_xray_source_config
+from ..virtualXRay import VirtualXRay
+from ..xray.xrayAnnotationOverlay import XRayOverlayCross, XRayOverlayPolyline
+from ..xray.xraySource import normalize_projection_to_uint8, ensure_xray_source_config
 
 class _CollapsibleGroup(QWidget):
 	"""Simple collapsible section: a toggle button + a hidden/shown body widget."""

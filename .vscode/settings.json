@@ -1,6 +1,6 @@
 {
 	"better-comments.multilineComments": true,
-	"python.defaultInterpreterPath": ".venv/Scripts/python.exe",
+	"python.defaultInterpreterPath": "%DIR%/.venv/Scripts/python.exe",
 	"editor.insertSpaces": false,
 	"editor.fontSize": 18,
 	"terminal.integrated.env.linux": {
@@ -19,7 +19,7 @@
             ]
         }
     ],
-    "cursorpyright.analysis.typeCheckingMode": "off"
+    "cursorpyright.analysis.typeCheckingMode": "off",
     
     "latex-workshop.latex.outDir": "%DIR%/.output_local",
     "latex-workshop.latex.autoBuild.run": "onSave",

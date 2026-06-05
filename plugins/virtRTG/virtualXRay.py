@@ -12,19 +12,19 @@ import numpy as np
 from dpVision import Mesh, Object, Volumetric
 from dpVision.marchingCubes import mc_estimate_threshold, mc_gradient
 
-from .xrayPresentation import (
+from .xray.xrayPresentation import (
 	RawPresentationModel,
 	FilmLikePresentationModel,
 	DigitalRadiographyPresentationModel
 )
 
-from .xraySource import (
+from .xray.xraySource import (
 	MeshXRaySource,
 	VolumetricXRaySource,
 	ensure_xray_source_config
 )
 
-from .xrayProjection import (
+from .xray.xrayProjection import (
 	XRayPhysicsModel,
 	XRayProjectionConfig,
 	XRayProjectionGeometry,
@@ -32,7 +32,7 @@ from .xrayProjection import (
 	XRayScalarPreprocessor,
 	XRayScene,
 )
-from .xrayAnnotationOverlay import (
+from .xray.xrayAnnotationOverlay import (
 	XRayAnnotationProjectionContext,
 	build_overlay_projection_set,
 )

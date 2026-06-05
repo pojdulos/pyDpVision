@@ -13,7 +13,7 @@ from dpVision import AP, Object, Transform, PluginInterface
 from dpVision.annotationPath import AnnotationPath
 from dpVision.annotationPoint import AnnotationPoint
 from .virtualXRay import VirtualXRay
-from .propVirtualXRay import PropVirtualXRay
+from .gui.propVirtualXRay import PropVirtualXRay
 
 import numpy as np
 import os

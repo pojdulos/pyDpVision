@@ -18,7 +18,7 @@ import numpy as np
 #     sys.path.insert(1, _PLUGIN_DIR)
 
 from .virtualXRay import VirtualXRay
-from .xrayProjection import (
+from .xray.xrayProjection import (
 	XRayProjectionGeometry,
 	XRayPhysicsModel,
 	XRayProjectionQualityProfile,

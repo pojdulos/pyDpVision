@@ -119,6 +119,7 @@ Pomocnicze kontrolki:
 - **Aktywny plugin:** `AP.mainApp.activePlugin`
 - **Dołączony plugin:** `plugins/frasta/` — analiza powierzchni frędzlowej, własne doki i kontroler
 - **Dołączony plugin:** `plugins/virtRTG/` — cala logika symulacji RTG, obiekt `VirtualXRay`, panel wlasciwosci, backend projekcji, prezentacja i helpery eksportu
+- **Atrybucje virtRTG:** `plugins/virtRTG/THIRD_PARTY_ATTRIBUTION.md` zbiera przeglad zapozyczen algorytmicznych i wskazuje, ze aktualnie nie ma potwierdzonego bezposredniego copy-paste z obcych projektow, ale nalezy jawnie wymieniac m.in. Beer-Lambert, Siddon i Moller-Trumbore.
 - **Granica odpowiedzialnosci:** po wydzieleniu RTG do `plugins/virtRTG/` pakiet `dpVision/` trzyma tylko rdzen sceny, GUI, obiekty `Mesh`/`Volumetric` oraz punkty integracji wykorzystywane przez plugin
 - `plugins/disabled/` — nie jest auto-ładowany
 

@@ -26,7 +26,12 @@ _log = logging.getLogger(__name__)
 
 
 def _ray_box_intersections_vectorized(ray_origins, ray_directions, box_min, box_max):
-	"""Vectorized AABB intersection for N rays. Returns t_start (N,), t_end (N,), hit_mask (N,)."""
+	"""Vectorized slab-based AABB intersection for many rays.
+
+	This is a local implementation of the standard ray-box "slab" test,
+	not copied from one external project. See `THIRD_PARTY_ATTRIBUTION.md`
+	in this plugin for the algorithm-level attribution note.
+	"""
 	ray_origins = np.asarray(ray_origins, dtype=np.float32)
 	ray_directions = np.asarray(ray_directions, dtype=np.float32)
 	box_min = np.asarray(box_min, dtype=np.float32)
@@ -342,7 +347,12 @@ class XRayProjectionGeometry:
 
 @dataclass
 class XRayPhysicsModel:
-	"""Map scalar values to attenuation and convert integrals into detector intensities."""
+	"""Map scalar values to attenuation and convert integrals into detector intensities.
+
+	The intensity conversion follows the Beer-Lambert attenuation law in its
+	simplified monochromatic form. The scalar-to-attenuation mapping around it
+	remains project-specific and intentionally heuristic.
+	"""
 
 	mu_air: float = 0.0
 	mu_water: float = 0.02
@@ -480,7 +490,12 @@ class XRayPhysicsModel:
 		return np.power(reference_distance / safe_distances, power).astype(np.float32, copy=False)
 
 	def integral_to_image(self, line_integral, source_to_detector_distance_mm=None, projection_mode=None):
-		"""Convert integrated attenuation into a detector-space image value."""
+		"""Convert integrated attenuation into a detector-space image value.
+
+		`output_mode == "intensity"` applies a Beer-Lambert style
+		`I = exp(-integral)` conversion, optionally followed by a cone-beam
+		distance gain term.
+		"""
 		line_integral = np.asarray(line_integral, dtype=np.float32)
 		distance_gain = self.source_distance_gain(
 			source_to_detector_distance_mm=source_to_detector_distance_mm,

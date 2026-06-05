@@ -194,6 +194,9 @@ def _one_ray_per_triangle_hit(ray_origins, ray_directions, triangles_world, epsi
 	Unlike `_rays_single_triangle_hit_distances` (many rays, one triangle), this
 	function handles M ray-triangle pairs where every pair uses a different triangle.
 
+	This is a project-local NumPy formulation of the classic Möller-Trumbore
+	ray-triangle test, documented in `THIRD_PARTY_ATTRIBUTION.md`.
+
 	Args:
 		ray_origins:     (M, 3) float32 world-space ray origins.
 		ray_directions:  (M, 3) float32 unit-length ray directions.
@@ -224,14 +227,22 @@ def _one_ray_per_triangle_hit(ray_origins, ray_directions, triangles_world, epsi
 
 
 def _is_top_left_edge_2d(point_a, point_b):
-	"""Return `True` when one directed 2D edge should be inclusive in top-left rasterization."""
+	"""Return `True` when one directed 2D edge should be inclusive in top-left rasterization.
+
+	The rule matches the standard top-left fill convention used by rasterizers so
+	adjacent projected triangles do not both claim the same detector-edge pixel.
+	"""
 	dy = float(point_b[1] - point_a[1])
 	dx = float(point_b[0] - point_a[0])
 	return (dy > 0.0) or (abs(dy) <= 1e-8 and dx < 0.0)
 
 
 def _build_triangle_bvh(triangles_world, max_leaf_size=8):
-	"""Build one binary AABB tree over triangle geometry and return a compact node list."""
+	"""Build one binary AABB tree over triangle geometry and return a compact node list.
+
+	The data structure is a simple project-local BVH implementation over triangle
+	centroids and bounding boxes, not an imported third-party code fragment.
+	"""
 	triangles_world = np.asarray(triangles_world, dtype=np.float32)
 	if triangles_world.ndim != 3 or triangles_world.shape[1:] != (3, 3):
 		raise ValueError("triangles_world must have shape (N, 3, 3).")
@@ -328,7 +339,10 @@ def _ray_triangle_intersections_bvh(ray_origin, ray_direction, triangles_world, 
 
 
 def _ray_box_intersection(ray_origin, ray_direction, box_min, box_max):
-	"""Intersect one ray with an axis-aligned box and return the parametric interval."""
+	"""Intersect one ray with an axis-aligned box and return the parametric interval.
+
+	This uses the standard slab formulation for AABB intersection.
+	"""
 	ray_origin = np.asarray(ray_origin, dtype=np.float32)
 	ray_direction = np.asarray(ray_direction, dtype=np.float32)
 	box_min = np.asarray(box_min, dtype=np.float32)
@@ -360,7 +374,11 @@ def _ray_box_intersection(ray_origin, ray_direction, box_min, box_max):
 
 
 def _ray_triangle_hit_distances(ray_origin, ray_direction, triangles_world, epsilon=1e-6):
-	"""Return unsorted hit distances for one ray and many world-space triangles."""
+	"""Return unsorted hit distances for one ray and many world-space triangles.
+
+	The intersection core follows the same Möller-Trumbore formulation as
+	`_one_ray_per_triangle_hit`, specialized for one ray against many triangles.
+	"""
 	triangles_world = np.asarray(triangles_world, dtype=np.float32)
 	if triangles_world.ndim != 3 or triangles_world.shape[1:] != (3, 3):
 		raise ValueError("triangles_world must have shape (N, 3, 3).")
@@ -412,7 +430,11 @@ def _ray_triangle_intersections(ray_origin, ray_direction, triangles_world, epsi
 
 
 def _rays_single_triangle_hit_distances(ray_origins, ray_directions, triangle_world, epsilon=1e-6):
-	"""Return one hit distance per ray for one triangle, or `nan` when there is no hit."""
+	"""Return one hit distance per ray for one triangle, or `nan` when there is no hit.
+
+	This is the many-rays/one-triangle variant of the Möller-Trumbore test used
+	by the projected mesh backend.
+	"""
 	ray_origins = np.asarray(ray_origins, dtype=np.float32)
 	ray_directions = np.asarray(ray_directions, dtype=np.float32)
 	triangle_world = np.asarray(triangle_world, dtype=np.float32)
@@ -579,6 +601,10 @@ class VolumetricXRaySource(XRaySampleSource):
 		traversed voxel by collecting all voxel-boundary plane crossings along each
 		axis, sorting them, and accumulating ``mu * chord_length`` per segment.
 		The result is fully independent of any step-size parameter.
+
+		This is an in-project vectorized implementation of the Siddon idea rather
+		than a copied external routine. See `THIRD_PARTY_ATTRIBUTION.md` for the
+		bibliographic reference that should accompany publications or releases.
 
 		Assumptions
 		-----------
@@ -1279,6 +1305,9 @@ class MeshXRaySource(XRaySampleSource):
 		  4. One-ray-per-triangle Möller-Trumbore for all inside candidates at once.
 		  5. Assemble flat output arrays.
 
+		The rasterization strategy is local to this plugin, while step 4 reuses the
+		classic Möller-Trumbore intersection test documented in the attribution file.
+
 		Returns:
 			(pixel_indices, t_values, shell_gains, tri_indices) — four (M,) flat arrays.
 		"""
@@ -1898,4 +1927,3 @@ class MeshXRaySource(XRaySampleSource):
 			progress_callback(progress_end)
 		self._last_integral_timing = {"integration_s": float(perf_counter() - _t_analytic_start)}
 		return integrals, intersection_work_count
-

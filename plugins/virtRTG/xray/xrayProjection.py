@@ -29,8 +29,9 @@ def _ray_box_intersections_vectorized(ray_origins, ray_directions, box_min, box_
 	"""Vectorized slab-based AABB intersection for many rays.
 
 	This is a local implementation of the standard ray-box "slab" test,
-	not copied from one external project. See `THIRD_PARTY_ATTRIBUTION.md`
-	in this plugin for the algorithm-level attribution note.
+	not copied from one external project. See
+	`docs/THIRD_PARTY_ATTRIBUTION.md` in this plugin for the
+	algorithm-level attribution note.
 	"""
 	ray_origins = np.asarray(ray_origins, dtype=np.float32)
 	ray_directions = np.asarray(ray_directions, dtype=np.float32)

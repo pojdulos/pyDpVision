@@ -108,7 +108,7 @@ Pomocnicze kontrolki:
 - Panele w `DockWidgetProperties` powinny opierac rozmiar na `sizeHint`/`minimumSizeHint` i normalnym relayoutcie Qt; nie nalezy zamrazac ich wysokosci jednorazowym `setMinimumHeight(...)`, bo psuje to rozwijane sekcje i przewijanie `QScrollArea`.
 - W panelach opartych o `QFormLayout` pola edycyjne powinny zwykle zostawac przy `sizeHint()` (`FieldsStayAtSizeHint` + kompaktowy `QSizePolicy`), zamiast rozciagac sie na cala szerokosc docka.
 - Jesli panel ma pozostac kompaktowy, takze zwykle `QGroupBox` w kartach powinny miec uklad wyrównany do lewej i polityke rozmiaru oparta o zawartosc, zamiast wymuszac pelna szerokosc kontenera.
-- W `plugins/virtRTG/propVirtualXRay.py` naglowki sekcji rozwijanych sa kompaktowe, a akcje w zakladce `Run` sa ukladane pionowo; etykiety statusu powinny miec wlaczone zawijanie linii.
+- W `plugins/virtRTG/gui/propVirtualXRay.py` naglowki sekcji rozwijanych sa kompaktowe, a akcje w zakladce `Run` sa ukladane pionowo; etykiety statusu powinny miec wlaczone zawijanie linii.
 
 ---
 
@@ -118,8 +118,8 @@ Pomocnicze kontrolki:
 - **Interfejs:** klasa dziedziczy `PluginInterface(ABC)`, wymagane: `on_load()`, `on_unload()`, `perform_action()`
 - **Aktywny plugin:** `AP.mainApp.activePlugin`
 - **Dołączony plugin:** `plugins/frasta/` — analiza powierzchni frędzlowej, własne doki i kontroler
-- **Dołączony plugin:** `plugins/virtRTG/` — cala logika symulacji RTG, obiekt `VirtualXRay`, panel wlasciwosci, backend projekcji, prezentacja i helpery eksportu
-- **Atrybucje virtRTG:** `plugins/virtRTG/THIRD_PARTY_ATTRIBUTION.md` zbiera przeglad zapozyczen algorytmicznych i wskazuje, ze aktualnie nie ma potwierdzonego bezposredniego copy-paste z obcych projektow, ale nalezy jawnie wymieniac m.in. Beer-Lambert, Siddon i Moller-Trumbore.
+- **Dołączony plugin:** `plugins/virtRTG/` — logika symulacji RTG, z top-level integracja pluginu (`pluginMain.py`, `virtualXRay.py`, `benchmark.py`) oraz wydzielonymi podkatalogami `gui/`, `xray/`, `presets/` i `docs/`
+- **Atrybucje virtRTG:** `plugins/virtRTG/docs/THIRD_PARTY_ATTRIBUTION.md` zbiera przeglad zapozyczen algorytmicznych i wskazuje, ze aktualnie nie ma potwierdzonego bezposredniego copy-paste z obcych projektow, ale nalezy jawnie wymieniac m.in. Beer-Lambert, Siddon i Moller-Trumbore.
 - **Granica odpowiedzialnosci:** po wydzieleniu RTG do `plugins/virtRTG/` pakiet `dpVision/` trzyma tylko rdzen sceny, GUI, obiekty `Mesh`/`Volumetric` oraz punkty integracji wykorzystywane przez plugin
 - `plugins/disabled/` — nie jest auto-ładowany
 
@@ -213,13 +213,13 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - Jest tez wariant `resample_like_global(...)`, ktory uwzglednia `getGlobalTransformation()` obu wolumenow i pozwala przepisac jeden wolumen dokladnie do siatki drugiego.
 - Backend ma tez metody laczenia wolumenow po wspolnym resamplingu: `merge_to_grid_global(...)` oraz `merge_like_global(...)`. Obsluguja polityki konfliktow `max`, `min`, `mean`, `sum`, `overwrite` i `first_non_empty`, korzystajac z mask waznosci probek zamiast zgadywania po samym `fill_value`.
 - Dla pracy na wielu tomografiach backend umie tez wyznaczyc wspolna siatke: `compute_common_grid_global(...)` obsluguje polityki `reference`, `finest`, `coarsest` i `manual`, a `merge_to_common_grid_global(...)` scala wolumeny po automatycznym doborze takiej siatki.
-- Osobny backend RTG jest wydzielony do `plugins/virtRTG/xrayProjection.py`. Zawiera klasy `XRayProjectionGeometry`, `XRayPhysicsModel`, `XRaySampleSource`, `VolumetricXRaySource` i `XRayProjector`, zeby rozwijac geometrie i fizyke projekcji niezaleznie od klasy `Volumetric`.
+- Osobny backend RTG jest wydzielony do `plugins/virtRTG/xray/xrayProjection.py`. Zawiera klasy `XRayProjectionGeometry`, `XRayPhysicsModel`, `XRaySampleSource`, `VolumetricXRaySource` i `XRayProjector`, zeby rozwijac geometrie i fizyke projekcji niezaleznie od klasy `Volumetric`.
 - Backend RTG ma teraz tez wyzszy poziom API: `XRayProjectionGeometry.from_detector_pose(...)` do wygodniejszego budowania geometrii, `XRayProjectionQualityProfile` z presetami `draft/normal/high`, `XRayProjectionConfig` do spinania geometrii, fizyki i prezentacji oraz `XRayScene` jako kontener zrodel i wygodny punkt wejscia do projekcji.
 - Nad surowym wynikiem projekcji jest tez osobna warstwa prezentacji: `XRayPresentationModel`, `RawPresentationModel`, `FilmLikePresentationModel` i `DigitalRadiographyPresentationModel`. Pozwala to rozwijac wyglad obrazu RTG bez ruszania samego projektora.
 - `XRayProjector.project(..., return_stats=True)` potrafi teraz zwrocic tez `XRayProjectionStats`, czyli podstawowe statystyki czasu, liczby promieni i liczby probek.
 - Integracja z drzewem sceny zaczyna sie od obiektu `VirtualXRay` w `plugins/virtRTG/virtualXRay.py`. To zwykly `Object`, ktory rysuje gizmo zrodla i detektora, zbiera potomne wolumeny z istniejacej hierarchii sceny i buduje z nich `XRayScene` oraz `XRayProjectionConfig`.
 - `VirtualXRay` pracuje w lokalnym ukladzie odniesienia zwiazanym z samym obiektem: geometria zrodla i detektora jest opisana lokalnie, a potomne wolumeny sa przekladane do tego ukladu przez transformacje wzgledne wobec `VirtualXRay`, nie przez absolutne wspolrzedne globalne.
-- `VirtualXRay` ma juz tez prosty panel wlasciwosci w `plugins/virtRTG/propVirtualXRay.py`, podpiety dynamicznie do `DockWidgetProperties` przez `plugins/virtRTG/pluginMain.py`. Pozwala edytowac tryb `cone/parallel`, pozycje i orientacje detektora, pozycje zrodla lub kierunek promieni, rozdzielczosc detektora, wielkosc piksela, `step_mm` i profil jakosci.
+- `VirtualXRay` ma juz tez prosty panel wlasciwosci w `plugins/virtRTG/gui/propVirtualXRay.py`, podpiety dynamicznie do `DockWidgetProperties` przez `plugins/virtRTG/pluginMain.py`. Pozwala edytowac tryb `cone/parallel`, pozycje i orientacje detektora, pozycje zrodla lub kierunek promieni, rozdzielczosc detektora, wielkosc piksela, `step_mm` i profil jakosci.
 - Z tego samego panelu mozna tez uruchomic symulacje przez przycisk `Run Simulation`: projekcja jest liczona z bieżących ustawien `VirtualXRay`, a wynik trafia do workspace jako zwykly obiekt `Image`. Panel pokazuje tez podstawowe statystyki czasu i liczby probek.
 - Panel `VirtualXRay` jest teraz podzielony na zakladki `Scene`, `Detector`, `Source`, `Sampling` i `Run`, zeby nie pokazywac wszystkich parametrow naraz.
 - Panel `VirtualXRay` ma tez osobna zakladke `Presentation`, gdzie da sie stroic sposob generowania obrazu koncowego (`digital / film / raw`, `invert`, `gamma`, `contrast`, `robust percentile`, opcjonalne `window center/width`). Dla trybow prezentacyjnych wynik jest przy zamianie na `Image` mapowany w stalym zakresie `0..1`, zeby unikac dodatkowego prześwietlania przez wtorny auto-stretch.
@@ -272,7 +272,7 @@ Obiekty sprawdzają `AP.wboit_pass` w metodzie `render()`.
 - `VirtualXRay` przechowuje teraz rowniez osobny cache `last_projected_annotations`, na start dla potomnych `AnnotationPoint`. Te adnotacje sa rzutowane na detektor do osobnej struktury metadanych i nie sa mieszane z surowym obrazem projekcji.
 - Zakladka `Presentation` ma opcjonalny overlay `Overlay projected annotations`, ktory sklada takie rzutowane adnotacje dopiero na etapie prezentacji lub przyszlego eksportu. Dla `AnnotationPoint` overlay rysuje obecnie kolorowe krzyzyki w miejscu projekcji.
 - Ten sam overlay ma tez opcje `Show labels`; etykiety sa rysowane dopiero na finalnym `QImage` przez `QPainter`, a nie w surowym buforze projekcji, zeby latwo rozszerzac to o dalsze typy adnotacji i tekst.
-- Mechanizm overlayow RTG zaczyna byc teraz wydzielany do `plugins/virtRTG/xrayAnnotationOverlay.py`: `VirtualXRay` tylko zbiera potomne adnotacje i buduje kontekst projekcji, projektory per typ (`AnnotationPoint`, `AnnotationPath`, ...) zamieniaja je na generyczne prymitywy 2D detektora, a `PropVirtualXRay` rysuje te prymitywy przez `QPainter`.
+- Mechanizm overlayow RTG zaczyna byc teraz wydzielany do `plugins/virtRTG/xray/xrayAnnotationOverlay.py`: `VirtualXRay` tylko zbiera potomne adnotacje i buduje kontekst projekcji, projektory per typ (`AnnotationPoint`, `AnnotationPath`, ...) zamieniaja je na generyczne prymitywy 2D detektora, a `PropVirtualXRay` rysuje te prymitywy przez `QPainter`.
 - `build_geometry()` przekazuje do `XRayProjectionGeometry` tylko aktywny parametr geometrii: `source_position_ref` dla `cone` albo `ray_direction_ref` dla `parallel`.
 - `VirtualXRay` nadal pracuje w lokalnym ukladzie odniesienia obiektu i zbiera potomne `Volumetric` przez istniejace mechanizmy drzewa sceny, przeliczajac transformacje wzgledem siebie.
 - `VirtualXRay` zbiera teraz takze potomne `Mesh`. Dla meshy backend RTG uzywa uproszczonego modelu: promien przecina trojkaty, a wynik jest liczony jako stala absorpcja materialu dla zamknietego mesha (`solid`) albo cienkiej powloki (`shell`).

@@ -195,7 +195,7 @@ def _one_ray_per_triangle_hit(ray_origins, ray_directions, triangles_world, epsi
 	function handles M ray-triangle pairs where every pair uses a different triangle.
 
 	This is a project-local NumPy formulation of the classic Möller-Trumbore
-	ray-triangle test, documented in `THIRD_PARTY_ATTRIBUTION.md`.
+	ray-triangle test, documented in `docs/THIRD_PARTY_ATTRIBUTION.md`.
 
 	Args:
 		ray_origins:     (M, 3) float32 world-space ray origins.
@@ -603,8 +603,9 @@ class VolumetricXRaySource(XRaySampleSource):
 		The result is fully independent of any step-size parameter.
 
 		This is an in-project vectorized implementation of the Siddon idea rather
-		than a copied external routine. See `THIRD_PARTY_ATTRIBUTION.md` for the
-		bibliographic reference that should accompany publications or releases.
+		than a copied external routine. See
+		`docs/THIRD_PARTY_ATTRIBUTION.md` for the bibliographic reference that
+		should accompany publications or releases.
 
 		Assumptions
 		-----------

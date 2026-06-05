@@ -1,6 +1,5 @@
 {
 	"better-comments.multilineComments": true,
-	"python.defaultInterpreterPath": "%DIR%/.venv/Scripts/python.exe",
 	"editor.insertSpaces": false,
 	"editor.fontSize": 18,
 	"terminal.integrated.env.linux": {
@@ -26,4 +25,10 @@
     "ltex.enabled": true,
     "ltex.language": "en-US",
     "ltex.additionalRules.motherTongue": "pl-PL",
+    "python.testing.pytestArgs": [
+        "-c",
+        "pytest.ini"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
 }

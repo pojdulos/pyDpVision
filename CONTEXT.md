@@ -17,6 +17,20 @@ setup.bat               # tworzenie .venv i instalacja zależności
 
 PyInstaller spec: `pyDpVision.spec` → `dist/pyDpVision/pyDpVision.exe`
 
+## Testy
+
+```
+pytest                    # uruchamia discovery z pytest.ini
+pytest tests plugins      # jawne uruchomienie tych samych korzeni
+```
+
+- Workspace `pytest` jest skonfigurowany przez `pytest.ini`.
+- Discovery startuje z katalogow `tests/` oraz `plugins/`, dzieki czemu obejmuje
+  zarowno testy workspace-level, jak i plugin-local suite w `plugins/*/tests/`.
+- Ustawienia VS Code w `.vscode/settings.json` uruchamiaja `pytest` przez
+  `-c pytest.ini`, zeby discovery dziedziczylo `testpaths` z konfiguracji
+  repo i nie wymagalo istnienia nieobowiazkowego katalogu `tests/`.
+
 ---
 
 ## Struktura katalogów
@@ -120,6 +134,7 @@ Pomocnicze kontrolki:
 - **Dołączony plugin:** `plugins/frasta/` — analiza powierzchni frędzlowej, własne doki i kontroler
 - **Dołączony plugin:** `plugins/virtRTG/` — logika symulacji RTG, z top-level integracja pluginu (`pluginMain.py`, `virtualXRay.py`, `benchmark.py`) oraz wydzielonymi podkatalogami `gui/`, `xray/`, `presets/` i `docs/`
 - **Atrybucje virtRTG:** `plugins/virtRTG/docs/THIRD_PARTY_ATTRIBUTION.md` zbiera przeglad zapozyczen algorytmicznych i wskazuje, ze aktualnie nie ma potwierdzonego bezposredniego copy-paste z obcych projektow, ale nalezy jawnie wymieniac m.in. Beer-Lambert, Siddon i Moller-Trumbore.
+- **Testy virtRTG:** `plugins/virtRTG/tests/` zawiera plugin-local szkielet `pytest` dla backendu `xray/`; aktualnie obejmuje lekkie testy geometrii, fizyki i prezentacji oraz osobny szkic dalszych testow dla `xraySource`.
 - **Granica odpowiedzialnosci:** po wydzieleniu RTG do `plugins/virtRTG/` pakiet `dpVision/` trzyma tylko rdzen sceny, GUI, obiekty `Mesh`/`Volumetric` oraz punkty integracji wykorzystywane przez plugin
 - `plugins/disabled/` — nie jest auto-ładowany
 

@@ -52,3 +52,12 @@ plugins/virtRTG/
 - If the backend grows further, `xray/` can later be split into subpackages such
   as `geometry/`, `sources/`, and `presentation/`, but the current size does
   not require that yet.
+
+## Tests
+
+- A plugin-local pytest scaffold lives in `plugins/virtRTG/tests/`.
+- The current focus is the pure numeric backend under `xray/`, not Qt or GL.
+- The first implemented tests cover geometry helpers, clipping, physics, and
+  presentation models.
+- Heavier source-backend cases are listed explicitly in
+  `tests/unit/test_source_skeleton.py` for incremental follow-up work.

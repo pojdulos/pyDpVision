@@ -1,98 +1,152 @@
 # virtRTG
 
 `virtRTG` is a `pyDpVision` plugin for synthetic X-ray projection from 3D scene
-data. It is aimed at research and technical experimentation around virtual
-radiography, especially for volumetric medical data and hybrid volume/mesh
-scenes.
+data. It is intended primarily for research, prototyping, and technical
+experimentation around virtual radiography, especially for volumetric medical
+data and mixed volume/mesh scenes.
 
-## What it does
+## Status
 
-- projects `Volumetric` sources onto a virtual detector,
-- supports cone-beam and parallel-beam setups,
-- supports hybrid scenes with both volumes and meshes,
-- provides configurable detector geometry, source geometry, and presentation,
-- supports multiple presentation styles such as raw, digital, and film-like,
-- supports projected annotation overlays,
-- includes geometry presets, export helpers, and benchmark/demo utilities.
+The plugin is usable as an experimental RTG workflow inside `pyDpVision`, but it
+should not be treated as a clinical, regulatory, or production-grade radiography
+simulator.
 
-## Main capabilities
+What is already strong:
 
-### Projection backend
+- flexible detector and source geometry,
+- support for cone-beam and parallel-beam projection,
+- hybrid scene handling for volumes and meshes,
+- multiple presentation modes for the final image,
+- plugin-local numeric tests for key backend components,
+- explicit attribution notes for major algorithmic references.
 
-- detector geometry built from center/normal/up vectors,
-- configurable detector resolution and pixel size,
-- cone-beam or parallel-beam projection,
+What is still evolving:
+
+- the physics model is simplified and partly heuristic,
+- some mesh backends are still exploratory,
+- GUI and OpenGL paths are not the main target of automated testing,
+- standalone packaging outside `pyDpVision` has not been completed yet.
+
+## Features
+
+### Projection geometry
+
+- detector geometry built from center, normal, and up vectors,
+- configurable detector resolution and pixel pitch,
+- cone-beam and parallel-beam projection modes,
 - optional depth-window clipping,
-- quality profiles for faster draft runs or higher-quality output.
+- reusable quality profiles for draft and higher-quality runs,
+- JSON-based geometry presets.
 
 ### Source models
 
 - volumetric X-ray source with interpolated sampling,
-- optional exact voxel traversal via Siddon-style integration,
+- optional Siddon-style exact voxel traversal for volume integration,
 - mesh X-ray source with analytic ray-triangle intersection,
-- projected mesh intersection backend for detector-space experiments.
+- projected mesh intersection backend for detector-space experiments,
+- per-source scaling and attenuation controls.
 
 ### Physics and presentation
 
-- simplified attenuation mapping from CT-like scalar values,
+- CT-like scalar-to-attenuation mapping,
 - Beer-Lambert style intensity conversion,
 - optional heuristic energy and distance falloff terms,
 - raw, digital radiography, and film-like presentation models,
-- robust percentile-based normalization and optional windowing.
+- robust percentile normalization, contrast, gamma, inversion, and windowing.
 
 ### Workflow integration
 
 - `VirtualXRay` scene object integrated into the `pyDpVision` object tree,
-- property panel for interactive setup and simulation,
-- geometry presets in JSON,
+- Qt property panel for interactive setup and simulation,
+- projected annotation overlays,
 - PNG, TIFF, and DICOM export helpers,
-- synthetic demos and performance benchmarks.
+- synthetic demos and benchmark helpers.
 
-## Typical use
+## How it is used
 
-Inside `pyDpVision`, the plugin is used through the `VirtualXRay` object and its
-property panel:
+Within `pyDpVision`, a typical workflow looks like this:
 
-1. load or create one or more `Volumetric` or `Mesh` objects,
-2. create a `VirtualXRay` object,
-3. choose a geometry preset or configure detector/source parameters manually,
-4. tune sampling, physics, and presentation settings,
-5. run the simulation and inspect or export the result.
+1. Load or create one or more `Volumetric` or `Mesh` objects.
+2. Create a `VirtualXRay` object from the plugin menu.
+3. Choose a preset or define detector/source geometry manually.
+4. Tune sampling, source handling, physics, and presentation parameters.
+5. Run the projection.
+6. Inspect the result in the workspace or export it to file.
 
-## Project status
+In practice, the central user-facing object is `VirtualXRay`, while the heavy
+computation lives in the backend modules under `xray/`.
 
-This plugin is currently best treated as a research and development tool rather
-than a clinical or production radiography simulator.
+## Quick start inside pyDpVision
 
-Current strengths:
+The plugin is loaded by the host application during startup.
 
-- flexible experimentation with geometry and appearance,
-- readable Python implementation of the main projection pipeline,
-- plugin-local test scaffold for the pure numeric backend,
-- explicit attribution notes for major algorithmic references.
+Run the application from the project root:
 
-Current limitations:
+```powershell
+python main.py
+```
 
-- the physical model is simplified and partly heuristic,
-- GUI integration is tied to the `pyDpVision` host application,
-- OpenGL and Qt behavior are not covered by the current automated tests,
-- some advanced backends are still experimental and should be validated case by case.
+Then, inside the application:
+
+1. Open or import scene data.
+2. Go to the plugin menu and create a new RTG object.
+3. Select the created `VirtualXRay` object in the workspace.
+4. Use the property panel to configure geometry and run the simulation.
+
+## Architecture overview
+
+The plugin is split into a small number of responsibility layers.
+
+### Integration layer
+
+- `pluginMain.py`
+  - plugin registration, menu integration, property-panel hookup,
+- `virtualXRay.py`
+  - scene-tree object coordinating geometry, source discovery, backend
+    configuration, caching, and visual integration with the host scene.
+
+### GUI layer
+
+- `gui/propVirtualXRay.py`
+  - interactive Qt property panel for configuring and running the RTG workflow.
+
+### Backend layer
+
+- `xray/xrayProjection.py`
+  - geometry, clipping, physics, projector logic, scene-level projection API,
+- `xray/xraySource.py`
+  - volumetric and mesh source backends,
+- `xray/xrayPresentation.py`
+  - final image presentation models,
+- `xray/xrayAnnotationOverlay.py`
+  - annotation projection and 2D overlay primitives,
+- `xray/xrayHelpers.py`
+  - shared transform and math helpers.
+
+### Support files
+
+- `presets/xray_geometry_presets.json`
+  - editable geometry presets,
+- `docs/THIRD_PARTY_ATTRIBUTION.md`
+  - algorithmic attribution notes,
+- `benchmark.py`
+  - demo data generation and performance helpers.
 
 ## Repository layout
 
 ```text
 plugins/virtRTG/
-  pluginMain.py              # plugin registration and menu integration
-  virtualXRay.py             # scene object coordinating the whole RTG workflow
-  benchmark.py               # demos and performance helpers
+  pluginMain.py
+  virtualXRay.py
+  benchmark.py
   gui/
-    propVirtualXRay.py       # Qt property panel for VirtualXRay
+    propVirtualXRay.py
   xray/
-    xrayProjection.py        # geometry, physics, projector, scene API
-    xraySource.py            # volumetric and mesh source backends
-    xrayPresentation.py      # presentation models
-    xrayAnnotationOverlay.py # projected overlay primitives
-    xrayHelpers.py           # math and transform helpers
+    xrayProjection.py
+    xraySource.py
+    xrayPresentation.py
+    xrayAnnotationOverlay.py
+    xrayHelpers.py
   presets/
     xray_geometry_presets.json
   docs/
@@ -103,38 +157,61 @@ plugins/virtRTG/
 
 ## Tests
 
-A plugin-local `pytest` scaffold lives in `tests/` and currently focuses on the
-pure numeric backend under `xray/`.
+The plugin has a local `pytest` scaffold in `tests/`, focused on the pure numeric
+backend under `xray/`.
 
-Already covered:
+Currently covered:
 
 - geometry helpers,
 - clipping helpers,
 - scalar preprocessing and physics response,
-- presentation models.
+- presentation models,
+- additional backend-oriented helper coverage as the suite grows.
 
-Planned next:
+Current test philosophy:
 
-- volumetric source fixtures and Siddon tests,
-- mesh-source fixtures and intersection parity tests,
-- lightweight end-to-end backend projection tests.
+- prioritize deterministic numeric behavior,
+- avoid coupling basic unit tests to Qt and OpenGL,
+- keep backend tests close to the plugin so they can move with it if it becomes
+  a standalone repository.
 
-See [tests/README.md](C:/praca/pyDpVision/plugins/virtRTG/tests/README.md:1) for
-details.
+See [tests/README.md](C:/praca/pyDpVision/plugins/virtRTG/tests/README.md:1)
+for details on the current scaffold and next planned cases.
+
+## Limitations
+
+This plugin is intentionally pragmatic, not physically complete.
+
+- The attenuation model is simplified and should be treated as approximate.
+- Material-response modes are useful for experimentation, not validated imaging physics.
+- Presentation models are image-generation layers, not calibrated detector models.
+- Some advanced mesh workflows remain sensitive to source topology and scene setup.
+- Host-side integration still assumes the `pyDpVision` application lifecycle.
 
 ## Documentation
 
-- algorithm and attribution notes:
+- attribution and algorithm notes:
   [docs/THIRD_PARTY_ATTRIBUTION.md](C:/praca/pyDpVision/plugins/virtRTG/docs/THIRD_PARTY_ATTRIBUTION.md:1)
-- plugin-local test notes:
+- test scaffold notes:
   [tests/README.md](C:/praca/pyDpVision/plugins/virtRTG/tests/README.md:1)
 
-## If this becomes a standalone repository
+## Roadmap
 
-This README is already written in that direction. The next practical steps would
-be:
+Reasonable next steps for the plugin itself:
 
-- define installation and dependency instructions independent of `pyDpVision`,
-- separate host-specific integration from backend-only code more explicitly,
-- add CI for the `tests/` suite,
-- provide one minimal reproducible example script outside the GUI path.
+- strengthen source-backend tests with synthetic `Volumetric` and `Mesh` fixtures,
+- add more lightweight end-to-end backend projection tests,
+- reduce host-specific assumptions around plugin loading and global state,
+- document a backend-only usage path outside the GUI,
+- separate experimental backends more clearly from the default workflow,
+- improve standalone readiness if the plugin is moved into its own repository.
+
+## Standalone repository direction
+
+If `virtRTG` is split into a separate repository later, this README is already
+close to the right public-facing shape. The main missing pieces would be:
+
+- explicit installation instructions independent of `pyDpVision`,
+- dependency pinning and CI setup,
+- a minimal script-level example outside the main GUI workflow,
+- a clearer boundary between host integration code and reusable backend code.

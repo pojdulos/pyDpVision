@@ -1,12 +1,12 @@
 {
-	"better-comments.multilineComments": true,
-	"editor.insertSpaces": false,
-	"editor.fontSize": 18,
-	"terminal.integrated.env.linux": {
-		"GTK_PATH": ""
-	},
-	"better-comments.highlightPlainText": true,
-	"python.analysis.typeCheckingMode": "off",
+    "better-comments.multilineComments": true,
+    "editor.insertSpaces": false,
+    "editor.fontSize": 18,
+    "terminal.integrated.env.linux": {
+        "GTK_PATH": ""
+    },
+    "better-comments.highlightPlainText": true,
+    "python.analysis.typeCheckingMode": "off",
     "openInExternalApp.openMapper": [
         {
             "extensionName": "ui",
@@ -19,7 +19,6 @@
         }
     ],
     "cursorpyright.analysis.typeCheckingMode": "off",
-    
     "latex-workshop.latex.outDir": "%DIR%/.output_local",
     "latex-workshop.latex.autoBuild.run": "onSave",
     "ltex.enabled": true,
@@ -31,4 +30,7 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
+    "git.autoRepositoryDetection": true,
+    "git.repositoryScanMaxDepth": 3,
+    "scm.alwaysShowRepositories": true
 }

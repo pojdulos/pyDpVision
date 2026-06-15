@@ -3,6 +3,7 @@ data/
 build/
 dist/
 plugins/*/quantum
+plugins/*/virtRTG
 .venv/
 .aider*
 generated/

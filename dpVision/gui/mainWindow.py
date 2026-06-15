@@ -85,15 +85,15 @@ class MainWindow(QMainWindow):
 	# 	uic.loadUi(ui_path, self)
 
 	def closeEvent(self, event):
-		# reply = QMessageBox.question(self, 'Wiadomość',
-		#							  "Czy na pewno chcesz zamknąć?",
-		#							  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+		reply = QMessageBox.question(self, 'Exit confirmation...',
+									  "Are you sure you want to quit?",
+									  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
-		# if reply == QMessageBox.Yes:
-		#	 event.accept()  # Użytkownik potwierdza zamknięcie
-		# else:
-		#	 event.ignore()  # Użytkownik anuluje zamknięcie
-		pass
+		if reply == QMessageBox.Yes:
+			event.accept()  # Użytkownik potwierdza zamknięcie
+		else:
+			event.ignore()  # Użytkownik anuluje zamknięcie
+		# pass
 
 	def buttonClicked(self):
 		QMessageBox.information(self, 'Komunikat', 'Kliknięto przycisk!')

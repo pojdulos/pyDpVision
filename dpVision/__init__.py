@@ -30,33 +30,34 @@ from .prosta import Prosta, Prosta3D, intersection_point, intersection_point2
 from .shaders import load_and_compile_shader, compile_shader
 from .sphere import Sphere
 from .transform import Transform
-from .virtualXRay import VirtualXRay
+# VirtualXRay and the RTG backend now live in plugins/virtRTG.
 from .volumetric import Volumetric, SliceMetadata
 from .workspace import Workspace
-from .xrayProjection import (
-	XRayProjectionGeometry,
-	XRayPhysicsModel,
-	XRayProjectionQualityProfile,
-	XRayProjectionConfig,
-	XRayProjectionStats,
-	ProjectedTrianglePixelStack,
-	XRayScalarPreprocessor,
-	XRayPresentationModel,
-	RawPresentationModel,
-	FilmLikePresentationModel,
-	DigitalRadiographyPresentationModel,
-	ensure_xray_source_config,
-	XRaySampleSource,
-	MeshXRaySource,
-	VolumetricXRaySource,
-	XRayProjector,
-	XRayScene,
-	normalize_projection_to_uint8,
-	normalize_projection_to_uint16,
-	save_projection_png,
-	save_projection_tiff,
-	save_projection_dicom,
-)
+# Legacy direct RTG exports stay disabled here because plugin loading owns that integration.
+# from .xrayProjection import (
+# 	XRayProjectionGeometry,
+# 	XRayPhysicsModel,
+# 	XRayProjectionQualityProfile,
+# 	XRayProjectionConfig,
+# 	XRayProjectionStats,
+# 	ProjectedTrianglePixelStack,
+# 	XRayScalarPreprocessor,
+# 	XRayPresentationModel,
+# 	RawPresentationModel,
+# 	FilmLikePresentationModel,
+# 	DigitalRadiographyPresentationModel,
+# 	ensure_xray_source_config,
+# 	XRaySampleSource,
+# 	MeshXRaySource,
+# 	VolumetricXRaySource,
+# 	XRayProjector,
+# 	XRayScene,
+# 	normalize_projection_to_uint8,
+# 	normalize_projection_to_uint16,
+# 	save_projection_png,
+# 	save_projection_tiff,
+# 	save_projection_dicom,
+# )
 
 
 __all__ = [
@@ -79,13 +80,13 @@ __all__ = [
 			"load_and_compile_shader", "load_shader", "compile_shader",
 			"Sphere",
 			"Transform",
-			"VirtualXRay",
+			# "VirtualXRay" is provided by plugins/virtRTG/pluginMain.py at runtime.
 			"Volumetric", "SliceMetadata",
 			"Workspace",
-			"XRayProjectionGeometry", "XRayPhysicsModel", "XRayProjectionQualityProfile", "XRayProjectionConfig", "XRayProjectionStats", "ProjectedTrianglePixelStack",
-			"XRayScalarPreprocessor", "ensure_xray_source_config",
-			"XRayPresentationModel", "RawPresentationModel", "FilmLikePresentationModel", "DigitalRadiographyPresentationModel",
-			"XRaySampleSource", "MeshXRaySource", "VolumetricXRaySource", "XRayProjector", "XRayScene",
-			"normalize_projection_to_uint8", "normalize_projection_to_uint16",
-			"save_projection_png", "save_projection_tiff", "save_projection_dicom",
+			# "XRayProjectionGeometry", "XRayPhysicsModel", "XRayProjectionQualityProfile", "XRayProjectionConfig", "XRayProjectionStats", "ProjectedTrianglePixelStack",
+			# "XRayScalarPreprocessor", "ensure_xray_source_config",
+			# "XRayPresentationModel", "RawPresentationModel", "FilmLikePresentationModel", "DigitalRadiographyPresentationModel",
+			# "XRaySampleSource", "MeshXRaySource", "VolumetricXRaySource", "XRayProjector", "XRayScene",
+			# "normalize_projection_to_uint8", "normalize_projection_to_uint16",
+			# "save_projection_png", "save_projection_tiff", "save_projection_dicom",
 		]

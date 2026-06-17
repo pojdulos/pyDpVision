@@ -1,0 +1,12 @@
+__pycache__/
+data/
+build/
+dist/
+plugins/*/quantum
+plugins/*/virtRTG
+.venv/
+.aider*
+generated/
+.output_local/
+nasze/
+latex_virtRTG/
